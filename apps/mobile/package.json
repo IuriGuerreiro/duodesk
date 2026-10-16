@@ -34,6 +34,8 @@
     "@duodesk/eslint-config": "workspace:*",
     "@duodesk/typescript-config": "workspace:*",
     "@types/react": "~19.3.0",
+    "eslint": "^9.39.5",
+    "eslint-config-expo": "~58.0.4",
     "expo-doctor": "^1.21.5",
     "typescript": "~6.0.3"
   },
@@ -44,7 +46,9 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "check-types": "tsc --noEmit",
-    "lint": "expo lint"
+    "lint": "eslint . --max-warnings 0",
+    "dev": "expo start --dev-client",
+    "build": "expo export --platform all"
   },
   "private": true
 }

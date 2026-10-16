@@ -1,6 +1,6 @@
 # DuoDesk architecture proposal
 
-Status: initial proposal, 2026-10-16. No application code exists yet.
+Status: initial proposal, 2026-10-16. App starter shells now exist; product capabilities below remain proposed.
 
 ## Product scope
 

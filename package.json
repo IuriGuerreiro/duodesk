@@ -7,7 +7,7 @@
     "dev": "turbo run dev",
     "dev:desktop": "pnpm --filter @duodesk/desktop dev",
     "dev:desktop:tauri": "pnpm --filter @duodesk/desktop tauri:dev",
-    "dev:mobile": "pnpm --filter @duodesk/mobile start",
+    "dev:mobile": "pnpm --filter @duodesk/mobile dev",
     "lint": "turbo run lint",
     "check-types": "turbo run check-types",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\""
@@ -15,7 +15,7 @@
   "devDependencies": {
     "prettier": "3.9.6",
     "turbo": "^2.11.8",
-    "typescript": "7.0.2"
+    "typescript": "~6.0.3"
   },
   "packageManager": "pnpm@11.18.0",
   "engines": {

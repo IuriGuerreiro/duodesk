@@ -17,5 +17,9 @@
       "cache": false,
       "persistent": true
     }
-  }
+  },
+  "globalDependencies": [
+    "packages/eslint-config/**",
+    "packages/typescript-config/**"
+  ]
 }

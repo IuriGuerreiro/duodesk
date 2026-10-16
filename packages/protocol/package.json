@@ -14,12 +14,12 @@
   },
   "scripts": {
     "check-types": "tsc --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint . --max-warnings 0"
   },
   "devDependencies": {
     "@duodesk/eslint-config": "workspace:*",
     "@duodesk/typescript-config": "workspace:*",
     "eslint": "10.9.1",
-    "typescript": "7.0.2"
+    "typescript": "~6.0.3"
   }
 }
