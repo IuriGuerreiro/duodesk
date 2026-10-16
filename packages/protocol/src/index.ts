@@ -1,0 +1,11 @@
+/**
+ * Minimal shared protocol package to verify monorepo package resolution.
+ * Protocol message schemas, capability definitions, and serialization
+ * will be defined in future milestone work.
+ */
+export const PROTOCOL_VERSION = "0.1.0";
+
+export interface ProtocolHandshake {
+  version: string;
+  clientType: "desktop" | "mobile";
+}

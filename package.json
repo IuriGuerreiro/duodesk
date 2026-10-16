@@ -1,0 +1,24 @@
+{
+  "name": "duodesk",
+  "private": true,
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "dev:desktop": "pnpm --filter @duodesk/desktop dev",
+    "dev:desktop:tauri": "pnpm --filter @duodesk/desktop tauri:dev",
+    "dev:mobile": "pnpm --filter @duodesk/mobile start",
+    "lint": "turbo run lint",
+    "check-types": "turbo run check-types",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\""
+  },
+  "devDependencies": {
+    "prettier": "3.9.6",
+    "turbo": "^2.11.8",
+    "typescript": "7.0.2"
+  },
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": ">=24"
+  }
+}
