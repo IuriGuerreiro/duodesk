@@ -1,4 +1,9 @@
 {
-  "platforms": ["apple"],
-  "apple": { "modules": ["TestVideoModule"] }
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["TestVideoModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.testvideo.TestVideoModule"]
+  }
 }

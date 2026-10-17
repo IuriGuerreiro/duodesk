@@ -149,7 +149,7 @@ export default function App() {
     <main className="container">
       <header>
         <p>DuoDesk / streaming lab</p>
-        <h1>iPad to Windows</h1>
+        <h1>Mobile to Windows</h1>
         <p>Stream a silent test clip over your local network.</p>
       </header>
       {!isTauri() && (
@@ -192,7 +192,7 @@ export default function App() {
             />
           </div>
           <div>
-            <h2>Connect your iPad</h2>
+            <h2>Connect your mobile device</h2>
             <p>
               Open the Stream test tab in DuoDesk and scan this code. Invitation
               expires in {remaining}s.
@@ -212,7 +212,9 @@ export default function App() {
           </div>
         </section>
       )}
-      {state === "ready" && <p>iPad connected. Press Start on the iPad.</p>}
+      {state === "ready" && (
+        <p>Mobile device connected. Press Start on the mobile device.</p>
+      )}
       {error && <p role="alert">{error}</p>}
       <video
         ref={video}
@@ -220,7 +222,7 @@ export default function App() {
         muted
         playsInline
         controls
-        aria-label="Incoming iPad video"
+        aria-label="Incoming mobile video"
       />
       <button
         onClick={() =>

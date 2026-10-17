@@ -12,7 +12,7 @@ export const available = native !== null;
 function module(): TestVideoNative {
   if (!native)
     throw new Error(
-      "Install a new iOS development build to enable test streaming.",
+      "Install a new Android or iOS development build to enable test streaming.",
     );
   return native;
 }

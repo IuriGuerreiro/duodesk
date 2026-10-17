@@ -30,11 +30,15 @@ The greeting command on the desktop starter requires the Tauri host. Native desk
 
 Use `pnpm --filter @duodesk/mobile exec expo install <package>` to add mobile dependencies. Keep Expo's SDK-matched React and React Native versions. The shared TypeScript base supplies strict checks; Expo's base and the desktop's Vite settings retain their platform-specific resolution and JSX behavior. Expo uses its own ESLint config plus the shared framework-independent rules. Desktop and protocol use the shared TypeScript ESLint config. TypeScript 6.0.3 stays within the parser's supported range.
 
+## Android development
+
+The same streaming screen supports Android and iOS. For Android, connect a phone with USB debugging enabled and run `pnpm --filter @duodesk/mobile android` with JDK 21 and the Android SDK installed. For an installable EAS APK, run `pnpm dlx eas-cli@25.1.1 build --platform android --profile development` from `apps/mobile`. Start `pnpm dev:mobile` to serve the development client. See [test-video setup](docs/test-video-validation.md) for pairing and validation.
+
 ## Physical iPad development
 
-These are manual setup steps, not actions performed by the scaffold. An Expo account and a paid Apple Developer membership are needed for EAS-signed physical iPad builds. Choose a bundle identifier you control in `apps/mobile/app.json` before configuring signing. No EAS project ID or credentials are committed.
+These are manual setup steps, not actions performed by the scaffold. An Expo account and a paid Apple Developer membership are needed for EAS-signed physical iPad builds. Choose a bundle identifier you control in `apps/mobile/app.json` before configuring signing. The mobile config links to the existing `@rshazow/duodesk` EAS project. Signing credentials are managed separately.
 
-From `apps/mobile`, when ready to create/link your EAS project and submit a cloud build:
+From `apps/mobile`, when ready to submit an iOS cloud build:
 
 ```sh
 npx eas-cli@latest login
@@ -77,6 +81,6 @@ See the [local validation record](docs/scaffold-validation.md) for commands, res
 
 CI runs frozen installation, lint, typechecking, desktop Vite build, and Expo production exports. It checks that iOS/Android bundles and the web entry exist. JS exports validate bundling and workspace resolution, not native compilation, signing, installation, capture, or device behavior.
 
-Windows native builds and physical iPad behavior remain unverified. A prior Linux offline Cargo check could not complete dependency resolution. No Apple membership, EAS project, or cloud build was created during scaffolding.
+Android sender compilation, JavaScript checks, production exports, and local signaling checks pass. Windows playback and physical Android/iPad streaming still need device validation. No cloud build has been submitted for this change.
 
 DuoDesk original code uses [PolyForm Noncommercial](LICENSE.md). See [NOTICE](NOTICE) for third-party licensing; the Expo starter retains its own license notice.
