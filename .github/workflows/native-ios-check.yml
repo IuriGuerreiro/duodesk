@@ -1,0 +1,33 @@
+name: Native iOS compile check
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      CI: "1"
+      EXPO_NO_TELEMETRY: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - name: Generate native project
+        working-directory: apps/mobile
+        run: pnpm exec expo prebuild --platform ios --no-install
+      - name: Resolve native dependencies
+        working-directory: apps/mobile/ios
+        run: pod install
+      - name: Compile simulator app without signing
+        working-directory: apps/mobile
+        run: >-
+          xcodebuild -workspace ios/DuoDesk.xcworkspace -scheme DuoDesk
+          -configuration Debug -sdk iphonesimulator
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath /tmp/duodesk-ios
+          CODE_SIGNING_ALLOWED=NO build

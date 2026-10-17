@@ -1,6 +1,7 @@
 {
   "extends": ["@duodesk/typescript-config/base.json", "expo/tsconfig.base"],
   "compilerOptions": {
+    "allowImportingTsExtensions": true,
     "strict": true,
     "paths": {
       "@/*": ["./src/*"],

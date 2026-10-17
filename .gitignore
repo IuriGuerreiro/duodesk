@@ -12,6 +12,7 @@ build
 
 # Tauri
 apps/desktop/src-tauri/target
+apps/desktop/src-tauri/signaling/target
 
 # Expo & React Native
 apps/mobile/.expo/

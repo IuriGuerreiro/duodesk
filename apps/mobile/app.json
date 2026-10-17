@@ -10,7 +10,13 @@
     "ios": {
       "icon": "./assets/expo.icon",
       "supportsTablet": true,
-      "bundleIdentifier": "com.duodesk.mobile"
+      "bundleIdentifier": "com.duodesk.mobile",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "DuoDesk connects to your Windows receiver to stream test video on your local network.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -34,6 +40,13 @@
           "backgroundColor": "#208AEF",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow DuoDesk to scan the pairing code on your Windows receiver.",
+          "recordAudioAndroid": false
         }
       ]
     ],

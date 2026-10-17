@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><title>DuoDesk WebRTC loopback check</title>
+  <style>
+    body {
+      font: 16px system-ui;
+      padding: 24px;
+    }
+    video {
+      width: min(100%, 640px);
+      background: black;
+    }
+    pre {
+      white-space: pre-wrap;
+    }
+  </style>
+  <h1>WebRTC receiver loopback</h1>
+  <p>
+    This checks browser video delivery, not iPad capture or Windows WebView2.
+  </p>
+  <button id="run">Run H.264 check</button>
+  <p role="status" id="status">Ready</p>
+  <video autoplay muted playsinline></video>
+  <pre id="result"></pre>
+  <script type="module">
+    import { VideoReceiver } from "/src/streaming/receiver.ts";
+    window.runLoopback = async () => {
+      const sessionId = "a".repeat(32),
+        errors = [],
+        pending = [];
+      const video = document.querySelector("video");
+      const canvas = document.createElement("canvas");
+      canvas.width = 640;
+      canvas.height = 360;
+      const context = canvas.getContext("2d");
+      let frame = 0;
+      const drawing = setInterval(() => {
+        context.fillStyle = `hsl(${frame % 360} 70% 35%)`;
+        context.fillRect(0, 0, 640, 360);
+        context.fillStyle = "white";
+        context.font = "40px sans-serif";
+        context.fillText(`Frame ${frame++}`, 40, 180);
+      }, 33);
+      const stream = canvas.captureStream(30);
+      const sender = new RTCPeerConnection({ iceServers: [] });
+      const receiver = new VideoReceiver(
+        sessionId,
+        async (message) => {
+          if (message.type === "answer") {
+            await sender.setRemoteDescription({
+              type: "answer",
+              sdp: message.sdp,
+            });
+            for (const candidate of pending.splice(0))
+              await sender.addIceCandidate(candidate);
+          } else if (message.type === "candidate") {
+            const candidate = {
+              candidate: message.candidate,
+              sdpMid: message.sdpMid,
+              sdpMLineIndex: message.sdpMLineIndex,
+            };
+            if (sender.remoteDescription)
+              await sender.addIceCandidate(candidate);
+            else pending.push(candidate);
+          }
+        },
+        (media) => {
+          video.srcObject = media;
+          void video.play();
+        },
+        (error) => errors.push(error),
+        () => {},
+      );
+      sender.onicecandidate = (event) => {
+        if (event.candidate)
+          void receiver.receive({
+            v: 1,
+            sessionId,
+            type: "candidate",
+            candidate: event.candidate.candidate,
+            sdpMid: event.candidate.sdpMid,
+            sdpMLineIndex: event.candidate.sdpMLineIndex ?? 0,
+          });
+      };
+      let result;
+      try {
+        const transceiver = sender.addTransceiver(stream.getVideoTracks()[0], {
+          direction: "sendonly",
+        });
+        const h264 = RTCRtpSender.getCapabilities("video").codecs.filter(
+          (codec) => codec.mimeType.toLowerCase() === "video/h264",
+        );
+        if (!h264.length) throw new Error("This browser has no H.264 encoder.");
+        transceiver.setCodecPreferences(h264);
+        const offer = await sender.createOffer();
+        await sender.setLocalDescription(offer);
+        await receiver.receive({
+          v: 1,
+          sessionId,
+          type: "offer",
+          sdp: offer.sdp,
+        });
+        const deadline = Date.now() + 15000;
+        while (Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          if (errors.length) throw new Error(errors.join("; "));
+          if (
+            video.videoWidth &&
+            video.getVideoPlaybackQuality().totalVideoFrames >= 10
+          )
+            break;
+        }
+        if (video.getVideoPlaybackQuality().totalVideoFrames < 10)
+          throw new Error("No decoded frames before timeout.");
+        result = {
+          passed: true,
+          decodedFrames: video.getVideoPlaybackQuality().totalVideoFrames,
+          stats: await receiver.stats(),
+        };
+        document.querySelector("#status").textContent = "Passed";
+        return result;
+      } catch (error) {
+        result = { passed: false, error: String(error) };
+        document.querySelector("#status").textContent = "Failed";
+        return result;
+      } finally {
+        receiver.stop();
+        sender.close();
+        clearInterval(drawing);
+        stream.getTracks().forEach((track) => track.stop());
+        video.srcObject = null;
+        document.querySelector("#result").textContent = JSON.stringify(
+          result,
+          null,
+          2,
+        );
+      }
+    };
+    document.querySelector("#run").onclick = () => window.runLoopback();
+  </script>
+</html>

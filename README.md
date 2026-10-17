@@ -1,6 +1,6 @@
 # DuoDesk
 
-Official Tauri React/TypeScript/Vite and Expo TypeScript/Router starter shells in a pnpm + Turbo workspace. Both apps import `@duodesk/protocol`. No streaming is implemented. The first future milestone is a physical iPad sending its screen to Windows. See [architecture](docs/architecture.md) and the [approved scaffold plan](docs/scaffold-plan.md).
+Official Tauri React/TypeScript/Vite and Expo TypeScript/Router starter shells in a pnpm + Turbo workspace. Both apps import `@duodesk/protocol`. The first test-video sender and Windows receiver are implemented, with native-device validation pending. See [test-video setup and validation](docs/test-video-validation.md). iPad screen broadcasting follows after this experiment. See [architecture](docs/architecture.md) and the [approved scaffold plan](docs/scaffold-plan.md).
 
 ## Tooling and commands
 
