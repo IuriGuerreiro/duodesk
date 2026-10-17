@@ -3,7 +3,6 @@ import { QRCodeSVG } from "qrcode.react";
 import {
   ArrowUpRight,
   CircleHelp,
-  Copy,
   Expand,
   LoaderCircle,
   Minimize,
@@ -16,12 +15,11 @@ import {
   Wifi,
 } from "lucide-react";
 import type { Invitation, StreamState } from "@duodesk/protocol";
+import { createPairingQrPayload } from "@duodesk/protocol/pairing";
 import type { VideoStats } from "../streaming/receiver";
 import { Button } from "./ui/button";
-import { Badge } from "./ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { Separator } from "./ui/separator";
-import { Textarea } from "./ui/textarea";
 
 export type NetworkAddress = {
   name: string;
@@ -68,7 +66,6 @@ export function ReceiverWorkspace({
   stats,
   videoRef,
 }: ReceiverWorkspaceProps) {
-  const [copyStatus, setCopyStatus] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
   const hasSelectableAddress = interfaces.some((address) => address.selectable);
 
@@ -97,15 +94,6 @@ export function ReceiverWorkspace({
             : state === "stopped"
               ? "Session ended"
               : "Ready to connect";
-
-  async function copy(value: string) {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopyStatus("Copied to clipboard");
-    } catch {
-      setCopyStatus("Copy unavailable. Select and copy the text below.");
-    }
-  }
 
   return (
     <div className="workspace">
@@ -297,48 +285,27 @@ export function ReceiverWorkspace({
             <Separator className="connection-separator" />
             {waiting ? (
               <div className="pairing-content">
-                <details
-                  className="qr-details"
-                  open={pairing ? undefined : true}
-                >
-                  <summary>Scan QR code instead</summary>
-                  <div className="qr-frame">
-                    <QRCodeSVG
-                      value={JSON.stringify(invitation)}
-                      size={168}
-                      level="M"
-                      title="Scan to connect to DuoDesk"
-                    />
-                  </div>
-                  <h3>Scan to connect</h3>
-                  <p>
-                    Open the Stream test tab in DuoDesk on your phone and scan
-                    this code.
-                  </p>
-                </details>
-                {!pairing && (
-                  <Badge variant="secondary">
-                    Expires in {Math.floor(remaining / 60)}:
-                    {String(remaining % 60).padStart(2, "0")}
-                  </Badge>
+                {pairing?.code && remaining > 0 && (
+                  <details className="qr-details">
+                    <summary>Scan to fill the phone fields</summary>
+                    <div className="qr-frame">
+                      <QRCodeSVG
+                        value={createPairingQrPayload(
+                          pairing.address,
+                          pairing.code,
+                        )}
+                        size={168}
+                        level="M"
+                        title="DuoDesk address and six-digit pairing code"
+                      />
+                    </div>
+                    <h3>Scan to fill address and code</h3>
+                    <p>
+                      Open Stream test on your phone and scan this QR. Then tap
+                      Verify code and connect.
+                    </p>
+                  </details>
                 )}
-                <details className="manual-details">
-                  <summary>Manual invitation</summary>
-                  <Textarea
-                    aria-label="Manual invitation"
-                    readOnly
-                    value={JSON.stringify(invitation)}
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void copy(JSON.stringify(invitation))}
-                  >
-                    <Copy />
-                    Copy invitation
-                  </Button>
-                  <p role="status">{copyStatus}</p>
-                </details>
               </div>
             ) : (
               <div className="setup-guide">
@@ -359,8 +326,8 @@ export function ReceiverWorkspace({
                     <li>
                       <span>3</span>
                       {pairing
-                        ? "Enter the address and code, or scan the QR code."
-                        : "Scan the QR code to start pairing."}
+                        ? "Enter the address and code, or scan to fill both fields."
+                        : "Create a connection, then enter its address and six-digit code."}
                     </li>
                   </ol>
                 )}
@@ -374,7 +341,7 @@ export function ReceiverWorkspace({
               <p>
                 Keep both devices on the same network. Allow DuoDesk through
                 your firewall on private networks. Guest Wi-Fi, VPNs, or blocked
-                UDP can prevent video. Create a new connection if the invitation
+                UDP can prevent video. Create a new connection if the code
                 expires.
               </p>
             </details>

@@ -9,13 +9,13 @@ The first implementation sends a bundled silent MP4 from the foreground Android 
 - `apps/desktop/src/streaming/receiver.ts` owns browser WebRTC negotiation, video delivery, diagnostics, and teardown.
 - `apps/mobile/modules/test-video/ios` owns iOS signaling, certificate pinning, WebRTC, and AVFoundation decoding.
 - `apps/mobile/modules/test-video/android` owns Android signaling, certificate pinning, WebRTC, and MediaCodec decoding.
-- `apps/mobile/src/app/stream-test.tsx` provides QR/manual pairing, bitrate selection, and start/stop controls.
+- `apps/mobile/src/app/stream-test.tsx` scans the pairing QR to fill the address and code, with manual address/code entry, bitrate selection, and start/stop controls.
 
 The iOS module uses Expo Modules directly and pins JitsiWebRTC 155.0.0. This replaces the proposed React Native WebRTC wrapper evaluation: a custom source can feed the same native peer connection without private wrapper integration or a second WebRTC framework. The app needs a new native development build. Expo Go cannot run this feature.
 
 Video buffers remain native. The clip loops with monotonic capture timestamps, paced from presentation times, and a bounded decode loop. H.264 is required for this experiment, with RTX recovery where supported. Target output is 1080p/30 fps with a selectable 2–30 Mbps ceiling; actual encoding and quality depend on the device and network. Audio is not captured.
 
-Invitations contain a certificate fingerprint and 256-bit secret. They expire after two minutes and are consumed on successful pairing. Reconnection requires a fresh invitation. Each native sender socket accepts only the exact pinned TLS certificate for the invited host. There is no global certificate bypass or public STUN/TURN dependency. Do not share invitation screenshots or paste their secrets into logs.
+The desktop displays a six-digit code with a two-minute lifetime. Its QR contains only the local address and code, not the internal invitation or certificate fingerprint. SRP authenticates pairing; the recovered invitation still pins the exact TLS certificate. Reconnection requires a fresh code. There is no global certificate bypass or public STUN/TURN dependency. Do not share screenshots of an active code or pairing QR.
 
 ## Run on Windows
 
@@ -26,7 +26,7 @@ pnpm install --frozen-lockfile
 pnpm dev:desktop:tauri
 ```
 
-Select the Windows Wi-Fi/Ethernet IPv4 address reachable by your mobile device, then choose Create invitation. Allow the desktop executable through Windows Firewall on your private network. The listener uses an ephemeral TCP port, and WebRTC uses dynamically selected media ports, so an application firewall rule is preferable to opening one fixed port. Vite-only browser mode cannot start the native listener.
+Select the Windows Wi-Fi/Ethernet IPv4 address reachable by your mobile device, then choose Create connection. Allow the desktop executable through Windows Firewall on your private network. The listener uses an ephemeral TCP port, and WebRTC uses dynamically selected media ports, so an application firewall rule is preferable to opening one fixed port. Vite-only browser mode cannot start the native listener.
 
 ## Install on iPad
 
@@ -53,9 +53,9 @@ pnpm dlx eas-cli@25.1.1 build --platform android --profile development
 
 Install the APK from the resulting link. Start `pnpm dev:mobile` and open the development client. The `preview` profile also produces an APK with a bundled app for testing without Metro.
 
-On the same reachable LAN, open Stream test, scan the Windows invitation or paste its full JSON, then press Connect and Start video. Allow camera access for scanning and local network access for the connection. The camera is used only for QR scanning. Manual entry works without camera permission.
+On the same reachable LAN, open Stream test, scan the Windows pairing QR to fill the desktop address and six-digit code, then press **Verify code and connect** and **Start video**. You can enter the address and code manually without camera permission. Allow local network access for the connection.
 
-Keep DuoDesk in the foreground. The test screen prevents auto-lock during an active session. Backgrounding the app, leaving the test tab, stopping either side, or losing the connection ends the session. For another attempt, create a new Windows invitation. Guest Wi-Fi isolation, a VPN, or selecting a virtual adapter can prevent direct connections.
+Keep DuoDesk in the foreground. The test screen prevents auto-lock during an active session. Backgrounding the app, leaving the test tab, stopping either side, or losing the connection ends the session. For another attempt, create a new Windows pairing code. Guest Wi-Fi isolation, a VPN, or selecting a virtual adapter can prevent direct connections.
 
 ## Local checks completed
 
@@ -74,7 +74,7 @@ Native Swift compilation, EAS installation, Windows WebView2 playback, and physi
 
 After pushing the branch, the manual Native iOS compile check workflow can compile a simulator app on GitHub's macOS runner without signing. Windows native compilation and Rust signaling tests are also configured in CI. The manual Native Android compile check workflow builds an ARM64 development APK on Linux and uploads it as a workflow artifact. These workflows have not been run remotely for this change.
 
-On actual Windows and Android or iPad hardware, record model/OS/GPU, first-frame time, negotiated codec/resolution/fps/bitrate, dropped frames, and memory/thermal behavior over 15 minutes. Repeat start/stop/reconnect, reject expired/invalid invitations, and repeat with internet access disconnected but LAN Wi-Fi retained. Measure video latency separately; network round-trip time is not capture-to-display latency.
+On actual Windows and Android or iPad hardware, record model/OS/GPU, first-frame time, negotiated codec/resolution/fps/bitrate, dropped frames, and memory/thermal behavior over 15 minutes. Repeat start/stop/reconnect, reject expired/invalid pairing codes, and repeat with internet access disconnected but LAN Wi-Fi retained. Measure video latency separately; network round-trip time is not capture-to-display latency.
 
 ## Repeatable developer checks
 

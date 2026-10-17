@@ -291,20 +291,6 @@ select {
   line-height: 1.6;
   margin: 8px 0 0;
 }
-.manual-details {
-  margin-top: 15px;
-}
-.manual-details textarea {
-  margin: 12px 0;
-  font:
-    10px/1.6 ui-monospace,
-    monospace;
-  word-break: break-all;
-  height: 90px;
-}
-.manual-details p {
-  font-size: 11px;
-}
 .code-pairing {
   padding-bottom: 20px;
 }

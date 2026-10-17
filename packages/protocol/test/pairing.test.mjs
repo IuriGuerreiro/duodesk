@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   createPairingServer,
   createPairingClient,
+  createPairingQrPayload,
+  parsePairingQrPayload,
   parseDesktopAddress,
   verificationCode,
 } from "../src/pairing.ts";
@@ -95,7 +97,7 @@ test("proof cannot move to another connection or receiver address", async () => 
   );
   assert.ok(client);
 });
-test("only literal private IPv4 endpoints and six ASCII digits are accepted", () => {
+test("only literal private IPv4 endpoints and six ASCII digits are accepted", async () => {
   for (const address of [
     "127.0.0.1:1",
     "8.8.8.8:80",
@@ -110,5 +112,32 @@ test("only literal private IPv4 endpoints and six ASCII digits are accepted", ()
   for (const address of ["10.1.2.3:1234", "172.31.2.3:65535", "169.254.1.2:12"])
     assert.equal(parseDesktopAddress(address), address);
   assert.throws(() => createPairingClient("12345", "192.168.1.2:1234"));
+  assert.throws(() => createPairingClient("123456\n", "192.168.1.2:1234"));
+  await assert.rejects(createPairingServer("123456\n"));
   for (let i = 0; i < 100; i++) assert.match(verificationCode(), /^\d{6}$/);
+});
+test("pairing QR contains only the strict address and six-digit code payload", () => {
+  const payload = createPairingQrPayload("192.168.1.20:39871", "000123");
+  assert.equal(
+    payload,
+    "duodesk-pair://connect?v=1&address=192.168.1.20%3A39871&code=000123",
+  );
+  assert.deepEqual(parsePairingQrPayload(payload), {
+    address: "192.168.1.20:39871",
+    code: "000123",
+  });
+  for (const invalid of [
+    JSON.stringify(invitation()),
+    `${payload}&token=${"a".repeat(64)}`,
+    payload.replace("v=1", "v=2"),
+    payload.replace("192.168.1.20", "8.8.8.8"),
+    payload.replace("code=000123", "code=١٢٣٤٥٦"),
+    payload.replace("code=000123", "code=123"),
+    `${payload}\n`,
+    payload.replace("&code=000123", "&code=000123&code=000123"),
+    payload.replace("%3A", ":"),
+    payload.replace("duodesk-pair://connect", "https://connect"),
+  ])
+    assert.throws(() => parsePairingQrPayload(invalid));
+  assert.throws(() => createPairingQrPayload("192.168.1.20:39871", "123"));
 });

@@ -14,7 +14,7 @@ import { useFocusEffect } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useKeepAwake } from "expo-keep-awake";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { parseInvitation } from "@duodesk/protocol";
+import { parsePairingQrPayload } from "@duodesk/protocol/pairing";
 import { pairWithCode } from "../pairing/connect";
 import * as sender from "../../modules/test-video";
 import type { SenderStatus } from "../../modules/test-video";
@@ -41,8 +41,7 @@ export default function StreamTestScreen() {
   const running = useRef(false);
   const [address, setAddress] = useState("");
   const [code, setCode] = useState("");
-  const [diagnostics, setDiagnostics] = useState(false);
-  const [invitation, setInvitation] = useState("");
+  const [scanNotice, setScanNotice] = useState("");
   const [status, setStatus] = useState<SenderStatus>({ state: "idle" });
   const [scanning, setScanning] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
@@ -97,15 +96,19 @@ export default function StreamTestScreen() {
   }
   function accept(text: string) {
     try {
-      parseInvitation(text);
-      setInvitation(text);
+      const pairing = parsePairingQrPayload(text);
+      setAddress(pairing.address);
+      setCode(pairing.code);
       setScanning(false);
       setError("");
+      setScanNotice("Address and code filled. Tap Verify code and connect.");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Invalid invitation");
+      setScanNotice("");
+      setError(cause instanceof Error ? cause.message : "Invalid pairing QR.");
     }
   }
   async function scan() {
+    setScanNotice("");
     const active = generation.current;
     const granted = permission?.granted || (await requestPermission()).granted;
     if (generation.current !== active) return;
@@ -142,8 +145,12 @@ export default function StreamTestScreen() {
         <Text style={styles.label}>
           1. Create a pairing code in the desktop app
         </Text>
+        <Text style={styles.text}>
+          Scan the desktop QR to fill the address and six-digit code, or enter
+          them below.
+        </Text>
         <Button
-          title="Scan desktop QR code"
+          title="Scan pairing QR"
           disabled={!sender.available || !canConnect || busy}
           onPress={() => void run(scan)}
         />
@@ -167,7 +174,10 @@ export default function StreamTestScreen() {
         <TextInput
           style={styles.input}
           value={address}
-          onChangeText={setAddress}
+          onChangeText={(value) => {
+            setAddress(value);
+            setScanNotice("");
+          }}
           autoCapitalize="none"
           autoCorrect={false}
           editable={canConnect && !busy}
@@ -178,7 +188,10 @@ export default function StreamTestScreen() {
         <TextInput
           style={styles.input}
           value={code}
-          onChangeText={setCode}
+          onChangeText={(value) => {
+            setCode(value);
+            setScanNotice("");
+          }}
           keyboardType="number-pad"
           maxLength={6}
           editable={canConnect && !busy}
@@ -193,7 +206,8 @@ export default function StreamTestScreen() {
             !canConnect ||
             busy ||
             !address ||
-            !/^\d{6}$/.test(code)
+            code.length !== 6 ||
+            !/^[0-9]{6}$/.test(code)
           }
           onPress={() =>
             void run(async () => {
@@ -211,42 +225,7 @@ export default function StreamTestScreen() {
             })
           }
         />
-        {invitation && (
-          <Button
-            title="Connect scanned invitation"
-            disabled={!sender.available || !canConnect || busy}
-            onPress={() =>
-              void run(async () => {
-                const active = ++generation.current;
-                parseInvitation(invitation);
-                await localNetworkPermission();
-                if (generation.current !== active) return;
-                await sender.connect(invitation);
-                setInvitation("");
-              })
-            }
-          />
-        )}
-        <Button
-          title={
-            diagnostics ? "Hide diagnostics" : "Diagnostics / legacy invitation"
-          }
-          onPress={() => setDiagnostics(!diagnostics)}
-        />
-        {diagnostics && (
-          <TextInput
-            style={styles.input}
-            multiline
-            value={invitation}
-            onChangeText={setInvitation}
-            autoCapitalize="none"
-            autoCorrect={false}
-            editable={canConnect && !busy}
-            placeholder="Legacy invitation JSON"
-            placeholderTextColor="#697386"
-            accessibilityLabel="Desktop invitation"
-          />
-        )}
+        {!!scanNotice && <Text style={styles.text}>{scanNotice}</Text>}
         <Text style={styles.label}>2. Start the test clip</Text>
         <Text style={styles.text}>
           Maximum bitrate in Mbps, from 2 to 30. Actual bitrate adapts to the

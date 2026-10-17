@@ -8,6 +8,9 @@ const AAD = new TextEncoder().encode(USER);
 const client = () => createSRPClient("SHA-256", 2048);
 const server = () => createSRPServer("SHA-256", 2048);
 const random = (size: number) => crypto.getRandomValues(new Uint8Array(size));
+const pairingQrPrefix = "duodesk-pair://connect";
+const isPairingCode = (value: unknown): value is string =>
+  typeof value === "string" && value.length === 6 && /^[0-9]{6}$/.test(value);
 const isHex = (v: unknown, size: number): v is string =>
   typeof v === "string" && v.length === size && /^[0-9a-f]+$/.test(v);
 function fields(
@@ -60,6 +63,41 @@ export function parseDesktopAddress(address: string): string {
     throw new Error("Use the address exactly as shown on the desktop.");
   return normalized;
 }
+export function createPairingQrPayload(address: string, code: string): string {
+  const endpoint = parseDesktopAddress(address);
+  if (!isPairingCode(code)) throw new Error("Expected six digits.");
+  return `${pairingQrPrefix}?v=1&address=${encodeURIComponent(endpoint)}&code=${code}`;
+}
+export function parsePairingQrPayload(text: string): {
+  address: string;
+  code: string;
+} {
+  try {
+    if (typeof text !== "string" || text.length > 256)
+      throw new Error("Invalid QR length.");
+    const prefix = `${pairingQrPrefix}?v=1&address=`;
+    const codeMarker = "&code=";
+    const addressStart = prefix.length;
+    const codeStart = text.indexOf(codeMarker, addressStart);
+    if (
+      !text.startsWith(prefix) ||
+      codeStart < addressStart ||
+      text.indexOf(codeMarker, codeStart + codeMarker.length) !== -1
+    )
+      throw new Error("Invalid QR fields.");
+    const encodedAddress = text.slice(addressStart, codeStart);
+    const address = parseDesktopAddress(decodeURIComponent(encodedAddress));
+    const code = text.slice(codeStart + codeMarker.length);
+    if (!isPairingCode(code)) throw new Error("Invalid QR code.");
+    if (createPairingQrPayload(address, code) !== text)
+      throw new Error("Non-canonical QR.");
+    return { address, code };
+  } catch {
+    throw new Error(
+      "This is not a valid DuoDesk pairing QR. Scan the code shown on the desktop, or enter its address and six-digit code.",
+    );
+  }
+}
 export function verificationCode(): string {
   // Rejection sampling avoids modulo bias. This is independent of the invitation token.
   let n: number;
@@ -69,7 +107,7 @@ export function verificationCode(): string {
   return String(n % 1000000).padStart(6, "0");
 }
 export async function createPairingServer(code: string) {
-  if (!/^\d{6}$/.test(code)) throw new Error("Expected six digits.");
+  if (!isPairingCode(code)) throw new Error("Expected six digits.");
   const srp = client();
   const salt = srp.generateSalt();
   const verifier = srp.deriveVerifier(
@@ -140,7 +178,7 @@ export async function createPairingServer(code: string) {
 }
 export function createPairingClient(code: string, address: string) {
   const endpoint = parseDesktopAddress(address);
-  if (!/^\d{6}$/.test(code)) throw new Error("Enter exactly six digits.");
+  if (!isPairingCode(code)) throw new Error("Enter exactly six digits.");
   const srp = client();
   const ephemeral = srp.generateEphemeral();
   let session: { key: string; proof: string } | undefined;

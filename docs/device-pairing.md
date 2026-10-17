@@ -12,7 +12,7 @@ Rebuild the phone development client after installing dependencies: `pnpm --filt
 
 1. Open the Electron receiver on Linux, macOS or Windows, or the retained Tauri host. Choose the Wi-Fi or Ethernet address connected to the same router as the phone. Nothing is selected automatically.
 2. Choose **Create pairing code**. The desktop shows its address including a port, such as `192.168.1.20:39871`, and six digits. Use the actual values shown.
-3. In the mobile **Stream test** tab, enter that desktop address and code, then choose **Verify code and connect**. Alternatively, scan the desktop QR and choose **Connect scanned invitation**.
+3. In the mobile **Stream test** tab, scan the desktop pairing QR to fill the address and code, then choose **Verify code and connect**. You can also enter both values manually.
 4. Once ready, select the bitrate and start the video. Stop or leave the mobile screen to disconnect. Create a fresh code to reconnect.
 
 Rebuild both the desktop and mobile development clients for this change. Expo Go and older mobile binaries lack the native pairing transport. iOS and Android use the same protocol.
@@ -21,11 +21,13 @@ The dropdown includes interface names supplied by the OS. Local/private IPv4 add
 
 The phone uses the desktop address, not its own address. A guest Wi-Fi network, client isolation or VPN may prevent access. Allow DuoDesk and its signaling sidecar through the desktop firewall on a private network. Both bootstrap and TLS signaling use temporary TCP ports; media uses WebRTC's dynamic ports. No internet, hosted signaling, STUN or TURN is needed. Connection refusal, an outdated port, firewall filtering and network isolation cannot always be distinguished reliably. Mobile separates failure to reach the address from failure during code verification and gives steps for both; it does not claim to detect the phone subnet. Do not expose either listener through port forwarding.
 
-The legacy invitation JSON is under diagnostics. It contains secrets, as does the QR. Do not post screenshots of an active code or invitation.
+The pairing QR contains only the desktop's local address and temporary six-digit code. Scanning fills the same fields as manual entry; both paths use the same authenticated pairing protocol. The QR does not contain the invitation, token, or certificate fingerprint. Anyone who can see an active QR can read the code, so protect it like the displayed digits and do not post screenshots.
 
 ## Trust and protocol
 
 Manual pairing uses SRP-6a through `@swan-io/srp` 0.2.6, with its RFC 5054 2048-bit group and SHA-256. Both roles use the same library. The fixed protocol identity is `duodesk-pair-v1`. The desktop generates an independent, uniformly sampled six-digit code with a cryptographic RNG, plus a fresh salt and verifier for each session. It does not truncate or replace the 256-bit invitation token.
+
+The desktop QR uses a canonical `duodesk-pair://connect` URI containing version 1, one private IPv4 address and port, and exactly six ASCII digits. The shared parser rejects other schemes, extra or repeated fields, non-canonical encodings, public/DNS endpoints, and malformed codes. Old invitation JSON QR codes and paste/copy fields are no longer accepted by the mobile UI. The QR is only an autofill shortcut; it does not create a separate or weaker trust path.
 
 A separate local TCP bootstrap carries newline-framed JSON, limited to 8192 bytes per frame and exactly two request/response rounds:
 
@@ -42,9 +44,8 @@ The bootstrap socket is deliberately not TLS. SRP public values/proofs can trave
 
 - Manual bootstrap accepts at most eight TCP connections per session, including malformed frames and slow clients. Each exchange has a 15-second total deadline. A new server ephemeral is generated for every challenge.
 - The code and invitation expire together after 120 seconds. Expiry and cancellation close listeners and active bootstrap sockets. The mobile transport bounds connect/read waits and response allocation; it closes on background, navigation, Stop, error and completion.
-- The first successful code proof consumes manual pairing. The bootstrap listener closes even if delivery fails. The first authenticated TLS peer consumes the invitation and closes the TLS listener, also cancelling any remaining QR/manual bootstrap work. A consumed code never starts a second stream.
-- QR uses the existing out-of-band certificate fingerprint plus high-entropy secret. Its TLS listener retains its separate eight-connection budget. Code lockout leaves QR available until expiry. New codes require an explicit desktop action.
-- With eight online guesses against the desktop bootstrap’s uniform six-digit code, success probability is at most 8 in 1,000,000 per displayed code. This is weaker than the QR secret. Someone who can see the display/code, compromise a device, or repeatedly persuade the user to create codes can defeat that bound. An attacker can exhaust attempts or occupy the LAN to deny service.
+- The first successful code proof consumes pairing. The bootstrap listener closes even if invitation delivery fails. The first authenticated TLS peer consumes the invitation and closes the TLS listener. A consumed code never starts a second stream.
+- QR and manual entry use the same eight-connection bootstrap budget and lockout. There is no alternate QR listener after the code is locked. With eight online guesses against the uniform six-digit code, success probability is at most 8 in 1,000,000 per displayed code. Anyone who can see the display or QR can read the code; an attacker can also exhaust attempts or occupy the LAN to deny service.
 - SRP protects against passive offline guessing of the code from a network transcript. The in-memory verifier is short-lived, but its compromise permits offline guessing of this low-entropy code. Nothing is persisted as a remembered pairing or trusted device.
 - This is an established PAKE construction and library, not a claim of a product security audit. The SRP library uses JavaScript big-integer arithmetic and does not promise constant-time operation. This implementation does not address local-process/timing side channels or device compromise. A dedicated security review is still appropriate before broad release.
 
@@ -52,9 +53,9 @@ The pinned pnpm patch only changes the SRP library's crypto-provider lookup to l
 
 ## Integration with screen capture work
 
-Capture sources, WebRTC setup, bitrate control and native sender signatures are unchanged. Resolve overlapping mobile UI changes in `apps/mobile/src/app/stream-test.tsx` by retaining the address/code and QR paths, cancellation guards, and the other thread's source selector. New native module methods are `pairRequest(address,message,fresh)` and `pairClose()`; they use a separate queue and never touch video frames or capture consent. Preserve their background/destruction cleanup when integrating module changes.
+Capture sources, WebRTC setup, bitrate control and native sender signatures are unchanged. The mobile QR scanner fills the address and code fields; manual entry remains available. Preserve cancellation guards and the other thread's source selector when changing this screen. New native module methods are `pairRequest(address,message,fresh)` and `pairClose()`; they use a separate queue and never touch video frames or capture consent. Preserve their background/destruction cleanup.
 
-The invitation and signaling wire format remain v1. The new bootstrap has an independent v1 envelope. `stream_start` now returns `{invitation,address}` to desktop UI; `stream_interfaces` now returns interface metadata. Both Electron and Tauri use `src/host/index.ts`. Electron validates `stream_pair_reply` at its isolated IPC boundary and dispatches it to the Rust sidecar; its crash tracking uses the returned invitation session ID. Rust relays bounded bootstrap frames to the desktop SRP implementation through `pairing` events and receives `stream_pair_reply` commands. Request IDs prevent late replies from being used by another socket. `pairingstatus` reports consumption/lockout. Old QR invitations remain compatible with native sender APIs.
+The invitation and signaling wire formats remain v1. The bootstrap has an independent v1 envelope. `stream_start` returns `{invitation,address}` to desktop UI; `stream_interfaces` returns interface metadata. Both Electron and Tauri use `src/host/index.ts`. Electron validates `stream_pair_reply` at its isolated IPC boundary and dispatches it to the Rust sidecar; its crash tracking uses the returned invitation session ID. Rust relays bounded bootstrap frames to the desktop SRP implementation through `pairing` events and receives `stream_pair_reply` commands. Request IDs prevent late replies from being used by another socket. `pairingstatus` reports consumption/lockout. The native sender still receives the authenticated invitation internally after SRP; the mobile UI no longer accepts old invitation QR or JSON.
 
 ## Validation on this branch
 
@@ -71,11 +72,15 @@ The invitation and signaling wire format remain v1. The new bootstrap has an ind
 
 ## Combined redesign validation
 
-After integrating presentation from `0d4cf9d`, the combined desktop production build, frozen install, lint, unit tests and all three real-sidecar integration tests passed. Both real Electron checks passed: `test:ui` exercised explicit selection, real six-digit creation, collapsed QR/manual alternatives and stop; `test:electron` also decoded Chromium loopback video. The H.264 fixture passed again at 640 × 360 with thirteen decoded frames, two dropped frames and the same initial decoder warning. This integration changes desktop presentation and dependencies only; pairing App/host/protocol/native logic is preserved. No new physical-device or cross-platform build claim is implied.
+After integrating presentation from `0d4cf9d`, the combined desktop production build, frozen install, lint, unit tests and all three real-sidecar integration tests passed. Both real Electron checks passed: `test:ui` exercised explicit selection, six-digit creation, the collapsed pairing QR and stop; `test:electron` also decoded Chromium loopback video. The H.264 fixture passed again at 640 × 360 with thirteen decoded frames, two dropped frames and the same initial decoder warning. This integration changes desktop presentation and dependencies only; pairing App/host/protocol/native logic is preserved. No new physical-device or cross-platform build claim is implied.
 
 ## Desktop presentation integration
 
-`App.tsx` owns network enumeration, selected IP, PAKE server state, sidecar replies and video receiver lifecycle. `components/receiver-workspace.tsx` exports `ReceiverWorkspaceProps` and renders the UI. The shadcn presentation from `0d4cf9d` is integrated while preserving this branch's App logic. Network settings collapse during a session; address/code is primary, QR is expandable, and empty or expired codes are hidden. The optional `pairing` prop contains `address`, `code` and display-only `status`. Empty code means consumed or locked; never regenerate it in presentation. `interfaces` already contains OS names and `selectable`; do not adapt the new host response as a string array.
+`App.tsx` owns network enumeration, selected IP, PAKE server state, sidecar replies and video receiver lifecycle. `components/receiver-workspace.tsx` exports `ReceiverWorkspaceProps` and renders the UI. The shadcn presentation from `0d4cf9d` is integrated while preserving this branch's App logic. Network settings collapse during a session; address/code is primary, the compact address/code QR is expandable, and empty or expired codes are hidden. The optional `pairing` prop contains `address`, `code` and display-only `status`. Empty code means consumed or locked; never regenerate it in presentation. `interfaces` already contains OS names and `selectable`; do not adapt the new host response as a string array.
+
+## QR autofill update
+
+Protocol tests, desktop/mobile lint and type checks, desktop renderer build, and mobile Android/iOS/web exports passed after replacing the legacy invitation QR/JSON paths. The Electron UI smoke verified the six-digit code, collapsed pairing QR, removal of invitation textareas, stop behavior, video controls, and fullscreen. No physical phone camera scan or new Windows/macOS compilation was performed for this update.
 
 ## References
 

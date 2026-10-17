@@ -72,7 +72,7 @@ export default function App() {
         setPairingStatus(
           payload.status === "used"
             ? "Code verified. Waiting for the phone’s encrypted connection."
-            : "Code locked after 8 connection attempts. Create a new pairing code, or use QR.",
+            : "Code locked after 8 connection attempts. Create a new connection to try again.",
         );
       }
       if (
@@ -118,7 +118,7 @@ export default function App() {
           setInvitation(undefined);
           if (payload.state === "failed")
             setError(
-              "Session expired or disconnected. Check Wi-Fi/firewall and create a new invitation.",
+              "Session expired or disconnected. Check Wi-Fi/firewall and create a new connection.",
             );
         }
       }
