@@ -80,7 +80,7 @@ After integrating presentation from `0d4cf9d`, the combined desktop production b
 
 ## QR autofill update
 
-Protocol tests, desktop/mobile lint and type checks, desktop renderer build, and mobile Android/iOS/web exports passed after replacing the legacy invitation QR/JSON paths. The Electron UI smoke verified the six-digit code, collapsed pairing QR, removal of invitation textareas, stop behavior, video controls, and fullscreen. No physical phone camera scan or new Windows/macOS compilation was performed for this update.
+Protocol tests, desktop/mobile lint and type checks, desktop renderer build, and mobile Android/iOS/web exports passed after replacing the legacy invitation QR/JSON paths. The Electron UI smoke verified the six-digit code, collapsed pairing QR, removal of invitation textareas, stop behavior, video controls, and fullscreen. No physical phone camera scan or native Android/iOS/Windows/macOS compilation was performed for this update.
 
 ## References
 
