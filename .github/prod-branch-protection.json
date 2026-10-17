@@ -1,9 +1,11 @@
 {
   "required_status_checks": {
     "strict": true,
-    "contexts": [],
     "checks": [
-      { "context": "Web build and config", "app_id": 15368 }
+      {
+        "context": "Web build and config",
+        "app_id": 15368
+      }
     ]
   },
   "enforce_admins": true,
