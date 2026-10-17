@@ -54,9 +54,23 @@ app
   .whenReady()
   .then(async () => {
     session.defaultSession.setPermissionRequestHandler(
-      (_contents, _permission, callback) => callback(false),
+      (contents, permission, callback, details) =>
+        callback(
+          permission === "fullscreen" &&
+            contents === window?.webContents &&
+            contents.getURL() === entry &&
+            details.isMainFrame &&
+            details.requestingUrl === entry,
+        ),
     );
-    session.defaultSession.setPermissionCheckHandler(() => false);
+    session.defaultSession.setPermissionCheckHandler(
+      (contents, permission, _origin, details) =>
+        permission === "fullscreen" &&
+        contents === window?.webContents &&
+        contents?.getURL() === entry &&
+        details.isMainFrame &&
+        details.requestingUrl === entry,
+    );
     // Renderer assets are local; signaling belongs exclusively to the Rust host.
     session.defaultSession.webRequest.onBeforeRequest((details, callback) =>
       callback({

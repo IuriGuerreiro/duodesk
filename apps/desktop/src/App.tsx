@@ -11,6 +11,7 @@ import {
   verificationCode,
 } from "@duodesk/protocol/pairing";
 import "./App.css";
+
 export default function App() {
   const [interfaces, setInterfaces] = useState<NetworkAddress[]>([]);
   const [address, setAddress] = useState("");
@@ -227,6 +228,8 @@ export default function App() {
       desktopAvailable={isDesktop()}
       interfaces={interfaces}
       ip={ip}
+      onIpChange={setIp}
+      onRefresh={() => void refresh()}
       invitation={invitation}
       pairing={
         invitation ? { address, code, status: pairingStatus } : undefined
@@ -237,15 +240,17 @@ export default function App() {
       busy={busy}
       remaining={remaining}
       videoRef={video}
-      onIpChange={setIp}
-      onRefresh={() => void refresh()}
       onStart={() => void start()}
       onStop={() => void stop()}
-      onFullscreen={() =>
-        void video.current
-          ?.requestFullscreen()
-          .catch(() => setError("Fullscreen is unavailable."))
-      }
+      onFullscreen={() => {
+        const panel = video.current?.closest(".receiver-panel");
+        const action = document.fullscreenElement
+          ? document.exitFullscreen()
+          : panel?.requestFullscreen();
+        void action?.catch(() =>
+          setError("Fullscreen is unavailable. Try opening the desktop app."),
+        );
+      }}
     />
   );
 }

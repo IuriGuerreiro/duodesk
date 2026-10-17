@@ -16,7 +16,8 @@ void (async () => {
         break;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    const result = await window.webContents.executeJavaScript(`(async () => {
+    const result = await window.webContents.executeJavaScript(
+      `(async () => {
     const wait = async (predicate, message) => {
       for (let i=0;i<100;i++) { if(predicate()) return; await new Promise(r=>setTimeout(r,50)); }
       throw Error(message);
@@ -40,10 +41,21 @@ void (async () => {
     if (!select.disabled) throw Error('Address can change during session');
     button('Stop session').click();
     await wait(()=>!document.querySelector('[aria-label="Manual invitation"]') && !select.disabled, 'Stop did not clear pairing UI');
-    document.querySelector('.diagnostics').open = true;
-    if (!document.querySelector('.diagnostic-grid').textContent.includes('Session ended')) throw Error('Diagnostics missed stopped state');
-    return {passed:true,addressOptions:select.options.length,stopped:true,videoControls:true};
-  })()`);
+    if (!document.querySelector('[role="status"]').textContent.includes('Session ended')) throw Error('Stopped status missing');
+    if (document.querySelector('.app-header, .page-heading, .preview-notice, .diagnostics, footer')) throw Error('Removed UI returned');
+    for (const name of ['camera', 'microphone']) {
+      const permission = await navigator.permissions.query({name});
+      if (permission.state !== 'denied') throw Error(name + ' permission must remain denied');
+    }
+    button('Fullscreen').click();
+    await wait(()=>document.fullscreenElement?.classList.contains('receiver-panel'), 'Fullscreen did not open receiver: ' + document.querySelector('[role=alert]')?.textContent);
+    await wait(()=>button('Exit fullscreen'), 'Fullscreen button did not update');
+    button('Exit fullscreen').click();
+    await wait(()=>!document.fullscreenElement, 'Fullscreen did not exit');
+    return {passed:true,addressOptions:select.options.length,stopped:true,videoControls:true,fullscreen:true};
+  })()`,
+      true,
+    );
     console.log(JSON.stringify(result));
     clearTimeout(deadline);
     app.quit();
