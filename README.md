@@ -1,6 +1,6 @@
 # DuoDesk
 
-Official Tauri React/TypeScript/Vite and Expo TypeScript/Router starter shells in a pnpm + Turbo workspace. Both apps import `@duodesk/protocol`. The first test-video sender and Windows receiver are implemented, with native-device validation pending. See [test-video setup and validation](docs/test-video-validation.md). iPad screen broadcasting follows after this experiment. See [architecture](docs/architecture.md) and the [approved scaffold plan](docs/scaffold-plan.md).
+Electron and retained Tauri desktop hosts share a React/TypeScript/Vite receiver alongside the Expo mobile app in a pnpm + Turbo workspace. See [desktop setup, packaging, and validation](apps/desktop/README.md). Both apps import `@duodesk/protocol`. The first test-video sender and Windows receiver are implemented, with native-device validation pending. See [test-video setup and validation](docs/test-video-validation.md). iPad screen broadcasting follows after this experiment. See [architecture](docs/architecture.md) and the [approved scaffold plan](docs/scaffold-plan.md).
 
 ## Tooling and commands
 
@@ -14,19 +14,21 @@ pnpm build
 pnpm dev
 ```
 
-`pnpm build` builds the desktop frontend and exports production Expo bundles for iOS, Android, and web into each app's `dist/`. It does not compile native apps. Turbo caches builds, lint, and typechecks. Development tasks run persistently without caching.
+`pnpm build` builds the desktop UI and native Rust signaling sidecar, and exports production Expo bundles for iOS, Android, and web into each app's `dist/`. Desktop installers and native mobile apps are separate commands. Turbo caches frontend checks and mobile exports; desktop builds bypass caching because the sidecar is specific to the host OS and architecture.
 
 ```sh
 pnpm dev:web                     # marketing landing page, localhost:5174
-pnpm dev:desktop                 # Vite UI, no Rust host
-pnpm dev:desktop:tauri           # native Tauri app + Vite
+pnpm dev:desktop                 # Electron + bundled UI + Rust signaling
+pnpm dev:desktop:tauri           # retained Tauri app + Vite
+pnpm build:desktop               # desktop UI + native signaling sidecar
+pnpm package:desktop             # native Electron package for the current OS
 pnpm dev:mobile                  # Metro for the development client
 pnpm --filter @duodesk/desktop tauri build
 pnpm --filter @duodesk/mobile exec expo-doctor
 pnpm --filter @duodesk/mobile exec expo install --check
 ```
 
-The greeting command on the desktop starter requires the Tauri host. Native desktop builds need [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/), including Rust; Windows also needs the Microsoft C++ build tools and WebView2. Run the native commands on the target OS. Local iOS compilation needs macOS and Xcode; Android needs its SDK/JDK toolchain. Native mobile builds remain explicit `pnpm --filter @duodesk/mobile exec expo run:ios --device` or `expo run:android --device` commands. Generated native folders stay ignored.
+Electron needs Rust and native C/C++ build tools for signaling, plus the OS runtime libraries listed in the [desktop guide](apps/desktop/README.md). Tauri remains available with its [own prerequisites](https://v2.tauri.app/start/prerequisites/), including WebView2 on Windows. Run the native commands on the target OS. Local iOS compilation needs macOS and Xcode; Android needs its SDK/JDK toolchain. Native mobile builds remain explicit `pnpm --filter @duodesk/mobile exec expo run:ios --device` or `expo run:android --device` commands. Generated native folders stay ignored.
 
 Use `pnpm --filter @duodesk/mobile exec expo install <package>` to add mobile dependencies. Keep Expo's SDK-matched React and React Native versions. The shared TypeScript base supplies strict checks; Expo's base and the desktop's Vite settings retain their platform-specific resolution and JSX behavior. Expo uses its own ESLint config plus the shared framework-independent rules. Desktop and protocol use the shared TypeScript ESLint config. TypeScript 6.0.3 stays within the parser's supported range.
 
@@ -79,7 +81,7 @@ Official references: [Turbo installation](https://turborepo.dev/docs/getting-sta
 
 See the [local validation record](docs/scaffold-validation.md) for commands, results, and review coverage.
 
-CI runs frozen installation, lint, typechecking, desktop Vite build, and Expo production exports. It checks that iOS/Android bundles and the web entry exist. JS exports validate bundling and workspace resolution, not native compilation, signing, installation, capture, or device behavior.
+CI runs frozen installation, lint, typechecking, desktop UI and Rust sidecar build, and Expo production exports. It checks that iOS/Android bundles and the web entry exist. JS exports validate bundling and workspace resolution, not native compilation, signing, installation, capture, or device behavior.
 
 Android sender compilation, JavaScript checks, production exports, and local signaling checks pass. Windows playback and physical Android/iPad streaming still need device validation. No cloud build has been submitted for this change.
 

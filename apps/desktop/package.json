@@ -5,14 +5,22 @@
   "type": "module",
   "license": "PolyForm-Noncommercial-1.0.0",
   "scripts": {
-    "dev": "vite",
+    "dev": "pnpm electron:dev",
     "tauri:dev": "tauri dev",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && node scripts/build-host.mjs",
     "preview": "vite preview",
     "check-types": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "tauri": "tauri",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "ui:dev": "vite",
+    "electron:dev": "pnpm build && node scripts/run-electron.mjs .",
+    "package": "pnpm build && electron-builder --publish never",
+    "package:dir": "pnpm build && electron-builder --dir --publish never",
+    "ui:build": "tsc && vite build",
+    "test:electron": "node scripts/run-electron.mjs scripts/smoke.mjs",
+    "test:host": "node --test test/native-host.integration.mjs",
+    "test:receiver": "node scripts/run-electron.mjs scripts/receiver-smoke.mjs"
   },
   "dependencies": {
     "@duodesk/protocol": "workspace:*",
@@ -29,8 +37,68 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^6.0.2",
+    "electron": "^44.8.0",
+    "electron-builder": "^26.15.3",
     "eslint": "10.9.1",
     "typescript": "~6.0.3",
     "vite": "^8.0.16"
-  }
+  },
+  "main": "electron/main.mjs",
+  "description": "Local mobile video receiver",
+  "author": "DuoDesk",
+  "build": {
+    "appId": "app.duodesk.desktop",
+    "productName": "DuoDesk",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "bin",
+        "to": "bin"
+      }
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Utility",
+      "icon": "src-tauri/icons/icon.png",
+      "maintainer": "DuoDesk contributors",
+      "syncDesktopName": true
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.utilities",
+      "icon": "src-tauri/icons/icon.icns",
+      "binaries": [
+        "Contents/Resources/bin/duodesk-host"
+      ],
+      "extendInfo": {
+        "NSLocalNetworkUsageDescription": "DuoDesk receives video from mobile devices on your local network."
+      }
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "src-tauri/icons/icon.ico"
+    },
+    "executableName": "duodesk",
+    "deb": {
+      "packageName": "duodesk"
+    },
+    "artifactName": "${productName}-${version}-${arch}.${ext}"
+  },
+  "homepage": "https://github.com/IuriGuerreiro/duodesk",
+  "desktopName": "duodesk"
 }

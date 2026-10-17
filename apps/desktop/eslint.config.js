@@ -4,6 +4,13 @@ import { config } from "@duodesk/eslint-config/react-internal";
 export default [
   ...config,
   {
-    ignores: ["dist/**", "build/**", "src-tauri/**", "node_modules/**"],
+    ignores: [
+      "dist/**",
+      "build/**",
+      "release/**",
+      "bin/**",
+      "src-tauri/**",
+      "node_modules/**",
+    ],
   },
 ];
