@@ -11,7 +11,8 @@
     "lint": "turbo run lint",
     "check-types": "turbo run check-types",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
-    "dev:web": "pnpm --filter @duodesk/web dev"
+    "dev:web": "pnpm --filter @duodesk/web dev",
+    "deploy:web": "pnpm --filter @duodesk/web deploy"
   },
   "devDependencies": {
     "prettier": "3.9.6",
