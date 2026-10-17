@@ -3,6 +3,7 @@ import {
   AppState,
   Button,
   Platform,
+  PermissionsAndroid,
   ScrollView,
   StyleSheet,
   Text,
@@ -96,16 +97,16 @@ export default function StreamTestScreen() {
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.title}>iPad → Windows</Text>
+        <Text style={styles.title}>Mobile → Windows</Text>
         <Text style={styles.text}>
           Send the bundled 1080p test pattern. Keep DuoDesk open during this
           test.
         </Text>
         {!sender.available && (
           <Text style={styles.error}>
-            {Platform.OS === "ios"
+            {Platform.OS === "ios" || Platform.OS === "android"
               ? "Rebuild and install the DuoDesk development client to enable the native sender."
-              : "The sender is available on iPad/iPhone development builds only."}
+              : "The sender is available on Android and iPad/iPhone development builds only."}
           </Text>
         )}
         <Text style={styles.label}>
@@ -147,6 +148,16 @@ export default function StreamTestScreen() {
           onPress={() =>
             void run(async () => {
               parseInvitation(invitation);
+              if (Platform.OS === "android" && Number(Platform.Version) >= 37) {
+                const result = await PermissionsAndroid.request(
+                  PermissionsAndroid.PERMISSIONS.ACCESS_LOCAL_NETWORK,
+                );
+                if (result !== PermissionsAndroid.RESULTS.GRANTED) {
+                  throw new Error(
+                    "Allow local network access to connect to the desktop receiver.",
+                  );
+                }
+              }
               await sender.connect(invitation);
             })
           }

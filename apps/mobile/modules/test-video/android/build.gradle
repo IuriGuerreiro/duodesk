@@ -1,0 +1,14 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+group = 'expo.modules.testvideo'
+version = '0.1.0'
+android {
+  namespace 'expo.modules.testvideo'
+  sourceSets.main.assets.srcDirs += ['../resources']
+}
+dependencies {
+  implementation 'org.jitsi:webrtc:155.0.0'
+  implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+}

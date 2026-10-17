@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "DuoDesk",
-    "slug": "duodesk-mobile",
+    "slug": "duodesk",
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -53,6 +53,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "owner": "rshazow",
+    "extra": {
+      "eas": {
+        "projectId": "d321ae6c-140a-4eae-8f10-58e3eb3c73d1"
+      }
     }
   }
 }

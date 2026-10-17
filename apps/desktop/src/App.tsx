@@ -1,14 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { invoke, isTauri } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { QRCodeSVG } from "qrcode.react";
-import type { Invitation, Signal, StreamState } from "@duodesk/protocol";
+import { invoke, isDesktop, subscribe } from "./host";
+import { ReceiverWorkspace } from "./components/receiver-workspace";
+import type { Invitation, StreamState } from "@duodesk/protocol";
 import { VideoReceiver, type VideoStats } from "./streaming/receiver";
 import "./App.css";
-
-type StreamEvent =
-  | { kind: "signal"; signal: Signal }
-  | { kind: "state"; sessionId: string; state: StreamState };
 
 export default function App() {
   const [interfaces, setInterfaces] = useState<string[]>([]);
@@ -40,7 +35,7 @@ export default function App() {
 
   useEffect(() => {
     mounted.current = true;
-    if (!isTauri()) return;
+    if (!isDesktop()) return;
     void invoke<string[]>("stream_interfaces")
       .then((addresses) => {
         if (mounted.current) {
@@ -49,7 +44,7 @@ export default function App() {
         }
       })
       .catch(() => setError("Could not list local network addresses."));
-    const subscription = listen<StreamEvent>("stream-event", ({ payload }) => {
+    const subscription = subscribe((payload) => {
       const active = current.current;
       if (!active || !mounted.current) return;
       if (
@@ -146,100 +141,46 @@ export default function App() {
   }
 
   return (
-    <main className="container">
-      <header>
-        <p>DuoDesk / streaming lab</p>
-        <h1>iPad to Windows</h1>
-        <p>Stream a silent test clip over your local network.</p>
-      </header>
-      {!isTauri() && (
-        <p role="alert">
-          Open the native desktop app with pnpm dev:desktop:tauri to start the
-          receiver.
-        </p>
-      )}
-      <section className="connection">
-        <label>
-          Windows LAN address{" "}
-          <select
-            value={ip}
-            onChange={(event) => setIp(event.target.value)}
-            disabled={busy || !!invitation}
-          >
-            {interfaces.map((address) => (
-              <option key={address}>{address}</option>
-            ))}
-          </select>
-        </label>
-        <button
-          onClick={() => void start()}
-          disabled={!isTauri() || !ip || busy}
-        >
-          {invitation ? "New invitation" : "Create invitation"}
-        </button>
-        <button onClick={() => void stop()} disabled={!invitation || busy}>
-          Stop
-        </button>
-        <p role="status">{state}</p>
-      </section>
-      {invitation && state === "connecting" && (
-        <section className="pairing">
-          <div className="qr">
-            <QRCodeSVG
-              value={JSON.stringify(invitation)}
-              size={224}
-              level="M"
-            />
-          </div>
-          <div>
-            <h2>Connect your iPad</h2>
-            <p>
-              Open the Stream test tab in DuoDesk and scan this code. Invitation
-              expires in {remaining}s.
-            </p>
-            <p>
-              Allow DuoDesk through the Windows firewall on your private
-              network.
-            </p>
-            <details>
-              <summary>Manual invitation</summary>
-              <textarea
-                aria-label="Manual invitation"
-                readOnly
-                value={JSON.stringify(invitation)}
-              />
-            </details>
-          </div>
-        </section>
-      )}
-      {state === "ready" && <p>iPad connected. Press Start on the iPad.</p>}
-      {error && <p role="alert">{error}</p>}
-      <video
-        ref={video}
-        autoPlay
-        muted
-        playsInline
-        controls
-        aria-label="Incoming iPad video"
-      />
-      <button
-        onClick={() =>
-          void video.current
-            ?.requestFullscreen()
-            .catch(() => setError("Fullscreen is unavailable."))
-        }
-      >
-        Fullscreen
-      </button>
-      {stats && (
-        <p className="stats">
-          {stats.codec} · {stats.width} × {stats.height} ·{" "}
-          {stats.fps.toFixed(0)} fps · {stats.mbps.toFixed(2)} Mbps
-          <br />
-          {stats.packetsLost} packets lost · {stats.framesDropped} frames
-          dropped · {stats.decodeMs.toFixed(1)} ms average decode
-        </p>
-      )}
-    </main>
+    <ReceiverWorkspace
+      desktopAvailable={isDesktop()}
+      interfaces={interfaces.map((address) => ({
+        name: "Local network",
+        address,
+        kind: "lan",
+        selectable: true,
+      }))}
+      ip={ip}
+      onIpChange={setIp}
+      onRefresh={() => {
+        void invoke<string[]>("stream_interfaces")
+          .then((addresses) => {
+            setInterfaces(addresses);
+            setIp(addresses.includes(ip) ? ip : (addresses[0] ?? ""));
+          })
+          .catch(() =>
+            setError(
+              "Could not refresh network addresses. Check your network connection.",
+            ),
+          );
+      }}
+      invitation={invitation}
+      state={state}
+      error={error}
+      stats={stats}
+      busy={busy}
+      remaining={remaining}
+      videoRef={video}
+      onStart={() => void start()}
+      onStop={() => void stop()}
+      onFullscreen={() => {
+        const panel = video.current?.closest(".receiver-panel");
+        const action = document.fullscreenElement
+          ? document.exitFullscreen()
+          : panel?.requestFullscreen();
+        void action?.catch(() =>
+          setError("Fullscreen is unavailable. Try opening the desktop app."),
+        );
+      }}
+    />
   );
 }
