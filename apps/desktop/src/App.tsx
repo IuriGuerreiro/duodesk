@@ -172,11 +172,15 @@ export default function App() {
       videoRef={video}
       onStart={() => void start()}
       onStop={() => void stop()}
-      onFullscreen={() =>
-        void video.current
-          ?.requestFullscreen()
-          .catch(() => setError("Fullscreen is unavailable."))
-      }
+      onFullscreen={() => {
+        const panel = video.current?.closest(".receiver-panel");
+        const action = document.fullscreenElement
+          ? document.exitFullscreen()
+          : panel?.requestFullscreen();
+        void action?.catch(() =>
+          setError("Fullscreen is unavailable. Try opening the desktop app."),
+        );
+      }}
     />
   );
 }

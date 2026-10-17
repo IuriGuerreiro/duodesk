@@ -1,10 +1,11 @@
-import { useState, type RefObject } from "react";
+import { useEffect, useState, type RefObject } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import {
   ArrowUpRight,
   CircleHelp,
   Copy,
   Expand,
+  Minimize,
   LoaderCircle,
   Monitor,
   Radio,
@@ -66,6 +67,16 @@ export function ReceiverWorkspace({
   videoRef,
 }: ReceiverWorkspaceProps) {
   const [copyStatus, setCopyStatus] = useState("");
+  const [fullscreen, setFullscreen] = useState(false);
+  useEffect(() => {
+    const update = () =>
+      setFullscreen(
+        document.fullscreenElement?.classList.contains("receiver-panel") ??
+          false,
+      );
+    document.addEventListener("fullscreenchange", update);
+    return () => document.removeEventListener("fullscreenchange", update);
+  }, []);
   const live = state === "streaming";
   const waiting = !!invitation && state === "connecting";
   const label = busy
@@ -91,45 +102,7 @@ export function ReceiverWorkspace({
   }
   return (
     <div className="workspace">
-      <header className="app-header">
-        <a className="brand" href="#receiver" aria-label="DuoDesk receiver">
-          <span className="brand-mark">
-            <Monitor size={21} />
-          </span>
-          DuoDesk
-          <span className="brand-divider" />{" "}
-          <span className="brand-context">Desktop receiver</span>
-        </a>
-        <Badge variant="outline" className="local-badge">
-          <ShieldCheck size={13} /> Local network only
-        </Badge>
-      </header>
       <main id="receiver">
-        <div className="page-heading">
-          <div>
-            <p className="eyebrow">YOUR WORKSPACE</p>
-            <h1>Mobile stream</h1>
-            <p>Connect your phone over your local network.</p>
-          </div>
-          <Badge
-            variant="outline"
-            className={`state-badge ${live ? "is-live" : ""}`}
-            role="status"
-          >
-            <span className="status-dot" />
-            {label}
-          </Badge>
-        </div>
-        {!desktopAvailable && (
-          <Alert className="preview-notice">
-            <Monitor />
-            <AlertTitle>Desktop app required</AlertTitle>
-            <AlertDescription>
-              This browser preview cannot receive video. Open DuoDesk on your
-              computer to connect a device.
-            </AlertDescription>
-          </Alert>
-        )}
         {error && (
           <Alert variant="destructive" className="error-notice">
             <CircleHelp />
@@ -143,7 +116,7 @@ export function ReceiverWorkspace({
               <h2 id="preview-title">
                 <Radio size={16} /> Live view
               </h2>
-              <span>{live ? "LIVE" : "NO SIGNAL"}</span>
+              <span role="status">{label}</span>
             </div>
             <div
               className={`video-stage ${live ? "has-video" : ""}`}
@@ -194,13 +167,9 @@ export function ReceiverWorkspace({
                   ? `${stats?.width ?? 0} × ${stats?.height ?? 0} · ${stats?.fps.toFixed(0) ?? 0} fps`
                   : "Video preview"}
               </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onFullscreen}
-                disabled={!live}
-              >
-                <Expand /> Fullscreen
+              <Button variant="ghost" size="sm" onClick={onFullscreen}>
+                {fullscreen ? <Minimize /> : <Expand />}
+                {fullscreen ? "Exit fullscreen" : "Fullscreen"}
               </Button>
             </div>
           </section>
@@ -396,47 +365,6 @@ export function ReceiverWorkspace({
             </details>
           </aside>
         </div>
-        <details className="diagnostics">
-          <summary>
-            <span>
-              <Radio size={15} />
-              Connection diagnostics
-            </span>
-            <span>{stats ? stats.codec : "Waiting for stream"}</span>
-          </summary>
-          <dl className="diagnostic-grid">
-            {[
-              ["Status", label],
-              [
-                "Resolution",
-                stats ? `${stats.width} × ${stats.height}` : "No video yet",
-              ],
-              [
-                "Frame rate",
-                stats ? `${stats.fps.toFixed(0)} fps` : "Unavailable",
-              ],
-              [
-                "Bitrate",
-                stats ? `${stats.mbps.toFixed(2)} Mbps` : "Unavailable",
-              ],
-              ["Packets lost", stats?.packetsLost],
-              ["Frames dropped", stats?.framesDropped],
-              [
-                "Average decode",
-                stats ? `${stats.decodeMs.toFixed(1)} ms` : "Unavailable",
-              ],
-            ].map(([key, value]) => (
-              <div key={key}>
-                <dt>{key}</dt>
-                <dd>{value ?? "Unavailable"}</dd>
-              </div>
-            ))}
-          </dl>
-        </details>
-        <footer>
-          <span>DuoDesk</span>
-          <span>Video stays between your devices.</span>
-        </footer>
       </main>
     </div>
   );
