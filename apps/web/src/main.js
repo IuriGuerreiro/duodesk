@@ -1,4 +1,8 @@
 import './style.css';
+import { loadAnalytics } from './analytics.js';
+
+loadAnalytics();
+
 
 const arrow = '<span aria-hidden="true">↗</span>';
 const mark = '<span class="brand-mark" aria-hidden="true"><i></i><i></i></span>';
