@@ -94,3 +94,25 @@ video {
     align-items: start;
   }
 }
+
+.desktop-address {
+  font-size: clamp(24px, 4vw, 36px);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+  margin: 8px 0;
+  color: #bcd4ff;
+}
+.verification-code {
+  font-size: 44px;
+  letter-spacing: 0.16em;
+  font-variant-numeric: tabular-nums;
+  margin: 8px 0;
+}
+.connection label {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+.connection select {
+  max-width: 100%;
+}

@@ -30,3 +30,18 @@ test("IPC rejects unknown methods and malformed or oversized signals", () => {
     signal: { v: 1, sessionId: "a".repeat(32), type: "stop" },
   });
 });
+test("pairing IPC accepts bounded replies and rejects injection and extra fields", () => {
+  const reply = { requestId: "a".repeat(32), message: "{}", complete: false };
+  validateCommand("stream_pair_reply", { reply });
+  validateCommand("stream_pair_reply", { reply: { ...reply, message: "" } });
+  for (const changed of [
+    { requestId: "old" },
+    { message: "x".repeat(8193) },
+    { message: "{}\n{}" },
+    { complete: "true" },
+    { extra: true },
+  ])
+    assert.throws(() =>
+      validateCommand("stream_pair_reply", { reply: { ...reply, ...changed } }),
+    );
+});

@@ -28,9 +28,21 @@ void (async () => {
       throw new Error("Unsafe renderer preferences");
     const result = await win.webContents.executeJavaScript(`(async () => {
     if (typeof require !== 'undefined' || typeof window.duoDesk !== 'object') throw Error('Isolation/preload failed');
+    for(let i=0;i<50 && !document.querySelector('select option[value]:not([value=""])');i++) await new Promise(r=>setTimeout(r,100));
+    const select = document.querySelector('select');
+    const option = [...select.options].find(o => o.value && !o.disabled);
+    if (!option || select.value) throw Error('Explicit LAN choice unavailable');
+    select.value = option.value; select.dispatchEvent(new Event('change', {bubbles:true}));
+    const button = [...document.querySelectorAll('button')].find(b => b.textContent === 'Create pairing code');
+    button.click();
+    for(let i=0;i<100 && !document.querySelector('.verification-code');i++) await new Promise(r=>setTimeout(r,100));
+    if (!/^[0-9]{6}$/.test(document.querySelector('.verification-code')?.textContent ?? '')) throw Error('UI failed to create six-digit pairing');
+    if (document.querySelector('details').open) throw Error('Secrets diagnostics should be collapsed');
+    [...document.querySelectorAll('button')].find(b => b.textContent === 'Stop').click();
+    await new Promise(r=>setTimeout(r,100));
     const ips = await window.duoDesk.invoke('stream_interfaces');
     if (!ips.length) throw Error('No LAN interface');
-    const invitation = await window.duoDesk.invoke('stream_start', {ip: ips[0]});
+    const {invitation} = await window.duoDesk.invoke('stream_start', {ip: ips.find(i => i.selectable).address});
     if (!invitation.url.startsWith('wss://') || invitation.fingerprint.length !== 64) throw Error('Invalid invitation');
     await window.duoDesk.invoke('stream_stop');
     const a = new RTCPeerConnection({iceServers: []});

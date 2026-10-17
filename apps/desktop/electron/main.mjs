@@ -134,7 +134,7 @@ app
       const result = await owner.request(method, args);
       if (owner !== host || owner.closed)
         throw new Error("Desktop host stopped");
-      if (method === "stream_start") activeSession = result.sessionId;
+      if (method === "stream_start") activeSession = result.invitation.sessionId;
       if (method === "stream_stop") activeSession = undefined;
       return result;
     });
