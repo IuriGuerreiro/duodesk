@@ -1,0 +1,12 @@
+{
+  "$schema": "https://developers.cloudflare.com/workers/wrangler/config-schema.json",
+  "name": "duodesk-web",
+  "account_id": "8c30ff638a141651f0aca3a98c206fe3",
+  "compatibility_date": "2026-10-17",
+  "workers_dev": false,
+  "preview_urls": false,
+  "assets": { "directory": "./dist" },
+  "routes": [
+    { "pattern": "doudesk.elorenlabs.com", "custom_domain": true }
+  ]
+}

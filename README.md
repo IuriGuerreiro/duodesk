@@ -17,6 +17,7 @@ pnpm dev
 `pnpm build` builds the desktop frontend and exports production Expo bundles for iOS, Android, and web into each app's `dist/`. It does not compile native apps. Turbo caches builds, lint, and typechecks. Development tasks run persistently without caching.
 
 ```sh
+pnpm dev:web                     # marketing landing page, localhost:5174
 pnpm dev:desktop                 # Vite UI, no Rust host
 pnpm dev:desktop:tauri           # native Tauri app + Vite
 pnpm dev:mobile                  # Metro for the development client

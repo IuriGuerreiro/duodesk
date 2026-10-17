@@ -10,7 +10,8 @@
     "dev:mobile": "pnpm --filter @duodesk/mobile dev",
     "lint": "turbo run lint",
     "check-types": "turbo run check-types",
-    "format": "prettier --write \"**/*.{ts,tsx,md,json}\""
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
+    "dev:web": "pnpm --filter @duodesk/web dev"
   },
   "devDependencies": {
     "prettier": "3.9.6",
