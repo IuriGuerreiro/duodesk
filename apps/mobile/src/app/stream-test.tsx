@@ -29,6 +29,9 @@ export default function StreamTestScreen() {
   const [scanning, setScanning] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [busy, setBusy] = useState(false);
+  const [source, setSource] = useState<"screen" | "clip">(
+    Platform.OS === "android" ? "screen" : "clip",
+  );
   const [bitrate, setBitrate] = useState("12");
   const [error, setError] = useState("");
 
@@ -37,7 +40,7 @@ export default function StreamTestScreen() {
     const appState = AppState.addEventListener("change", (next) => {
       if (next === "background") {
         setScanning(false);
-        void sender.stop();
+        if (Platform.OS !== "android") void sender.stop();
       }
     });
     return () => {
@@ -99,8 +102,9 @@ export default function StreamTestScreen() {
       >
         <Text style={styles.title}>Mobile → Windows</Text>
         <Text style={styles.text}>
-          Send the bundled 1080p test pattern. Keep DuoDesk open during this
-          test.
+          {Platform.OS === "android"
+            ? "Share your Android screen with Windows. Android will ask what to share. You can switch apps while sharing. No audio is sent."
+            : "Send the bundled 1080p test pattern. Keep DuoDesk open during this test."}
         </Text>
         {!sender.available && (
           <Text style={styles.error}>
@@ -162,7 +166,25 @@ export default function StreamTestScreen() {
             })
           }
         />
-        <Text style={styles.label}>2. Start the test clip</Text>
+        <Text style={styles.label}>2. Choose a video source</Text>
+        {Platform.OS === "android" && (
+          <View style={{ gap: 8 }}>
+            <Button
+              title={source === "screen" ? "✓ Live screen" : "Live screen"}
+              disabled={busy || (!canConnect && status.state !== "ready")}
+              onPress={() => setSource("screen")}
+            />
+            <Button
+              title={
+                source === "clip"
+                  ? "✓ Diagnostic test clip"
+                  : "Diagnostic test clip"
+              }
+              disabled={busy || (!canConnect && status.state !== "ready")}
+              onPress={() => setSource("clip")}
+            />
+          </View>
+        )}
         <Text style={styles.text}>
           Maximum bitrate in Mbps, from 2 to 30. Actual bitrate adapts to the
           connection.
@@ -176,20 +198,20 @@ export default function StreamTestScreen() {
           accessibilityLabel="Maximum bitrate Mbps"
         />
         <Button
-          title="Start video"
+          title={source === "screen" ? "Share screen" : "Start test clip"}
           disabled={status.state !== "ready" || busy}
           onPress={() =>
             void run(async () => {
               const value = Number(bitrate);
               if (!Number.isInteger(value) || value < 2 || value > 30)
                 throw new Error("Choose a whole number from 2 to 30 Mbps.");
-              await sender.start(value);
+              await sender.start(value, source);
             })
           }
         />
         <Button
           title="Stop / disconnect"
-          disabled={!sender.available || canConnect || busy}
+          disabled={!sender.available || canConnect}
           onPress={() => void run(sender.stop)}
         />
         <Text accessibilityLiveRegion="polite" style={styles.label}>
@@ -207,7 +229,9 @@ export default function StreamTestScreen() {
         )}
         <Text style={styles.text}>
           Stopping or leaving this screen ends the session. Create a new Windows
-          invitation before reconnecting.
+          invitation before reconnecting. Android screen sharing also ends from
+          the sharing notification or Android sharing controls. The diagnostic
+          clip stops when DuoDesk goes into the background.
         </Text>
       </ScrollView>
     </SafeAreaView>

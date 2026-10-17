@@ -1,6 +1,11 @@
 package expo.modules.testvideo
 
 import android.content.Context
+import android.content.Intent
+import android.content.ComponentName
+import android.content.ServiceConnection
+import android.os.IBinder
+import android.os.Build
 import expo.modules.kotlin.Promise
 import okhttp3.*
 import org.json.JSONObject
@@ -43,6 +48,10 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
   private var source: VideoSource? = null
   private var track: VideoTrack? = null
   private var clip: ClipSource? = null
+  private var screen: ScreenSource? = null
+  private var screenRequest: Promise? = null
+  private var screenConnection: ServiceConnection? = null
+  private var screenService: ScreenCaptureService? = null
   private var egl: EglBase? = null
   private var factory: PeerConnectionFactory? = null
   private var timeout: ScheduledFuture<*>? = null
@@ -64,7 +73,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       catch (error: Exception) { fail(error.message ?: "Streaming failed"); promise.reject("ERR_STREAM", error.message, error) }
     }
   }
-  fun background() = dispatch { stop() }
+  fun background() = dispatch { if (screenRequest == null && screenConnection == null) stop() }
   fun destroy() = dispatch {
     close(); factory?.dispose(); factory = null; egl?.release(); egl = null; queue.shutdown()
   }
@@ -131,8 +140,60 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl.eglBaseContext)).createPeerConnectionFactory().also { factory = it }
   }
 
-  fun start(bitrateMbps: Int) {
-    check(state == "ready") { "Connect to the desktop before starting" }
+  fun requestScreen(bitrateMbps: Int, promise: Promise, launch: () -> Unit) = dispatch {
+    try {
+      check(state == "ready" && screenRequest == null && screenConnection == null) { "Connect before sharing your screen" }
+      require(bitrateMbps in 2..30) { "Choose a bitrate between 2 and 30 Mbps" }
+      screenRequest = promise
+      launch()
+    } catch (error: Exception) { promise.reject("ERR_SCREEN", error.message, error) }
+  }
+
+  fun screenConsentFailed(promise: Promise, message: String) = dispatch {
+    if (screenRequest === promise) {
+      screenRequest = null
+      promise.reject("ERR_SCREEN_CONSENT", message, null)
+    }
+  }
+
+  fun screenConsent(bitrateMbps: Int, promise: Promise, data: Intent?) = dispatch {
+    if (screenRequest !== promise) return@dispatch
+    if (data == null) {
+      screenRequest = null
+      promise.reject("ERR_SCREEN_CANCELLED", "Screen sharing was not allowed. Tap Share screen to try again.", null)
+      return@dispatch
+    }
+    val epoch = generation
+    val connection = object : ServiceConnection {
+      override fun onServiceConnected(name: ComponentName, binder: IBinder) = dispatch {
+        if (generation != epoch || screenConnection !== this) return@dispatch
+        try {
+          val service = (binder as ScreenCaptureService.LocalBinder).service
+          screenService = service
+          service.startCapture({ dispatch { if (generation == epoch) stop() } }) {
+            start(bitrateMbps, data)
+          }
+          screenRequest = null
+          promise.resolve()
+        } catch (error: Exception) { fail(error.message ?: "Could not start screen sharing") }
+      }
+      override fun onServiceDisconnected(name: ComponentName) = dispatch {
+        if (generation == epoch) fail("Screen sharing service stopped")
+      }
+      override fun onBindingDied(name: ComponentName) = onServiceDisconnected(name)
+      override fun onNullBinding(name: ComponentName) = onServiceDisconnected(name)
+    }
+    try {
+      screenConnection = connection
+      val intent = Intent(context, ScreenCaptureService::class.java)
+      if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
+      check(context.bindService(intent, connection, Context.BIND_AUTO_CREATE)) { "Could not bind screen sharing service" }
+      armTimeout("Screen sharing service did not start")
+    } catch (error: Exception) { fail(error.message ?: "Could not start screen sharing service") }
+  }
+
+  fun start(bitrateMbps: Int, screenData: Intent? = null) {
+    check(state == "ready" && (screenData != null || screenRequest == null)) { "Connect to the desktop before starting" }
     require(bitrateMbps in 2..30) { "Choose a bitrate between 2 and 30 Mbps" }
     val factory = nativeFactory()
     val epoch = generation
@@ -144,7 +205,8 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     peer = pc
     val source = factory.createVideoSource(true)
     this.source = source
-    source.adaptOutputFormat(1920, 1080, 30)
+    if (screenData == null) source.adaptOutputFormat(1920, 1080, 30)
+    else source.adaptOutputFormat(null, null, null, null, 30)
     val track = factory.createVideoTrack("duodesk-test-video", source)
     this.track = track
     val transceiver = checkNotNull(pc.addTransceiver(track, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_ONLY, listOf("duodesk"))))
@@ -156,8 +218,15 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     parameters.encodings.forEach { it.maxBitrateBps = bitrateMbps * 1_000_000; it.maxFramerate = 30 }
     parameters.degradationPreference = RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
     check(transceiver.sender.setParameters(parameters)) { "Could not configure video bitrate" }
-    clip = ClipSource(context, checkNotNull(egl).eglBaseContext, source.capturerObserver) { message ->
-      dispatch { if (epoch == generation) fail(message) }
+    if (screenData == null) {
+      clip = ClipSource(context, checkNotNull(egl).eglBaseContext, source.capturerObserver) { message ->
+        dispatch { if (epoch == generation) fail(message) }
+      }
+    } else {
+      screen = ScreenSource(context, checkNotNull(egl).eglBaseContext, source.capturerObserver,
+        { dispatch { if (epoch == generation) stop() } },
+        { message -> dispatch { if (epoch == generation) fail(message) } })
+      screen!!.start(screenData)
     }
     status("connecting")
     armTimeout("Video negotiation timed out. Create a new desktop invitation.")
@@ -274,6 +343,15 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
   private fun close() {
     generation++
     timeout?.cancel(false); timeout = null; stats?.cancel(false); stats = null
+    screenRequest?.reject("ERR_SCREEN_STOPPED", "Screen sharing stopped before capture started", null)
+    screenRequest = null
+    screen?.stop(); screen = null
+    screenService?.onStopped = null; screenService = null
+    screenConnection?.let {
+      runCatching { context.unbindService(it) }
+      context.stopService(Intent(context, ScreenCaptureService::class.java))
+    }
+    screenConnection = null
     clip?.stop(); clip = null
     peer?.close(); peer?.dispose(); peer = null
     track?.dispose(); track = null; source?.dispose(); source = null

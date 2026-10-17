@@ -15,3 +15,5 @@ pnpm --filter @duodesk/mobile build
 See the [root README](../../README.md) for physical iPad registration, Apple signing, EAS build/install, Metro connection, native build prerequisites, and starter provenance. Add dependencies through `pnpm --filter @duodesk/mobile exec expo install <package>` from the root.
 
 Routes live in `src/app/`. The optional `pnpm --filter @duodesk/mobile reset-project` command removes or moves starter code; do not run it when preserving the template.
+
+For live Android capture, native APK setup, and device checks, see [Android screen streaming](../../docs/android-screen-streaming.md). The diagnostic clip remains available on Android and iOS.

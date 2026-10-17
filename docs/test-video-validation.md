@@ -1,6 +1,6 @@
 # Test-video streaming
 
-The first implementation sends a bundled silent MP4 from the foreground Android or iPad app to the Windows receiver. Screen broadcasting is a later milestone.
+Android supports live screen capture and the bundled silent MP4 diagnostic source. iOS retains the foreground clip sender. See [Android screen streaming](android-screen-streaming.md) for setup, lifecycle behavior, integration notes, and pending device checks. The clip instructions below still apply when that source is selected.
 
 ## Implementation
 

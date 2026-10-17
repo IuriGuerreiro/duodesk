@@ -5,6 +5,7 @@ type Events = { onStatus: (status: SenderStatus) => void };
 declare class TestVideoNative extends NativeModule<Events> {
   connect(invitation: string): Promise<void>;
   start(bitrateMbps: number): Promise<void>;
+  startScreen(bitrateMbps: number): Promise<void>;
   stop(): Promise<void>;
 }
 const native = requireOptionalNativeModule<TestVideoNative>("DuoDeskTestVideo");
@@ -17,7 +18,13 @@ function module(): TestVideoNative {
   return native;
 }
 export const connect = (invitation: string) => module().connect(invitation);
-export const start = (bitrateMbps: number) => module().start(bitrateMbps);
+export const start = (
+  bitrateMbps: number,
+  source: "clip" | "screen" = "clip",
+) =>
+  source === "screen"
+    ? module().startScreen(bitrateMbps)
+    : module().start(bitrateMbps);
 export const stop = async () => {
   await native?.stop();
 };
