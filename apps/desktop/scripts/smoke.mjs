@@ -33,12 +33,12 @@ void (async () => {
     const option = [...select.options].find(o => o.value && !o.disabled);
     if (!option || select.value) throw Error('Explicit LAN choice unavailable');
     select.value = option.value; select.dispatchEvent(new Event('change', {bubbles:true}));
-    const button = [...document.querySelectorAll('button')].find(b => b.textContent === 'Create pairing code');
+    const button = [...document.querySelectorAll('button')].find(b => b.textContent.includes('Create connection'));
     button.click();
-    for(let i=0;i<100 && !document.querySelector('.verification-code');i++) await new Promise(r=>setTimeout(r,100));
-    if (!/^[0-9]{6}$/.test(document.querySelector('.verification-code')?.textContent ?? '')) throw Error('UI failed to create six-digit pairing');
+    for(let i=0;i<100 && !document.querySelector('.code-pairing strong');i++) await new Promise(r=>setTimeout(r,100));
+    if (!/^[0-9]{6}$/.test(document.querySelector('.code-pairing strong')?.textContent ?? '')) throw Error('UI failed to create six-digit pairing');
     if (document.querySelector('details').open) throw Error('Secrets diagnostics should be collapsed');
-    [...document.querySelectorAll('button')].find(b => b.textContent === 'Stop').click();
+    [...document.querySelectorAll('button')].find(b => b.textContent.includes('Stop session')).click();
     await new Promise(r=>setTimeout(r,100));
     const ips = await window.duoDesk.invoke('stream_interfaces');
     if (!ips.length) throw Error('No LAN interface');

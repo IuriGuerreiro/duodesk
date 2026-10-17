@@ -69,9 +69,13 @@ The invitation and signaling wire format remain v1. The new bootstrap has an ind
 - No macOS Swift compilation, Windows/macOS build/package validation, physical phone test or new Android-to-Windows streaming test was performed. The earlier user-tested clip result belongs to the old flow. Recheck code and QR pairing, wrong-code lockout, foreground/background, navigation/Stop, firewall prompts and test-video playback on actual desktop plus Android and iOS devices.
 - Production dependency audit reports existing advisories in `uuid`, `node-forge` and `braces`; none of their versions changed. It reports no advisories for the new pairing dependencies. This is not a product security audit.
 
+## Combined redesign validation
+
+After integrating presentation from `0d4cf9d`, the combined desktop production build, frozen install, lint, unit tests and all three real-sidecar integration tests passed. Both real Electron checks passed: `test:ui` exercised explicit selection, real six-digit creation, collapsed QR/manual alternatives and stop; `test:electron` also decoded Chromium loopback video. The H.264 fixture passed again at 640 × 360 with thirteen decoded frames, two dropped frames and the same initial decoder warning. This integration changes desktop presentation and dependencies only; pairing App/host/protocol/native logic is preserved. No new physical-device or cross-platform build claim is implied.
+
 ## Desktop presentation integration
 
-`App.tsx` owns network enumeration, selected IP, PAKE server state, sidecar replies and video receiver lifecycle. `components/receiver-workspace.tsx` exports `ReceiverWorkspaceProps` and renders the UI. The concurrent shadcn redesign can replace that presentation while preserving this branch's App logic. The optional `pairing` prop contains `address`, `code` and display-only `status`. Empty code means consumed or locked; never regenerate it in presentation. `interfaces` already contains OS names and `selectable`; do not adapt the new host response as a string array.
+`App.tsx` owns network enumeration, selected IP, PAKE server state, sidecar replies and video receiver lifecycle. `components/receiver-workspace.tsx` exports `ReceiverWorkspaceProps` and renders the UI. The shadcn presentation from `0d4cf9d` is integrated while preserving this branch's App logic. Network settings collapse during a session; address/code is primary, QR is expandable, and empty or expired codes are hidden. The optional `pairing` prop contains `address`, `code` and display-only `status`. Empty code means consumed or locked; never regenerate it in presentation. `interfaces` already contains OS names and `selectable`; do not adapt the new host response as a string array.
 
 ## References
 

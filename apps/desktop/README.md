@@ -57,4 +57,10 @@ Security references: [Electron security](https://www.electronjs.org/docs/latest/
 
 Linux x64: AppImage and deb packaging, production build, lint, desktop type checks, receiver unit tests, Rust TLS/signaling tests, and native process/port cleanup passed. The real sandboxed Electron shell loaded the bundled UI and created/stopped an invitation through preload IPC. Chromium loopback decoded video, and the existing VideoReceiver fixture decoded H.264 at 640 × 360. These are synthetic senders on one Linux host. Physical Android/iOS streaming, Windows/macOS packages, firewall prompts, signing, and installation on clean machines remain unverified.
 
-Workspace type checking currently fails in unchanged mobile CSS imports in `animated-icon.web.tsx` and `theme.ts`. The production dependency audit reports existing Expo/Metro dependency advisories. This port does not change those mobile dependencies.
+## Receiver workspace UI
+
+The desktop receiver uses local shadcn/ui Button, Badge, Alert, Separator and Textarea components from redesign commit `0d4cf9d`. Tailwind v4 runs through the Vite plugin; `components.json` and the `@/*` TypeScript/Vite aliases are scoped to this app. Fonts use the OS UI stack and monospace for addresses, with no remote font requests.
+
+`src/components/receiver-workspace.tsx` owns the responsive layout and status/error/empty presentations. The pairing branch's `App.tsx` retains host invocation, subscription, PAKE state, explicit adapter choice, receiver ownership and cleanup. The host returns named interfaces directly. Address/code appears first during pairing; empty or expired codes are hidden. Network settings collapse during a session, and QR and legacy invitation JSON remain expandable. Native video controls and streaming fullscreen remain available. Clipboard failure leaves selectable invitation text.
+
+`pnpm --filter @duodesk/desktop test:ui` exercises explicit adapter selection, real code creation, collapsed pairing alternatives, session stop and diagnostics through the shipped renderer and real Electron host. It requires a graphical session, like `test:electron`. Browser preview has no native host. See [device pairing](../../docs/device-pairing.md) for combined validation and platform limits.
