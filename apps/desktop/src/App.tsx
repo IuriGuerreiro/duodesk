@@ -1,14 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { invoke, isTauri } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invoke, isDesktop, subscribe } from "./host";
 import { QRCodeSVG } from "qrcode.react";
-import type { Invitation, Signal, StreamState } from "@duodesk/protocol";
+import type { Invitation, StreamState } from "@duodesk/protocol";
 import { VideoReceiver, type VideoStats } from "./streaming/receiver";
 import "./App.css";
-
-type StreamEvent =
-  | { kind: "signal"; signal: Signal }
-  | { kind: "state"; sessionId: string; state: StreamState };
 
 export default function App() {
   const [interfaces, setInterfaces] = useState<string[]>([]);
@@ -40,7 +35,7 @@ export default function App() {
 
   useEffect(() => {
     mounted.current = true;
-    if (!isTauri()) return;
+    if (!isDesktop()) return;
     void invoke<string[]>("stream_interfaces")
       .then((addresses) => {
         if (mounted.current) {
@@ -49,7 +44,7 @@ export default function App() {
         }
       })
       .catch(() => setError("Could not list local network addresses."));
-    const subscription = listen<StreamEvent>("stream-event", ({ payload }) => {
+    const subscription = subscribe((payload) => {
       const active = current.current;
       if (!active || !mounted.current) return;
       if (
@@ -149,18 +144,18 @@ export default function App() {
     <main className="container">
       <header>
         <p>DuoDesk / streaming lab</p>
-        <h1>Mobile to Windows</h1>
+        <h1>Mobile to desktop</h1>
         <p>Stream a silent test clip over your local network.</p>
       </header>
-      {!isTauri() && (
+      {!isDesktop() && (
         <p role="alert">
-          Open the native desktop app with pnpm dev:desktop:tauri to start the
+          Open the native desktop app with pnpm dev:desktop to start the
           receiver.
         </p>
       )}
       <section className="connection">
         <label>
-          Windows LAN address{" "}
+          Desktop LAN address{" "}
           <select
             value={ip}
             onChange={(event) => setIp(event.target.value)}
@@ -173,7 +168,7 @@ export default function App() {
         </label>
         <button
           onClick={() => void start()}
-          disabled={!isTauri() || !ip || busy}
+          disabled={!isDesktop() || !ip || busy}
         >
           {invitation ? "New invitation" : "Create invitation"}
         </button>
@@ -197,10 +192,7 @@ export default function App() {
               Open the Stream test tab in DuoDesk and scan this code. Invitation
               expires in {remaining}s.
             </p>
-            <p>
-              Allow DuoDesk through the Windows firewall on your private
-              network.
-            </p>
+            <p>Allow DuoDesk through your firewall on your private network.</p>
             <details>
               <summary>Manual invitation</summary>
               <textarea

@@ -34,3 +34,6 @@ Thumbs.db
 
 # Scaffold temporary dir
 .tmp-scaffold/
+
+apps/desktop/bin/
+apps/desktop/release/

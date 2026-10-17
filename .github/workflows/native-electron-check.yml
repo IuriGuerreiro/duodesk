@@ -1,0 +1,37 @@
+name: Native Electron package check
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - uses: pnpm/action-setup@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @duodesk/desktop package
+      - run: pnpm --filter @duodesk/desktop test
+      - run: pnpm --filter @duodesk/desktop test:host
+      - run: cargo test --locked --manifest-path apps/desktop/src-tauri/signaling/Cargo.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: duodesk-electron-${{ runner.os }}-${{ runner.arch }}-unsigned
+          path: |
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+          retention-days: 7

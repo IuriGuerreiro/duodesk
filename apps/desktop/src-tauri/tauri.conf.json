@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.rshazow.tauri-desktop",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "pnpm ui:dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "pnpm ui:build",
     "frontendDist": "../dist"
   },
   "app": {

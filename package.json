@@ -12,7 +12,9 @@
     "check-types": "turbo run check-types",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
     "dev:web": "pnpm --filter @duodesk/web dev",
-    "deploy:web": "pnpm --filter @duodesk/web deploy"
+    "deploy:web": "pnpm --filter @duodesk/web deploy",
+    "build:desktop": "turbo run build --filter=@duodesk/desktop",
+    "package:desktop": "pnpm --filter @duodesk/desktop package"
   },
   "devDependencies": {
     "prettier": "3.9.6",
