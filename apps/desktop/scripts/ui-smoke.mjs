@@ -1,0 +1,59 @@
+// Exercise the shipped renderer controls against the real Electron host.
+import { app, BrowserWindow } from "electron";
+import "../electron/main.mjs";
+const deadline = setTimeout(() => app.exit(1), 30000);
+void (async () => {
+  try {
+    await app.whenReady();
+    let window;
+    for (let i = 0; i < 100; i++) {
+      window = BrowserWindow.getAllWindows()[0];
+      if (
+        window &&
+        !window.webContents.isLoading() &&
+        window.webContents.getURL().startsWith("duodesk://app/")
+      )
+        break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    const result = await window.webContents.executeJavaScript(
+      `(async () => {
+    const wait = async (predicate, message) => {
+      for (let i=0;i<100;i++) { if(predicate()) return; await new Promise(r=>setTimeout(r,50)); }
+      throw Error(message);
+    };
+    const button = text => [...document.querySelectorAll('button')].find(b=>b.textContent.includes(text));
+    await wait(()=>document.querySelector('select')?.options.length > 0 && !button('Create connection')?.disabled, 'Address discovery failed');
+    button('Create connection').click();
+    await wait(()=>document.querySelector('[aria-label="Manual invitation"]'), 'Pairing UI did not appear');
+    const invitation = JSON.parse(document.querySelector('[aria-label="Manual invitation"]').value);
+    if (!invitation.url.startsWith('wss://') || invitation.fingerprint.length !== 64) throw Error('Invalid real invitation');
+    if (!document.querySelector('video').controls) throw Error('Video controls missing');
+    const select = document.querySelector('select');
+    if (!select.disabled) throw Error('Address can change during session');
+    button('Stop session').click();
+    await wait(()=>!document.querySelector('[aria-label="Manual invitation"]') && !select.disabled, 'Stop did not clear pairing UI');
+    if (!document.querySelector('[role="status"]').textContent.includes('Session ended')) throw Error('Stopped status missing');
+    if (document.querySelector('.app-header, .page-heading, .preview-notice, .diagnostics, footer')) throw Error('Removed UI returned');
+    for (const name of ['camera', 'microphone']) {
+      const permission = await navigator.permissions.query({name});
+      if (permission.state !== 'denied') throw Error(name + ' permission must remain denied');
+    }
+    button('Fullscreen').click();
+    await wait(()=>document.fullscreenElement?.classList.contains('receiver-panel'), 'Fullscreen did not open receiver: ' + document.querySelector('[role=alert]')?.textContent);
+    await wait(()=>button('Exit fullscreen'), 'Fullscreen button did not update');
+    button('Exit fullscreen').click();
+    await wait(()=>!document.fullscreenElement, 'Fullscreen did not exit');
+    return {passed:true,addressOptions:select.options.length,stopped:true,videoControls:true,fullscreen:true};
+  })()`,
+      true,
+    );
+    console.log(JSON.stringify(result));
+    clearTimeout(deadline);
+    app.quit();
+  } catch (error) {
+    console.error(error);
+    clearTimeout(deadline);
+    app.exit(1);
+  }
+})();
