@@ -137,7 +137,8 @@ export function ReceiverWorkspace({
                 controls
                 aria-label="Incoming mobile video"
               />
-              {!live && (\n                <div className="stage-empty">
+              {!live && (
+                <div className="stage-empty">
                   <div className="device-illustration">
                     <Monitor size={56} strokeWidth={1} />
                     <Smartphone size={29} strokeWidth={1.4} />
