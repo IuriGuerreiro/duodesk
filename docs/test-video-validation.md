@@ -26,7 +26,7 @@ pnpm install --frozen-lockfile
 pnpm dev:desktop:tauri
 ```
 
-Select the Windows Wi-Fi/Ethernet IPv4 address reachable by your mobile device, then choose Create invitation. Allow the desktop executable through Windows Firewall on your private network. The listener uses an ephemeral TCP port, and WebRTC uses dynamically selected media ports, so an application firewall rule is preferable to opening one fixed port. Vite-only browser mode cannot start the native listener.
+Select the Windows Wi-Fi/Ethernet IPv4 address reachable by your mobile device, then choose Create pairing code. Enter the displayed desktop address including its port and the six-digit code on mobile, or scan the QR. See [device pairing](device-pairing.md) for the protocol, bounds and integration notes. Allow the desktop executable through Windows Firewall on your private network. The listener uses an ephemeral TCP port, and WebRTC uses dynamically selected media ports, so an application firewall rule is preferable to opening one fixed port. Vite-only browser mode cannot start the native listener.
 
 ## Install on iPad
 
@@ -53,7 +53,7 @@ pnpm dlx eas-cli@25.1.1 build --platform android --profile development
 
 Install the APK from the resulting link. Start `pnpm dev:mobile` and open the development client. The `preview` profile also produces an APK with a bundled app for testing without Metro.
 
-On the same reachable LAN, open Stream test, scan the Windows invitation or paste its full JSON, then press Connect and Start video. Allow camera access for scanning and local network access for the connection. The camera is used only for QR scanning. Manual entry works without camera permission.
+On the same reachable LAN, open Stream test, enter the desktop address and six-digit code, then choose Verify code and connect and Start video. Alternatively, scan the Windows QR and choose Connect scanned invitation. Legacy JSON is available under diagnostics. Allow camera access for scanning and local network access for the connection. The camera is used only for QR scanning. Manual entry works without camera permission.
 
 Keep DuoDesk in the foreground. The test screen prevents auto-lock during an active session. Backgrounding the app, leaving the test tab, stopping either side, or losing the connection ends the session. For another attempt, create a new Windows invitation. Guest Wi-Fi isolation, a VPN, or selecting a virtual adapter can prevent direct connections.
 

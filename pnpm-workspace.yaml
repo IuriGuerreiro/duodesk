@@ -19,3 +19,6 @@ minimumReleaseAgeExclude:
   - expo-splash-screen@58.0.10
   - expo@58.0.14
   - expo-doctor@1.21.5
+  - expo-crypto@58.0.7
+patchedDependencies:
+  '@swan-io/srp@0.2.6': patches/@swan-io__srp@0.2.6.patch

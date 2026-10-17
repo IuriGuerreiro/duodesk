@@ -84,3 +84,5 @@ CI runs frozen installation, lint, typechecking, desktop Vite build, and Expo pr
 Android sender compilation, JavaScript checks, production exports, and local signaling checks pass. Windows playback and physical Android/iPad streaming still need device validation. No cloud build has been submitted for this change.
 
 DuoDesk original code uses [PolyForm Noncommercial](LICENSE.md). See [NOTICE](NOTICE) for third-party licensing; the Expo starter retains its own license notice.
+
+For desktop address selection and six-digit local pairing, see [device pairing](docs/device-pairing.md).

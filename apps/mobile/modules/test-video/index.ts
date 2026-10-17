@@ -12,3 +12,13 @@ export const stop = async (): Promise<void> => {};
 export const subscribe = (_listener: (status: SenderStatus) => void) => ({
   remove() {},
 });
+
+export const pairRequest = async (
+  _address: string,
+  _message: string,
+  _fresh: boolean,
+): Promise<string> => {
+  await unsupported();
+  return "";
+};
+export const pairClose = async (): Promise<void> => {};
