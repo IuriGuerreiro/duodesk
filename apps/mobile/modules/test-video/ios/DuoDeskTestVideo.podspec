@@ -12,7 +12,7 @@ Pod::Spec.new do |s|
   s.static_framework = true
   s.dependency 'ExpoModulesCore'
   s.dependency 'JitsiWebRTC', '155.0.0'
-  s.frameworks = 'AVFoundation', 'CoreMedia', 'CoreVideo', 'Security', 'CryptoKit'
+  s.frameworks = 'AVFoundation', 'CoreMedia', 'CoreVideo', 'Security', 'CryptoKit', 'Network'
   s.source_files = '*.{swift,h,m}'
   s.resource_bundles = { 'DuoDeskTestVideo' => ['../resources/test-pattern.mp4'] }
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }

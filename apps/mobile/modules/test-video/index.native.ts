@@ -3,6 +3,12 @@ import type { SenderStatus } from "./types";
 export type { SenderStatus, SenderStats } from "./types";
 type Events = { onStatus: (status: SenderStatus) => void };
 declare class TestVideoNative extends NativeModule<Events> {
+  pairRequest(
+    address: string,
+    message: string,
+    fresh: boolean,
+  ): Promise<string>;
+  pairClose(): Promise<void>;
   connect(invitation: string): Promise<void>;
   start(bitrateMbps: number): Promise<void>;
   stop(): Promise<void>;
@@ -25,3 +31,9 @@ export const subscribe = (
   listener: (status: SenderStatus) => void,
 ): { remove(): void } =>
   native?.addListener("onStatus", listener) ?? { remove() {} };
+
+export const pairRequest = (address: string, message: string, fresh: boolean) =>
+  module().pairRequest(address, message, fresh);
+export const pairClose = async () => {
+  await native?.pairClose();
+};

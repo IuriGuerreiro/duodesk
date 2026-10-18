@@ -3,10 +3,9 @@ import { QRCodeSVG } from "qrcode.react";
 import {
   ArrowUpRight,
   CircleHelp,
-  Copy,
   Expand,
-  Minimize,
   LoaderCircle,
+  Minimize,
   Monitor,
   Radio,
   RefreshCw,
@@ -16,21 +15,22 @@ import {
   Wifi,
 } from "lucide-react";
 import type { Invitation, StreamState } from "@duodesk/protocol";
+import { createPairingQrPayload } from "@duodesk/protocol/pairing";
 import type { VideoStats } from "../streaming/receiver";
 import { Button } from "./ui/button";
-import { Badge } from "./ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { Separator } from "./ui/separator";
-import { Textarea } from "./ui/textarea";
+
+export type NetworkAddress = {
+  name: string;
+  address: string;
+  kind: string;
+  selectable: boolean;
+};
 
 export interface ReceiverWorkspaceProps {
   desktopAvailable: boolean;
-  interfaces: {
-    name: string;
-    address: string;
-    kind: string;
-    selectable: boolean;
-  }[];
+  interfaces: NetworkAddress[];
   ip: string;
   onIpChange: (ip: string) => void;
   onRefresh: () => void;
@@ -66,8 +66,9 @@ export function ReceiverWorkspace({
   stats,
   videoRef,
 }: ReceiverWorkspaceProps) {
-  const [copyStatus, setCopyStatus] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
+  const hasSelectableAddress = interfaces.some((address) => address.selectable);
+
   useEffect(() => {
     const update = () =>
       setFullscreen(
@@ -77,6 +78,7 @@ export function ReceiverWorkspace({
     document.addEventListener("fullscreenchange", update);
     return () => document.removeEventListener("fullscreenchange", update);
   }, []);
+
   const live = state === "streaming";
   const waiting = !!invitation && state === "connecting";
   const label = busy
@@ -92,14 +94,7 @@ export function ReceiverWorkspace({
             : state === "stopped"
               ? "Session ended"
               : "Ready to connect";
-  async function copy(value: string) {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopyStatus("Copied to clipboard");
-    } catch {
-      setCopyStatus("Copy unavailable. Select and copy the text below.");
-    }
-  }
+
   return (
     <div className="workspace">
       <main id="receiver">
@@ -189,9 +184,13 @@ export function ReceiverWorkspace({
             {pairing && (
               <div className="code-pairing">
                 <p className="field-label">Enter on your phone</p>
-                <code>{pairing.address}</code>
+                <code aria-label="Desktop address and port">
+                  {pairing.address}
+                </code>
                 {pairing.code && remaining > 0 && (
-                  <strong>{pairing.code}</strong>
+                  <strong aria-label="Six-digit verification code">
+                    {pairing.code}
+                  </strong>
                 )}
                 <p role="status">{pairing.status}</p>
                 {waiting && (
@@ -215,25 +214,29 @@ export function ReceiverWorkspace({
                 id="desktop-address"
                 value={ip}
                 onChange={(e) => onIpChange(e.target.value)}
-                disabled={busy || !!invitation || !interfaces.length}
+                disabled={busy || !!invitation || !hasSelectableAddress}
               >
                 {!ip && (
                   <option value="" disabled>
                     {!desktopAvailable
                       ? "Available in desktop app"
-                      : interfaces.length
+                      : hasSelectableAddress
                         ? "Choose Wi-Fi or Ethernet"
                         : "No network address found"}
                   </option>
                 )}
                 {interfaces.map((address) => (
                   <option
-                    key={address.address}
+                    key={`${address.name}:${address.address}`}
                     value={address.address}
                     disabled={!address.selectable}
                   >
                     {address.name} · {address.address}{" "}
-                    {address.kind === "lan" ? "" : `(${address.kind})`}
+                    {address.kind === "lan"
+                      ? ""
+                      : address.kind === "virtual"
+                        ? "(Likely virtual / VPN)"
+                        : `(${address.kind})`}
                   </option>
                 ))}
               </select>
@@ -250,7 +253,7 @@ export function ReceiverWorkspace({
               <p className="field-help">
                 Choose the network your phone is connected to.
               </p>
-              {desktopAvailable && !interfaces.length && (
+              {desktopAvailable && !hasSelectableAddress && (
                 <p className="network-help">
                   Connect to Wi-Fi or Ethernet, then refresh the addresses.
                 </p>
@@ -282,48 +285,27 @@ export function ReceiverWorkspace({
             <Separator className="connection-separator" />
             {waiting ? (
               <div className="pairing-content">
-                <details
-                  className="qr-details"
-                  open={pairing ? undefined : true}
-                >
-                  <summary>Scan QR code instead</summary>
-                  <div className="qr-frame">
-                    <QRCodeSVG
-                      value={JSON.stringify(invitation)}
-                      size={168}
-                      level="M"
-                      title="Scan to connect to DuoDesk"
-                    />
-                  </div>
-                  <h3>Scan to connect</h3>
-                  <p>
-                    Open the Stream test tab in DuoDesk on your phone and scan
-                    this code.
-                  </p>
-                </details>
-                {!pairing && (
-                  <Badge variant="secondary">
-                    Expires in {Math.floor(remaining / 60)}:
-                    {String(remaining % 60).padStart(2, "0")}
-                  </Badge>
+                {pairing?.code && remaining > 0 && (
+                  <details className="qr-details">
+                    <summary>Scan to fill the phone fields</summary>
+                    <div className="qr-frame">
+                      <QRCodeSVG
+                        value={createPairingQrPayload(
+                          pairing.address,
+                          pairing.code,
+                        )}
+                        size={168}
+                        level="M"
+                        title="DuoDesk address and six-digit pairing code"
+                      />
+                    </div>
+                    <h3>Scan to fill address and code</h3>
+                    <p>
+                      Open Stream test on your phone and scan this QR. Then tap
+                      Verify code and connect.
+                    </p>
+                  </details>
                 )}
-                <details className="manual-details">
-                  <summary>Manual invitation</summary>
-                  <Textarea
-                    aria-label="Manual invitation"
-                    readOnly
-                    value={JSON.stringify(invitation)}
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void copy(JSON.stringify(invitation))}
-                  >
-                    <Copy />
-                    Copy invitation
-                  </Button>
-                  <p role="status">{copyStatus}</p>
-                </details>
               </div>
             ) : (
               <div className="setup-guide">
@@ -344,8 +326,8 @@ export function ReceiverWorkspace({
                     <li>
                       <span>3</span>
                       {pairing
-                        ? "Enter the address and code, or scan the QR code."
-                        : "Scan the QR code to start pairing."}
+                        ? "Enter the address and code, or scan to fill both fields."
+                        : "Create a connection, then enter its address and six-digit code."}
                     </li>
                   </ol>
                 )}
@@ -359,7 +341,7 @@ export function ReceiverWorkspace({
               <p>
                 Keep both devices on the same network. Allow DuoDesk through
                 your firewall on private networks. Guest Wi-Fi, VPNs, or blocked
-                UDP can prevent video. Create a new connection if the invitation
+                UDP can prevent video. Create a new connection if the code
                 expires.
               </p>
             </details>

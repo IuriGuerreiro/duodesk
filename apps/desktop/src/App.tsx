@@ -1,12 +1,25 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke, isDesktop, subscribe } from "./host";
-import { ReceiverWorkspace } from "./components/receiver-workspace";
+import {
+  ReceiverWorkspace,
+  type NetworkAddress,
+} from "./components/receiver-workspace";
 import type { Invitation, StreamState } from "@duodesk/protocol";
 import { VideoReceiver, type VideoStats } from "./streaming/receiver";
+import {
+  createPairingServer,
+  verificationCode,
+} from "@duodesk/protocol/pairing";
 import "./App.css";
 
 export default function App() {
-  const [interfaces, setInterfaces] = useState<string[]>([]);
+  const [interfaces, setInterfaces] = useState<NetworkAddress[]>([]);
+  const [address, setAddress] = useState("");
+  const [code, setCode] = useState("");
+  const [pairingStatus, setPairingStatus] = useState("");
+  const pairing = useRef<
+    Awaited<ReturnType<typeof createPairingServer>> | undefined
+  >(undefined);
   const [ip, setIp] = useState("");
   const [invitation, setInvitation] = useState<Invitation>();
   const [state, setState] = useState<StreamState>("idle");
@@ -26,6 +39,9 @@ export default function App() {
   }
   async function stop() {
     current.current = undefined;
+    pairing.current = undefined;
+    setCode("");
+    setAddress("");
     release();
     setInvitation(undefined);
     setStats(undefined);
@@ -36,11 +52,11 @@ export default function App() {
   useEffect(() => {
     mounted.current = true;
     if (!isDesktop()) return;
-    void invoke<string[]>("stream_interfaces")
+    void invoke<NetworkAddress[]>("stream_interfaces")
       .then((addresses) => {
         if (mounted.current) {
           setInterfaces(addresses);
-          setIp(addresses[0] ?? "");
+          setIp("");
         }
       })
       .catch(() => setError("Could not list local network addresses."));
@@ -48,19 +64,61 @@ export default function App() {
       const active = current.current;
       if (!active || !mounted.current) return;
       if (
+        payload.kind === "pairingstatus" &&
+        payload.sessionId === active.sessionId
+      ) {
+        setCode("");
+        pairing.current = undefined;
+        setPairingStatus(
+          payload.status === "used"
+            ? "Code verified. Waiting for the phone’s encrypted connection."
+            : "Code locked after 8 connection attempts. Create a new connection to try again.",
+        );
+      }
+      if (
+        payload.kind === "pairing" &&
+        payload.sessionId === active.sessionId
+      ) {
+        const handler = pairing.current;
+        if (handler)
+          void handler(payload.requestId, payload.message, active)
+            .then((reply) => {
+              if (current.current === active)
+                return invoke("stream_pair_reply", {
+                  reply: { requestId: payload.requestId, ...reply },
+                });
+            })
+            .catch(() => {
+              if (current.current === active)
+                void invoke("stream_pair_reply", {
+                  reply: {
+                    requestId: payload.requestId,
+                    message: "",
+                    complete: false,
+                  },
+                }).catch(() => {});
+            });
+      }
+      if (
         payload.kind === "signal" &&
         payload.signal.sessionId === active.sessionId
       )
         peer.current?.receive(payload.signal);
       if (payload.kind === "state" && payload.sessionId === active.sessionId) {
         setState(payload.state);
+        if (payload.state === "ready") {
+          pairing.current = undefined;
+          setCode("");
+        }
         if (payload.state === "stopped" || payload.state === "failed") {
           release();
+          pairing.current = undefined;
+          setCode("");
           current.current = undefined;
           setInvitation(undefined);
           if (payload.state === "failed")
             setError(
-              "Session expired or disconnected. Check Wi-Fi/firewall and create a new invitation.",
+              "Session expired or disconnected. Check Wi-Fi/firewall and create a new connection.",
             );
         }
       }
@@ -68,6 +126,7 @@ export default function App() {
     return () => {
       mounted.current = false;
       current.current = undefined;
+      pairing.current = undefined;
       release();
       void subscription.then((unlisten) => unlisten());
       void invoke("stream_stop").catch(() => {});
@@ -94,13 +153,37 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
+  async function refresh() {
+    setBusy(true);
+    try {
+      const addresses = await invoke<NetworkAddress[]>("stream_interfaces");
+      setInterfaces(addresses);
+      if (!addresses.some((item) => item.address === ip && item.selectable))
+        setIp("");
+    } catch {
+      setError("Could not refresh local addresses.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function start() {
     setBusy(true);
     setError("");
     setStats(undefined);
     try {
       await stop();
-      const next = await invoke<Invitation>("stream_start", { ip });
+      const nextCode = verificationCode();
+      const handler = await createPairingServer(nextCode);
+      const connection = await invoke<{
+        invitation: Invitation;
+        address: string;
+      }>("stream_start", { ip });
+      const next = connection.invitation;
+      pairing.current = handler;
+      setCode(nextCode);
+      setPairingStatus("");
+      setAddress(connection.address);
       if (!mounted.current) {
         await invoke("stream_stop");
         return;
@@ -143,27 +226,14 @@ export default function App() {
   return (
     <ReceiverWorkspace
       desktopAvailable={isDesktop()}
-      interfaces={interfaces.map((address) => ({
-        name: "Local network",
-        address,
-        kind: "lan",
-        selectable: true,
-      }))}
+      interfaces={interfaces}
       ip={ip}
       onIpChange={setIp}
-      onRefresh={() => {
-        void invoke<string[]>("stream_interfaces")
-          .then((addresses) => {
-            setInterfaces(addresses);
-            setIp(addresses.includes(ip) ? ip : (addresses[0] ?? ""));
-          })
-          .catch(() =>
-            setError(
-              "Could not refresh network addresses. Check your network connection.",
-            ),
-          );
-      }}
+      onRefresh={() => void refresh()}
       invitation={invitation}
+      pairing={
+        invitation ? { address, code, status: pairingStatus } : undefined
+      }
       state={state}
       error={error}
       stats={stats}
