@@ -2,12 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Keyboard, PermissionsAndroid, Platform } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { parsePairingQrPayload } from "@duodesk/protocol/pairing";
-import { pairWithCode } from "../../pairing/connect";
+import { pairWithCode, type PairingMode } from "@/features/pairing";
 import * as sender from "../../../modules/test-video";
 import type { SenderStatus } from "../../../modules/test-video";
 
 type Operation = "connect" | "start" | "screen" | "stop" | null;
-export type PairingMode = "closed" | "manual" | "scan";
 
 async function localNetworkPermission() {
   if (Platform.OS === "android" && Number(Platform.Version) >= 37) {
@@ -28,7 +27,7 @@ function parseBitrate(raw: string): number {
   return value;
 }
 
-export function useConnection() {
+export function useSenderSession() {
   const [status, setStatus] = useState<SenderStatus>({ state: "idle" });
   const [operation, setOperation] = useState<Operation>(null);
   const [mode, setMode] = useState<PairingMode>("closed");
