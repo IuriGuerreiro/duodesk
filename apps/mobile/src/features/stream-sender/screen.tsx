@@ -4,6 +4,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Switch,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -137,7 +138,11 @@ function Session({ connection }: { connection: SenderSession }) {
           </View>
           <View className="rounded-lg bg-secondary px-2.5 py-1.5">
             <Text className="text-xs font-semibold text-secondary-foreground">
-              {screenMode ? "NO AUDIO" : "VIDEO ONLY"}
+              {screenMode
+                ? status.audio === "active"
+                  ? "VIDEO + AUDIO"
+                  : "NO AUDIO"
+                : "VIDEO ONLY"}
             </Text>
           </View>
         </View>
@@ -164,6 +169,36 @@ function Session({ connection }: { connection: SenderSession }) {
             </Text>
           </View>
         )}
+        {status.state === "ready" && connection.supportsPlaybackAudio && (
+          <View className="gap-2">
+            <View className="flex-row items-center gap-3">
+              <Text className="flex-1 text-sm font-semibold">
+                Share phone audio
+              </Text>
+              <Switch
+                accessibilityLabel="Share phone audio when sharing the screen"
+                value={connection.shareAudio}
+                onValueChange={connection.setShareAudio}
+                disabled={connection.busy}
+              />
+            </View>
+            <Text className="text-xs leading-5 text-muted-foreground">
+              Sends sound from other apps, not your microphone. Android asks for
+              the microphone permission because it requires it for any audio
+              capture. Calls and apps that block capture stay silent.
+            </Text>
+          </View>
+        )}
+        {screenMode && connection.audioNotice ? (
+          <Text className="text-xs leading-5 text-muted-foreground">
+            {connection.audioNotice}
+          </Text>
+        ) : null}
+        {screenMode && status.audioMessage ? (
+          <Text className="text-xs leading-5 text-muted-foreground">
+            {status.audioMessage}
+          </Text>
+        ) : null}
         {status.state === "streaming" && !stats && (
           <Text className="text-sm text-muted-foreground">
             Waiting for stream statistics…
@@ -187,6 +222,9 @@ function Session({ connection }: { connection: SenderSession }) {
             </View>
             <Text className="text-xs text-muted-foreground">
               Quality limit: {stats.qualityLimit}
+              {stats.audioKbps !== undefined
+                ? ` · Audio ${Number(stats.audioKbps).toFixed(0)} kbps`
+                : ""}
             </Text>
           </View>
         )}
@@ -304,7 +342,7 @@ export default function StreamSenderScreen() {
     connection.status.mode === "screen" &&
     connection.status.state === "streaming";
   const copy = sharingScreen
-    ? screenStreamingCopy
+    ? screenStreamingCopy(connection.status.audio)
     : sessionCopy[connection.status.state];
   const error =
     connection.error ||

@@ -11,6 +11,7 @@ internal class ConsentRequest(
   val requestCode: Int,
   val senderGeneration: Long,
   val bitrateMbps: Int,
+  val shareAudio: Boolean,
   private val promise: Promise
 ) {
   private val settled = AtomicBoolean(false)
@@ -89,7 +90,7 @@ internal object VideoSenderManager {
   fun isConsentRequestCode(code: Int): Boolean = code in BASE_REQUEST_CODE until (BASE_REQUEST_CODE + REQUEST_CODE_RANGE)
 
   @Synchronized
-  fun prepareScreenConsent(bitrateMbps: Int, promise: Promise): ConsentRequest? {
+  fun prepareScreenConsent(bitrateMbps: Int, shareAudio: Boolean, promise: Promise): ConsentRequest? {
     val sender = activeSender ?: run {
       promise.reject("ERR_STREAM", "Connect to the desktop before starting", null)
       return null
@@ -115,7 +116,7 @@ internal object VideoSenderManager {
 
     val id = ++nextConsentId
     val requestCode = BASE_REQUEST_CODE + ((id % REQUEST_CODE_RANGE).toInt())
-    val request = ConsentRequest(id, requestCode, sender.currentGeneration(), bitrateMbps, promise)
+    val request = ConsentRequest(id, requestCode, sender.currentGeneration(), bitrateMbps, shareAudio, promise)
     pendingConsentRequest = request
     isConsentOutstanding = true
     return request
@@ -164,6 +165,7 @@ internal object VideoSenderManager {
     ScreenCaptureService.start(activity.applicationContext, serviceSession) {
       sender.submitScreen(
         bitrateMbps = request.bitrateMbps,
+        shareAudio = request.shareAudio,
         resultData = data,
         serviceSession = serviceSession,
         onStarted = { request.resolve() },
