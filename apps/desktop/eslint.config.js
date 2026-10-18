@@ -13,4 +13,9 @@ export default [
       "node_modules/**",
     ],
   },
+  {
+    // Unit tests run under plain node, so they import the receiver's internals directly.
+    files: ["test/**"],
+    rules: { "no-restricted-imports": "off" },
+  },
 ];
