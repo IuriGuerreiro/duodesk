@@ -18,10 +18,10 @@ import {
 } from "lucide-react";
 import type { Invitation, StreamState } from "@duodesk/protocol";
 import { createPairingQrPayload } from "@duodesk/protocol/pairing";
-import type { VideoStats } from "../streaming/receiver";
-import { Button } from "./ui/button";
-import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
-import { Separator } from "./ui/separator";
+import type { VideoStats } from "./video-receiver";
+import { Button } from "@/shared/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
+import { Separator } from "@/shared/ui/separator";
 
 export type NetworkAddress = {
   name: string;
