@@ -17,24 +17,6 @@ import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
 import javax.net.ssl.X509TrustManager
 
-internal data class Invitation(val sessionId: String, val url: String, val token: String, val fingerprint: String) {
-  companion object {
-    fun parse(text: String): Invitation {
-      require(text.toByteArray().size <= 2048) { "Invitation is too large" }
-      val json = JSONObject(text)
-      require(json.keys().asSequence().toSet() == setOf("v", "sessionId", "url", "token", "fingerprint", "expiresAt")) { "Invalid invitation fields" }
-      val uri = URI(json.getString("url"))
-      val now = System.currentTimeMillis()
-      require(json.getInt("v") == 1 && json.getString("sessionId").matches(Regex("[a-f0-9]{32}")) &&
-        json.getString("token").matches(Regex("[a-f0-9]{64}")) && json.getString("fingerprint").matches(Regex("[a-f0-9]{64}")) &&
-        json.getLong("expiresAt") > now && json.getLong("expiresAt") <= now + 300_000 &&
-        uri.scheme == "wss" && uri.port in 1..65535 && uri.path == "/" && uri.userInfo == null && uri.query == null && uri.fragment == null &&
-        uri.host?.split('.')?.let { parts -> parts.size == 4 && parts.all { it.toIntOrNull() in 0..255 } } == true) { "Invalid or expired invitation. Create a new one on the desktop." }
-      return Invitation(json.getString("sessionId"), uri.toString(), json.getString("token"), json.getString("fingerprint"))
-    }
-  }
-}
-
 internal class VideoSender(private val context: Context, private val emit: (Map<String, Any>) -> Unit) {
   @Volatile
   private var queueThread: Thread? = null
@@ -143,6 +125,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
   fun connect(text: String) {
     close()
     val info = Invitation.parse(text)
+    require(info.direction == Direction.PhoneToDesktop) { "This invitation is for viewing the desktop screen. Use the viewer instead." }
     invitation = info
     val epoch = generation
     val trust = object : X509TrustManager {
@@ -304,13 +287,8 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     require(text.toByteArray().size <= 65_536) { "Signaling message is too large" }
     val message = JSONObject(text)
     check(message.getInt("v") == 1 && message.getString("sessionId") == invitation?.sessionId) { "Stale signaling session" }
-    val keys = setOf("v", "sessionId", "type")
-    val expected = when (message.getString("type")) {
-      "paired", "stop" -> keys
-      "answer" -> keys + "sdp"
-      "candidate" -> keys + setOf("candidate", "sdpMid", "sdpMLineIndex")
-      else -> error("Unexpected signaling message")
-    }
+    val direction = checkNotNull(invitation).direction
+    val expected = SignalRoutes.desktopFields(direction, message.getString("type"))
     require(message.keys().asSequence().toSet() == expected) { "Invalid signaling fields" }
     when (message.getString("type")) {
       "paired" -> {

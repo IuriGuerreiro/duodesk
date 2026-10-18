@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke, isDesktop, subscribe } from "@/shared/host";
-import type { NetworkAddress, ReceiverWorkspaceProps } from "./receiver-workspace";
+import type {
+  NetworkAddress,
+  ReceiverWorkspaceProps,
+} from "./receiver-workspace";
 import type { Invitation, StreamState } from "@duodesk/protocol";
 import { VideoReceiver, type VideoStats } from "./video-receiver";
 import {
@@ -174,7 +177,7 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
       const connection = await invoke<{
         invitation: Invitation;
         address: string;
-      }>("stream_start", { ip });
+      }>("stream_start", { ip, direction: "phone-to-desktop" });
       const next = connection.invitation;
       pairing.current = handler;
       setCode(nextCode);

@@ -15,7 +15,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 let window;
 let host;
-let activeSession;
+let active;
 app.commandLine.appendSwitch(
   "force-webrtc-ip-handling-policy",
   "default_public_and_private_interfaces",
@@ -23,7 +23,7 @@ app.commandLine.appendSwitch(
 function closeHost() {
   host?.close();
   host = undefined;
-  activeSession = undefined;
+  active = undefined;
 }
 async function open() {
   window = new BrowserWindow({
@@ -119,7 +119,7 @@ app
         event.senderFrame.url !== entry
       )
         throw new Error("Untrusted sender");
-      validateCommand(method, args);
+      validateCommand(method, args, active?.direction);
       if (!host) {
         const binary = path.join(
           app.isPackaged ? process.resourcesPath : root,
@@ -134,13 +134,13 @@ app
           },
           () => {
             host = undefined;
-            if (activeSession && window && !window.isDestroyed())
+            if (active && window && !window.isDestroyed())
               window.webContents.send("duodesk:event", {
                 kind: "state",
-                sessionId: activeSession,
+                sessionId: active.sessionId,
                 state: "failed",
               });
-            activeSession = undefined;
+            active = undefined;
           },
         );
       }
@@ -148,8 +148,12 @@ app
       const result = await owner.request(method, args);
       if (owner !== host || owner.closed)
         throw new Error("Desktop host stopped");
-      if (method === "stream_start") activeSession = result.invitation.sessionId;
-      if (method === "stream_stop") activeSession = undefined;
+      if (method === "stream_start")
+        active = {
+          sessionId: result.invitation.sessionId,
+          direction: args.direction,
+        };
+      if (method === "stream_stop") active = undefined;
       return result;
     });
     await open();

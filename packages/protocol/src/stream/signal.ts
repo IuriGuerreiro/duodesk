@@ -1,3 +1,4 @@
+import { canSend, type Direction, type Role } from "./direction.ts";
 import { exact, hex, id, record } from "./guards.ts";
 
 export const MAX_SIGNAL_BYTES = 65_536;
@@ -15,7 +16,17 @@ export type Signal = { v: 1; sessionId: string } & (
   | { type: "stop" }
 );
 
-export function parseSignal(text: string, sessionId: string): Signal {
+/** Where a message came from, so the parser can enforce the direction's route table. */
+export interface SignalRoute {
+  sessionId: string;
+  direction: Direction;
+  from: Role;
+}
+
+export function parseSignal(
+  text: string,
+  { sessionId, direction, from }: SignalRoute,
+): Signal {
   if (new TextEncoder().encode(text).length > MAX_SIGNAL_BYTES)
     throw new Error("Signal is too large.");
   const value: unknown = JSON.parse(text);
@@ -48,6 +59,7 @@ export function parseSignal(text: string, sessionId: string): Signal {
               Number(value.sdpMLineIndex) >= 0 &&
               Number(value.sdpMLineIndex) <= 32
             : false;
-  if (!valid) throw new Error("Invalid signaling message.");
+  if (!valid || !canSend(direction, from, value.type as Signal["type"]))
+    throw new Error("Invalid signaling message.");
   return value as unknown as Signal;
 }

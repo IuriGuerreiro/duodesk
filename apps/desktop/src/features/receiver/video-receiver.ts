@@ -73,7 +73,11 @@ export class VideoReceiver {
     this.queue = this.queue
       .then(async () => {
         if (this.closed) return;
-        const message = parseSignal(JSON.stringify(signal), this.sessionId);
+        const message = parseSignal(JSON.stringify(signal), {
+          sessionId: this.sessionId,
+          direction: "phone-to-desktop",
+          from: "phone",
+        });
         if (message.type === "offer") {
           if (this.offered) throw new Error("Unexpected second video offer.");
           this.offered = true;
