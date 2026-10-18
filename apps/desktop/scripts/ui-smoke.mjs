@@ -33,9 +33,9 @@ void (async () => {
     await wait(()=>document.querySelector('.code-pairing strong'), 'Pairing UI did not appear');
     const code = document.querySelector('.code-pairing strong');
     if (!code || !/^[0-9]{6}$/.test(code.textContent)) throw Error('Pairing code missing');
-    const qr = document.querySelector('.qr-details');
-    if (!qr?.querySelector('svg')) throw Error('Six-digit pairing QR missing');
-    if (qr.open) throw Error('Pairing QR should start collapsed');
+    const qr = document.querySelector('.code-pairing .qr-frame svg');
+    if (!qr) throw Error('Six-digit pairing QR missing');
+    if (qr.closest('details')) throw Error('Pairing QR should be directly visible, not inside a collapsed details toggle');
     if (document.querySelector('textarea') || document.body.innerText.includes('Manual invitation')) throw Error('Legacy invitation input returned');
     if (!document.querySelector('video').controls) throw Error('Video controls missing');
     const select = document.querySelector('select');

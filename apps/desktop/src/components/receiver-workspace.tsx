@@ -81,6 +81,7 @@ export function ReceiverWorkspace({
 
   const live = state === "streaming";
   const waiting = !!invitation && state === "connecting";
+  const hasActivePairingCode = Boolean(pairing?.code && remaining > 0);
   const label = busy
     ? "Preparing receiver"
     : live
@@ -146,7 +147,7 @@ export function ReceiverWorkspace({
                     {state === "ready"
                       ? "Press Start on your mobile device to begin streaming."
                       : waiting
-                        ? "Use the connection panel to pair your phone."
+                        ? "Scan the QR code or enter the address and code on your phone."
                         : "Create a connection, then open DuoDesk on your phone. Your video will appear here."}
                   </p>
                   <span className="stage-hint">
@@ -181,27 +182,6 @@ export function ReceiverWorkspace({
                 <p>Use the same Wi-Fi or local network.</p>
               </div>
             </div>
-            {pairing && (
-              <div className="code-pairing">
-                <p className="field-label">Enter on your phone</p>
-                <code aria-label="Desktop address and port">
-                  {pairing.address}
-                </code>
-                {pairing.code && remaining > 0 && (
-                  <strong aria-label="Six-digit verification code">
-                    {pairing.code}
-                  </strong>
-                )}
-                <p role="status">{pairing.status}</p>
-                {waiting && (
-                  <span className="code-expiry">
-                    {remaining > 0
-                      ? `Expires in ${remaining}s`
-                      : "Code expired. Create a new connection."}
-                  </span>
-                )}
-              </div>
-            )}
             <details
               className={`network-settings ${invitation ? "session-active" : ""}`}
               open={!invitation}
@@ -283,28 +263,49 @@ export function ReceiverWorkspace({
               </Button>
             )}
             <Separator className="connection-separator" />
-            {waiting ? (
-              <div className="pairing-content">
-                {pairing?.code && remaining > 0 && (
-                  <details className="qr-details">
-                    <summary>Scan to fill the phone fields</summary>
-                    <div className="qr-frame">
-                      <QRCodeSVG
-                        value={createPairingQrPayload(
-                          pairing.address,
-                          pairing.code,
-                        )}
-                        size={168}
-                        level="M"
-                        title="DuoDesk address and six-digit pairing code"
-                      />
+            {pairing ? (
+              <div className="code-pairing">
+                <p className="field-label">
+                  {hasActivePairingCode
+                    ? "Scan or enter on your phone"
+                    : "Enter on your phone"}
+                </p>
+                {hasActivePairingCode && (
+                  <div className="qr-frame">
+                    <QRCodeSVG
+                      value={createPairingQrPayload(
+                        pairing.address,
+                        pairing.code,
+                      )}
+                      size={176}
+                      level="M"
+                      title="DuoDesk address and six-digit pairing code"
+                    />
+                  </div>
+                )}
+                <div className="pairing-details">
+                  <div className="pairing-field">
+                    <span className="pairing-meta-label">IP Address</span>
+                    <code aria-label="Desktop address and port">
+                      {pairing.address}
+                    </code>
+                  </div>
+                  {hasActivePairingCode && (
+                    <div className="pairing-field">
+                      <span className="pairing-meta-label">Pairing Code</span>
+                      <strong aria-label="Six-digit verification code">
+                        {pairing.code}
+                      </strong>
                     </div>
-                    <h3>Scan to fill address and code</h3>
-                    <p>
-                      Open Stream test on your phone and scan this QR. Then tap
-                      Verify code and connect.
-                    </p>
-                  </details>
+                  )}
+                </div>
+                {pairing.status && <p role="status">{pairing.status}</p>}
+                {waiting && (
+                  <span className="code-expiry">
+                    {remaining > 0
+                      ? `Expires in ${remaining}s`
+                      : "Code expired. Create a new connection."}
+                  </span>
                 )}
               </div>
             ) : (
@@ -318,16 +319,15 @@ export function ReceiverWorkspace({
                 ) : (
                   <ol>
                     <li>
-                      <span>1</span>Create a connection on this computer.
+                      <span>1</span>Choose your network address and create a
+                      connection.
                     </li>
                     <li>
                       <span>2</span>Open DuoDesk on your phone.
                     </li>
                     <li>
-                      <span>3</span>
-                      {pairing
-                        ? "Enter the address and code, or scan to fill both fields."
-                        : "Create a connection, then enter its address and six-digit code."}
+                      <span>3</span>Scan the QR code or enter the IP and code
+                      shown below.
                     </li>
                   </ol>
                 )}

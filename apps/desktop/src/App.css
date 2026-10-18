@@ -242,11 +242,14 @@ select {
 }
 .qr-frame {
   background: white;
-  border: 1px solid #e1e7f0;
-  border-radius: 9px;
-  padding: 13px;
-  display: inline-block;
-  margin-bottom: 12px;
+  border: 1px solid #dce6f6;
+  border-radius: 10px;
+  padding: 14px;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 14px;
+  box-shadow: 0 1px 2px rgba(27, 39, 56, 0.04);
 }
 .setup-guide ol {
   padding-left: 0;
@@ -292,19 +295,63 @@ select {
   margin: 8px 0 0;
 }
 .code-pairing {
-  padding-bottom: 20px;
+  text-align: center;
+  padding: 18px 14px;
+  margin: 0;
+  background: #f1f5fc;
+  border: 1px solid #dce6f6;
+  border-radius: 10px;
+}
+.code-pairing > .field-label {
+  margin-bottom: 12px;
+}
+.pairing-details {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: white;
+  border: 1px solid #dce6f6;
+  border-radius: 8px;
+  padding: 12px;
+}
+.pairing-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.pairing-field + .pairing-field {
+  border-top: 1px solid #eef3fb;
+  padding-top: 10px;
+}
+.pairing-meta-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #748297;
 }
 .code-pairing code {
   display: block;
   font-size: 13px;
+  font-weight: 600;
+  color: #1b2738;
+  overflow-wrap: anywhere;
 }
 .code-pairing strong {
   display: block;
   font:
-    30px ui-monospace,
+    26px ui-monospace,
     monospace;
+  font-weight: 700;
   letter-spacing: 5px;
-  margin-top: 12px;
+  color: #1b2738;
+  margin-top: 2px;
+}
+.code-pairing p[role="status"] {
+  font-size: 11px;
+  color: #66768d;
+  line-height: 1.6;
+  margin: 10px 0 0;
 }
 
 .spin {
@@ -371,40 +418,6 @@ select {
   margin-top: 5px;
 }
 
-.code-pairing {
-  text-align: center;
-  padding: 16px 10px;
-  margin: 0 0 20px;
-  background: #f1f5fc;
-  border: 1px solid #dce6f6;
-  border-radius: 8px;
-}
-.code-pairing p[role="status"] {
-  font-size: 11px;
-  color: #66768d;
-  line-height: 1.6;
-  margin: 8px 0 0;
-}
-.code-pairing code {
-  overflow-wrap: anywhere;
-}
-.qr-details {
-  font-size: 12px;
-  color: #5e7190;
-  margin-bottom: 16px;
-}
-.qr-details summary {
-  padding: 4px 0 12px;
-}
-.qr-details h3 {
-  margin-top: 10px;
-}
-.qr-details p {
-  font-size: 12px;
-  line-height: 1.7;
-  margin: 6px 0;
-}
-
 .network-settings:not(.session-active) > summary {
   display: none;
 }
@@ -423,7 +436,7 @@ select {
 .code-expiry {
   display: block;
   font-size: 11px;
-  margin-top: 7px;
+  margin-top: 10px;
   color: #66768d;
 }
 
