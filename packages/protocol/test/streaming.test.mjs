@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseInvitation, parseSignal } from "../src/streaming.ts";
+import { parseInvitation, parseSignal } from "../src/index.ts";
 const sessionId = "a".repeat(32);
 const invitation = {
   v: 1,
