@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
 import { cn } from "@/lib/utils";
 import { useConnection } from "./use-connection";
-import { sessionCopy } from "./session-copy";
+import { screenStreamingCopy, sessionCopy } from "./session-copy";
 
 type Connection = ReturnType<typeof useConnection>;
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -135,7 +135,7 @@ function Scanner({ connection }: { connection: Connection }) {
     try {
       await requestPermission();
     } catch {
-      setCameraError("Camera access failed. Paste an invitation instead.");
+      setCameraError("Camera access failed. Enter the address and code instead.");
     } finally {
       setRequesting(false);
     }
@@ -165,7 +165,7 @@ function Scanner({ connection }: { connection: Connection }) {
             onBarcodeScanned={({ data }) => connection.acceptScan(data)}
             onMountError={() =>
               setCameraError(
-                "The camera could not open. Paste an invitation instead.",
+                "The camera could not open. Enter the address and code instead.",
               )
             }
           />
@@ -178,7 +178,7 @@ function Scanner({ connection }: { connection: Connection }) {
           <Icon name="camera-outline" size={36} />
           <Text className="text-center leading-6 text-muted-foreground">
             {cameraError ||
-              "Allow camera access to scan an invitation. You can also paste one without using the camera."}
+              "Allow camera access to scan the QR code. You can also enter the address and six-digit code without using the camera."}
           </Text>
           {!cameraError && (
             <Button
@@ -188,7 +188,7 @@ function Scanner({ connection }: { connection: Connection }) {
                 if (permission && !permission.canAskAgain) {
                   void Linking.openSettings().catch(() =>
                     setCameraError(
-                      "Open your phone settings to allow camera access, or paste an invitation.",
+                      "Open your phone settings to allow camera access, or enter the address and code.",
                     ),
                   );
                 } else void requestAccess();
@@ -211,7 +211,7 @@ function Scanner({ connection }: { connection: Connection }) {
           connection.setMode("manual");
         }}
       >
-        <Text>Paste an invitation instead</Text>
+        <Text>Enter the code instead</Text>
       </Button>
     </View>
   );
@@ -228,7 +228,7 @@ function Pairing({ connection }: { connection: Connection }) {
         <View className="flex-1 gap-1">
           <Text className="text-lg font-semibold">Connect to your PC</Text>
           <Text className="text-sm leading-5 text-muted-foreground">
-            Open DuoDesk on your PC and create an invitation.
+            Open DuoDesk on your PC and create a pairing code.
           </Text>
         </View>
       </View>
@@ -243,38 +243,54 @@ function Pairing({ connection }: { connection: Connection }) {
       {connection.mode === "manual" ? (
         <View className="gap-3 border-t border-border pt-4">
           <View className="flex-row items-center justify-between">
-            <Text className="font-semibold">PC invitation</Text>
+            <Text className="font-semibold">PC address and code</Text>
             <Button
               variant="ghost"
               size="icon"
-              accessibilityLabel="Close manual invitation"
+              accessibilityLabel="Close manual entry"
               onPress={() => connection.setMode("closed")}
             >
               <Icon name="close" size={20} color="#5D6B82" />
             </Button>
           </View>
           <Text className="text-sm leading-5 text-muted-foreground">
-            Copy the full manual invitation from your PC and paste it here.
+            Enter the address with its port and the six-digit code shown in
+            DuoDesk on your PC.
           </Text>
           <Input
-            accessibilityLabel="PC invitation"
-            placeholder="Paste the full invitation…"
+            accessibilityLabel="PC address and port"
+            placeholder="192.168.1.20:39871"
             placeholderTextColor="#5D6B82"
-            multiline
-            textAlignVertical="top"
-            className="min-h-28 leading-6"
-            value={connection.invitation}
-            onChangeText={connection.setInvitation}
+            value={connection.address}
+            onChangeText={connection.setAddress}
             autoCapitalize="none"
             autoCorrect={false}
-            maxLength={2049}
+            keyboardType="url"
             editable={!connection.busy}
           />
+          <Input
+            accessibilityLabel="Six-digit verification code"
+            placeholder="Six-digit code"
+            placeholderTextColor="#5D6B82"
+            value={connection.code}
+            onChangeText={connection.setCode}
+            keyboardType="number-pad"
+            maxLength={6}
+            editable={!connection.busy}
+          />
+          {connection.notice ? (
+            <Text
+              accessibilityLiveRegion="polite"
+              className="text-sm leading-5 text-muted-foreground"
+            >
+              {connection.notice}
+            </Text>
+          ) : null}
           <Button
             disabled={
               !connection.available ||
               connection.busy ||
-              !connection.invitation.trim()
+              !connection.canSubmit
             }
             onPress={() => connection.connect()}
           >
@@ -295,7 +311,7 @@ function Pairing({ connection }: { connection: Connection }) {
           onPress={() => connection.setMode("manual")}
         >
           <Icon name="clipboard-outline" size={19} color="#5D6B82" />
-          <Text className="text-muted-foreground">Paste an invitation</Text>
+          <Text className="text-muted-foreground">Enter address and code</Text>
         </Button>
       )}
       <View className="flex-row items-center gap-2">
@@ -311,8 +327,11 @@ function Pairing({ connection }: { connection: Connection }) {
 function Session({ connection }: { connection: Connection }) {
   const { status } = connection;
   const stats = status.stats;
+  const screenMode = status.mode === "screen" || connection.screenIntent;
   const starting =
-    connection.negotiatingVideo || connection.operation === "start";
+    connection.negotiatingVideo ||
+    connection.operation === "start" ||
+    connection.operation === "screen";
   return (
     <View className="gap-5">
       <View className="flex-row items-center gap-3">
@@ -332,7 +351,11 @@ function Session({ connection }: { connection: Connection }) {
         {status.state === "connecting" && (
           <ActivityIndicator
             accessibilityLabel={
-              starting ? "Starting test video" : "Connecting to PC"
+              starting
+                ? screenMode
+                  ? "Starting screen sharing"
+                  : "Starting test video"
+                : "Connecting to PC"
             }
             color="#2855D9"
           />
@@ -341,14 +364,16 @@ function Session({ connection }: { connection: Connection }) {
       <View className="gap-4 border-t border-border pt-5">
         <View className="flex-row items-center justify-between gap-3">
           <View className="flex-1 gap-1">
-            <Text className="font-semibold">Test video</Text>
+            <Text className="font-semibold">
+              {screenMode ? "Screen sharing" : "Test video"}
+            </Text>
             <Text className="text-sm text-muted-foreground">
-              Bundled clip · 1080p target
+              {screenMode ? "Live display mirror" : "Bundled clip · 1080p target"}
             </Text>
           </View>
           <View className="rounded-lg bg-secondary px-2.5 py-1.5">
             <Text className="text-xs font-semibold text-secondary-foreground">
-              VIDEO ONLY
+              {screenMode ? "NO AUDIO" : "VIDEO ONLY"}
             </Text>
           </View>
         </View>
@@ -407,14 +432,17 @@ function Session({ connection }: { connection: Connection }) {
             className="text-sm leading-6 text-muted-foreground"
           >
             {starting
-              ? "Starting the test video. Waiting for your PC…"
-              : "Waiting for your PC to accept the invitation…"}
+              ? screenMode
+                ? "Starting screen sharing. Waiting for your PC…"
+                : "Starting the test video. Waiting for your PC…"
+              : "Verifying the code. Waiting for your PC…"}
           </Text>
         )}
       </View>
       <Text className="text-xs leading-5 text-muted-foreground">
-        Keep DuoDesk open. Leaving the app ends this session. Reconnecting needs
-        a new PC invitation.
+        {screenMode && status.state === "streaming"
+          ? "Sharing continues when you open other apps. Stop it here or from the DuoDesk notification. Reconnecting needs a new pairing code."
+          : "Keep DuoDesk open. Leaving the app ends this session. Reconnecting needs a new pairing code."}
       </Text>
     </View>
   );
@@ -435,12 +463,35 @@ function SessionControls({ connection }: { connection: Connection }) {
             {connection.error}
           </Text>
         ) : null}
+        {status.state === "ready" && connection.supportsScreenSharing && (
+          <Button disabled={connection.busy} onPress={connection.startScreen}>
+            <Icon name="phone-portrait-outline" color="white" size={19} />
+            <Text>Share screen</Text>
+          </Button>
+        )}
         {status.state === "ready" && (
-          <Button disabled={connection.busy} onPress={connection.start}>
-            <Icon name="play" color="white" size={19} />
+          <Button
+            variant={connection.supportsScreenSharing ? "outline" : "default"}
+            disabled={connection.busy}
+            onPress={connection.start}
+          >
+            <Icon
+              name="play"
+              color={connection.supportsScreenSharing ? "#17243D" : "white"}
+              size={19}
+            />
             <Text>Start test video</Text>
           </Button>
         )}
+        {status.state === "ready" &&
+          !connection.supportsScreenSharing &&
+          Platform.OS === "android" &&
+          connection.available && (
+            <Text className="text-xs leading-5 text-muted-foreground">
+              Screen sharing needs an updated Android development build.
+              Rebuild and install the app to enable it.
+            </Text>
+          )}
         <Button
           variant={status.state === "streaming" ? "destructive" : "outline"}
           size={status.state === "ready" ? "sm" : "default"}
@@ -485,13 +536,20 @@ function Metric({ value, label }: { value: string; label: string }) {
 export default function ConnectionScreen() {
   const connection = useConnection();
   const [help, setHelp] = useState(false);
-  const copy = sessionCopy[connection.status.state];
+  const sharingScreen =
+    connection.status.mode === "screen" &&
+    connection.status.state === "streaming";
+  const copy = sharingScreen
+    ? screenStreamingCopy
+    : sessionCopy[connection.status.state];
   const error =
     connection.error ||
     (connection.status.state === "failed" ? connection.status.message : "");
   return (
     <SafeAreaView className="flex-1 bg-background">
-      {!connection.canPair && connection.available && <PreventSleep />}
+      {!connection.canPair &&
+        connection.available &&
+        connection.status.mode !== "screen" && <PreventSleep />}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -543,18 +601,18 @@ export default function ConnectionScreen() {
                   Two devices, one connection
                 </Text>
                 <Text className="text-sm leading-6 text-muted-foreground">
-                  1. Open DuoDesk on your Windows PC.{`\n`}2. Create an
-                  invitation.{`\n`}3. Scan its QR code or paste the full
-                  invitation here.
+                  1. Open DuoDesk on your PC.{`\n`}2. Create a pairing code.
+                  {`\n`}3. Scan its QR code, or enter the address and
+                  six-digit code here.
                 </Text>
                 <Text className="text-sm leading-6 text-muted-foreground">
-                  Invitations expire quickly. If one fails, create a new one.
-                  Both devices must be on the same local network. Check the PC
-                  firewall if connecting times out.
+                  Codes expire quickly and work once. If one fails, create a
+                  new one. Both devices must be on the same local network. Check
+                  the PC firewall if connecting times out.
                 </Text>
                 <Text className="text-sm leading-6 text-muted-foreground">
-                  This build sends a bundled test video. It does not capture
-                  your phone screen or audio.
+                  Screen sharing mirrors your display without audio, where the
+                  build supports it. The test video is a bundled clip.
                 </Text>
               </View>
             )}
@@ -593,12 +651,16 @@ export default function ConnectionScreen() {
                 className="text-[34px] font-bold leading-[40px] tracking-tight"
               >
                 {connection.negotiatingVideo
-                  ? "Getting your\nvideo ready."
+                  ? connection.screenIntent
+                    ? "Getting your\nscreen ready."
+                    : "Getting your\nvideo ready."
                   : copy.title}
               </Text>
               <Text className="max-w-sm text-base leading-6 text-muted-foreground">
                 {connection.negotiatingVideo
-                  ? "The PC is connected. Setting up the test video stream."
+                  ? connection.screenIntent
+                    ? "The PC is connected. Setting up screen sharing."
+                    : "The PC is connected. Setting up the test video stream."
                   : copy.detail}
               </Text>
             </View>

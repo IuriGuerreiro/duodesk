@@ -12,7 +12,7 @@ export const sessionCopy = {
     label: "Not connected",
     title: "Your phone.\nMeet your PC.",
     detail:
-      "Connect to DuoDesk on your PC to send video over your local network.",
+      "Pair with DuoDesk on your PC to send your screen or video over your local network.",
     tone: "neutral",
   },
   connecting: {
@@ -24,7 +24,8 @@ export const sessionCopy = {
   ready: {
     label: "Connected",
     title: "Connected.\nReady when you are.",
-    detail: "Your PC is paired. Start the test video to check your connection.",
+    detail:
+      "Your PC is paired. Share your screen or start the test video to check your connection.",
     tone: "green",
   },
   streaming: {
@@ -37,14 +38,22 @@ export const sessionCopy = {
   stopped: {
     label: "Disconnected",
     title: "Session ended.\nConnect again.",
-    detail: "Create a fresh invitation on your PC to start another session.",
+    detail: "Create a new pairing code on your PC to start another session.",
     tone: "neutral",
   },
   failed: {
     label: "Connection issue",
     title: "Let’s get you\nreconnected.",
     detail:
-      "Check that both devices are on the same network, then create a new PC invitation.",
+      "Check that both devices are on the same network, then create a new pairing code on your PC.",
     tone: "red",
   },
 } satisfies Record<SenderStatus["state"], SessionCopy>;
+
+export const screenStreamingCopy: SessionCopy = {
+  label: "Screen is live",
+  title: "Your screen.\nLive on your PC.",
+  detail:
+    "Your display is mirrored to your PC. Audio is not shared. You can stop from the DuoDesk notification or here.",
+  tone: "green",
+};

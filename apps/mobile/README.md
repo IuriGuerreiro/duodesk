@@ -22,6 +22,8 @@ pnpm --filter @duodesk/mobile build
 
 Routes live in `src/app/`; `/stream-test` redirects to the main workspace for existing links. Pairing stays inline so opening the scanner or manual form does not blur the session screen.
 
+For local address/code pairing and native integration points, see [device pairing](../../docs/device-pairing.md). Rebuild the development client after updating the native module.
+
 ## Styling
 
 The app uses a light palette, system typography, 48–56 point button targets, safe areas, and a scrollable keyboard-aware layout. Tokens live in `tailwind.config.js`.

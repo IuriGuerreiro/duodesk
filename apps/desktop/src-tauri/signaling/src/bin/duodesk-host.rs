@@ -41,7 +41,7 @@ async fn main() {
         };
         let result: Result<Value, String> = async {
             match request["method"].as_str() {
-                Some("stream_interfaces") => Ok(json!(duodesk_signaling::interfaces())),
+                Some("stream_interfaces") => Ok(json!(duodesk_signaling::network_addresses()?)),
                 Some("stream_stop") => {
                     session.take();
                     Ok(Value::Null)
@@ -54,9 +54,16 @@ async fn main() {
                         Arc::new(|event| output(json!({"event": event}))),
                     )
                     .await?;
-                    let invitation = json!(next.invitation);
+                    let invitation =
+                        json!({"invitation": next.invitation, "address": next.pairing_address});
                     session = Some(next);
                     Ok(invitation)
+                }
+                Some("stream_pair_reply") => {
+                    let reply = serde_json::from_value(request["args"]["reply"].clone())
+                        .map_err(|_| "Invalid pairing reply")?;
+                    session.as_ref().ok_or("No session")?.pair_reply(reply)?;
+                    Ok(Value::Null)
                 }
                 Some("stream_send") => {
                     let signal: Signal = serde_json::from_value(request["args"]["signal"].clone())

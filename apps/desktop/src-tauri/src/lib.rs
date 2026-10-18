@@ -6,8 +6,8 @@ use tauri::{Emitter, Manager, State};
 struct Receiver(Mutex<Option<Session>>);
 
 #[tauri::command]
-fn stream_interfaces() -> Vec<String> {
-    duodesk_signaling::interfaces()
+fn stream_interfaces() -> Result<Vec<duodesk_signaling::NetworkAddress>, String> {
+    duodesk_signaling::network_addresses()
 }
 
 #[tauri::command]
@@ -15,7 +15,7 @@ async fn stream_start(
     ip: String,
     app: tauri::AppHandle,
     receiver: State<'_, Receiver>,
-) -> Result<Invitation, String> {
+) -> Result<Connection, String> {
     receiver
         .0
         .lock()
@@ -29,8 +29,32 @@ async fn stream_start(
     )
     .await?;
     let invitation = session.invitation.clone();
+    let session_address = session.pairing_address.clone();
     *receiver.0.lock().map_err(|_| "Receiver unavailable")? = Some(session);
-    Ok(invitation)
+    Ok(Connection {
+        invitation,
+        address: session_address,
+    })
+}
+
+#[derive(serde::Serialize)]
+struct Connection {
+    invitation: Invitation,
+    address: String,
+}
+
+#[tauri::command]
+fn stream_pair_reply(
+    reply: duodesk_signaling::PairReply,
+    receiver: State<'_, Receiver>,
+) -> Result<(), String> {
+    receiver
+        .0
+        .lock()
+        .map_err(|_| "Receiver unavailable")?
+        .as_ref()
+        .ok_or("No session")?
+        .pair_reply(reply)
 }
 
 #[tauri::command]
@@ -63,6 +87,7 @@ pub fn run() {
             stream_interfaces,
             stream_start,
             stream_send,
+            stream_pair_reply,
             stream_stop
         ])
         .on_window_event(|window, event| {
