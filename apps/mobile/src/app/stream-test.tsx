@@ -14,9 +14,22 @@ import { useFocusEffect } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useKeepAwake } from "expo-keep-awake";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { parseInvitation } from "@duodesk/protocol";
+import { parsePairingQrPayload } from "@duodesk/protocol/pairing";
+import { pairWithCode } from "../pairing/connect";
 import * as sender from "../../modules/test-video";
 import type { SenderStatus } from "../../modules/test-video";
+
+async function localNetworkPermission() {
+  if (Platform.OS === "android" && Number(Platform.Version) >= 37) {
+    const result = await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.ACCESS_LOCAL_NETWORK,
+    );
+    if (result !== PermissionsAndroid.RESULTS.GRANTED)
+      throw new Error(
+        "Allow local network access to connect to the desktop receiver.",
+      );
+  }
+}
 
 function PreventSleep() {
   useKeepAwake("duodesk-test-stream");
@@ -32,7 +45,11 @@ function parseBitrate(raw: string): number {
 }
 
 export default function StreamTestScreen() {
-  const [invitation, setInvitation] = useState("");
+  const generation = useRef(0);
+  const running = useRef(false);
+  const [address, setAddress] = useState("");
+  const [code, setCode] = useState("");
+  const [scanNotice, setScanNotice] = useState("");
   const [status, setStatus] = useState<SenderStatus>({ state: "idle" });
   const [scanning, setScanning] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
@@ -61,6 +78,7 @@ export default function StreamTestScreen() {
   }, []);
 
   useEffect(() => {
+    const lifecycle = generation;
     const subscription = sender.subscribe((nextStatus) => {
       eventSeqRef.current += 1;
       setStatus(nextStatus);
@@ -70,12 +88,16 @@ export default function StreamTestScreen() {
       if (next === "active") {
         void syncStatus();
       } else if (next === "background") {
+        generation.current++;
+        void sender.pairClose();
         setScanning(false);
         void sender.background();
       }
     });
 
     return () => {
+      lifecycle.current++;
+      void sender.pairClose();
       subscription.remove();
       appState.remove();
       setScanning(false);
@@ -92,6 +114,8 @@ export default function StreamTestScreen() {
     useCallback(() => {
       void syncStatus();
       return () => {
+        generation.current++;
+        void sender.pairClose();
         setScanning(false);
         if (
           statusRef.current.mode !== "screen" ||
@@ -104,6 +128,8 @@ export default function StreamTestScreen() {
   );
 
   async function run(action: () => Promise<void>) {
+    if (running.current) return;
+    running.current = true;
     setBusy(true);
     setError("");
     try {
@@ -111,27 +137,34 @@ export default function StreamTestScreen() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
+      running.current = false;
       setBusy(false);
     }
   }
 
   function accept(text: string) {
     try {
-      parseInvitation(text);
-      setInvitation(text);
+      const pairing = parsePairingQrPayload(text);
+      setAddress(pairing.address);
+      setCode(pairing.code);
       setScanning(false);
       setError("");
+      setScanNotice("Address and code filled. Tap Verify code and connect.");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Invalid invitation");
+      setScanNotice("");
+      setError(cause instanceof Error ? cause.message : "Invalid pairing QR.");
     }
   }
 
   async function scan() {
-    if (permission?.granted || (await requestPermission()).granted) {
-      setScanning(true);
-    } else {
+    setScanNotice("");
+    const active = generation.current;
+    const granted = permission?.granted || (await requestPermission()).granted;
+    if (generation.current !== active) return;
+    if (granted) setScanning(true);
+    else {
       setError(
-        "Camera access is optional. Paste the manual invitation instead.",
+        "Camera access is optional. Use the desktop address and six-digit code instead.",
       );
     }
   }
@@ -155,7 +188,7 @@ export default function StreamTestScreen() {
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.title}>Mobile → Windows</Text>
+        <Text style={styles.title}>Mobile → desktop</Text>
         <Text style={styles.text}>
           Stream video to DuoDesk receiver on Windows.
         </Text>
@@ -167,10 +200,14 @@ export default function StreamTestScreen() {
           </Text>
         )}
         <Text style={styles.label}>
-          1. Create an invitation in the Windows app
+          1. Create a pairing code in the desktop app
+        </Text>
+        <Text style={styles.text}>
+          Scan the desktop QR to fill the address and six-digit code, or enter
+          them below.
         </Text>
         <Button
-          title="Scan Windows QR code"
+          title="Scan pairing QR"
           disabled={!sender.available || !canConnect || busy}
           onPress={() => void run(scan)}
         />
@@ -188,40 +225,65 @@ export default function StreamTestScreen() {
             />
           </View>
         )}
+        <Text style={styles.text}>
+          Use the desktop address including its port. Both devices must be on
+          the same local network.
+        </Text>
         <TextInput
           style={styles.input}
-          multiline
-          value={invitation}
-          onChangeText={setInvitation}
+          value={address}
+          onChangeText={(value) => {
+            setAddress(value);
+            setScanNotice("");
+          }}
           autoCapitalize="none"
           autoCorrect={false}
           editable={canConnect && !busy}
-          placeholder="Or paste the full manual invitation"
+          placeholder="192.168.1.20:39871"
           placeholderTextColor="#697386"
-          accessibilityLabel="Windows invitation"
+          accessibilityLabel="Desktop address and port"
+        />
+        <TextInput
+          style={styles.input}
+          value={code}
+          onChangeText={(value) => {
+            setCode(value);
+            setScanNotice("");
+          }}
+          keyboardType="number-pad"
+          maxLength={6}
+          editable={canConnect && !busy}
+          placeholder="Six-digit code"
+          placeholderTextColor="#697386"
+          accessibilityLabel="Six-digit verification code"
         />
         <Button
-          title="Connect"
+          title="Verify code and connect"
           disabled={
-            !sender.available || !canConnect || busy || !invitation.trim()
+            !sender.available ||
+            !canConnect ||
+            busy ||
+            !address ||
+            code.length !== 6 ||
+            !/^[0-9]{6}$/.test(code)
           }
           onPress={() =>
             void run(async () => {
-              parseInvitation(invitation);
-              if (Platform.OS === "android" && Number(Platform.Version) >= 37) {
-                const result = await PermissionsAndroid.request(
-                  PermissionsAndroid.PERMISSIONS.ACCESS_LOCAL_NETWORK,
-                );
-                if (result !== PermissionsAndroid.RESULTS.GRANTED) {
-                  throw new Error(
-                    "Allow local network access to connect to the desktop receiver.",
-                  );
-                }
-              }
-              await sender.connect(invitation);
+              const active = ++generation.current;
+              await localNetworkPermission();
+              if (generation.current !== active) return;
+              const text = await pairWithCode(
+                address.trim(),
+                code,
+                () => generation.current !== active,
+              );
+              if (generation.current !== active) return;
+              setCode("");
+              await sender.connect(text);
             })
           }
         />
+        {!!scanNotice && <Text style={styles.text}>{scanNotice}</Text>}
         <Text style={styles.label}>2. Start video stream</Text>
         <Text style={styles.text}>
           Maximum bitrate in Mbps, from 2 to 30. Actual bitrate adapts to the
@@ -293,8 +355,12 @@ export default function StreamTestScreen() {
         )}
         <Button
           title="Stop / disconnect"
-          disabled={!sender.available || canConnect || busy}
-          onPress={() => void run(sender.stop)}
+          disabled={!sender.available || (canConnect && !busy)}
+          onPress={() => {
+            generation.current++;
+            void sender.pairClose();
+            void sender.stop();
+          }}
         />
         <Text accessibilityLiveRegion="polite" style={styles.label}>
           Status: {status.state}
@@ -313,7 +379,7 @@ export default function StreamTestScreen() {
           </Text>
         )}
         <Text style={styles.text}>
-          Stopping ends the session. Create a new Windows invitation before
+          Stopping ends the session. Create a new desktop pairing code before
           reconnecting. Android screen sharing can also be stopped from the
           ongoing notification.
         </Text>

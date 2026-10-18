@@ -223,7 +223,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
 
   private fun sendOffer(pc: PeerConnection, epoch: Long) {
     status("connecting")
-    armTimeout("Video negotiation timed out. Create a new desktop invitation.")
+    armTimeout("Video negotiation timed out. Create a new desktop pairing code.")
     pc.createOffer(object : SdpCallbacks({ message -> dispatch { if (epoch == generation) fail(message) } }) {
       override fun onCreateSuccess(description: SessionDescription) = dispatch {
         if (peer !== pc) return@dispatch
@@ -405,7 +405,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       if (generation != epoch) return@dispatch
       when (next) {
         PeerConnection.IceConnectionState.CONNECTED, PeerConnection.IceConnectionState.COMPLETED -> { timeout?.cancel(false); status("streaming") }
-        PeerConnection.IceConnectionState.FAILED, PeerConnection.IceConnectionState.DISCONNECTED -> fail("Video connection lost. Create a new desktop invitation.")
+        PeerConnection.IceConnectionState.FAILED, PeerConnection.IceConnectionState.DISCONNECTED -> fail("Video connection lost. Create a new desktop pairing code.")
         else -> Unit
       }
     }

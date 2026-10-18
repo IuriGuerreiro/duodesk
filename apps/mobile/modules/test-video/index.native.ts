@@ -7,6 +7,12 @@ type Events = { onStatus: (status: SenderStatus) => void };
 
 declare class TestVideoNative extends NativeModule<Events> {
   readonly supportsScreenSharing?: boolean;
+  pairRequest(
+    address: string,
+    message: string,
+    fresh: boolean,
+  ): Promise<string>;
+  pairClose(): Promise<void>;
   connect(invitation: string): Promise<void>;
   start(bitrateMbps: number): Promise<void>;
   startScreen?(bitrateMbps: number): Promise<void>;
@@ -81,3 +87,9 @@ export const subscribe = (
     cachedStatus = status;
     listener(status);
   }) ?? { remove() {} };
+
+export const pairRequest = (address: string, message: string, fresh: boolean) =>
+  module().pairRequest(address, message, fresh);
+export const pairClose = async () => {
+  await native?.pairClose();
+};

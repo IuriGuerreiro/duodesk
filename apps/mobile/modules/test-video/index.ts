@@ -25,3 +25,13 @@ export const subscribe = (
 ): { remove(): void } => ({
   remove() {},
 });
+
+export const pairRequest = async (
+  _address: string,
+  _message: string,
+  _fresh: boolean,
+): Promise<string> => {
+  await unsupported();
+  return "";
+};
+export const pairClose = async (): Promise<void> => {};

@@ -7,6 +7,9 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
 class TestVideoModule : Module() {
+  private val pairing = PairingTransport()
+  private val pairingQueue = java.util.concurrent.Executors.newSingleThreadExecutor()
+
   private fun sender(): VideoSender {
     val context = requireNotNull(appContext.reactContext).applicationContext
     return VideoSenderManager.getOrCreateSender(context)
@@ -20,6 +23,15 @@ class TestVideoModule : Module() {
     OnCreate {
       VideoSenderManager.setStatusListener { sendEvent("onStatus", it) }
     }
+
+    AsyncFunction("pairRequest") { address: String, message: String, fresh: Boolean, promise: Promise ->
+      val ticket = pairing.ticket()
+      pairingQueue.execute {
+        try { promise.resolve(pairing.request(address, message, fresh, ticket)) }
+        catch (error: Exception) { pairing.close(); promise.reject("ERR_PAIRING", "Pairing failed. Check the desktop address, code and Wi-Fi. Create a new code if expired or locked.", error) }
+      }
+    }
+    AsyncFunction("pairClose") { pairing.close() }
 
     AsyncFunction("connect") { invitation: String, promise: Promise ->
       sender().submit(promise) { connect(invitation) }
@@ -77,10 +89,13 @@ class TestVideoModule : Module() {
     }
 
     OnActivityEntersBackground {
+      pairing.close()
       VideoSenderManager.background()
     }
 
     OnDestroy {
+      pairing.close()
+      pairingQueue.shutdownNow()
       VideoSenderManager.setStatusListener(null)
     }
   }

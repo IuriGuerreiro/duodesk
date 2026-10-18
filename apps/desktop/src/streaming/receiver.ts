@@ -62,7 +62,7 @@ export class VideoReceiver {
       ) {
         this.fail(
           new Error(
-            "Video connection lost. Create a new invitation to reconnect.",
+            "Video connection lost. Create a new connection to reconnect.",
           ),
         );
       }

@@ -32,7 +32,7 @@ enum SenderError: LocalizedError {
   case invalidInvitation, notReady, clipMissing, peerUnavailable
   var errorDescription: String? {
     switch self {
-    case .invalidInvitation: return "Invalid or expired invitation. Create a new invitation on Windows."
+    case .invalidInvitation: return "Pairing failed or expired. Check the desktop address and code, then create a new pairing code."
     case .notReady: return "Connect to Windows before starting."
     case .clipMissing: return "The bundled test clip is missing. Rebuild the development client."
     case .peerUnavailable: return "Could not create the native WebRTC sender."
@@ -40,8 +40,8 @@ enum SenderError: LocalizedError {
   }
 }
 
-/// The QR fingerprint authenticates exactly this self-signed leaf certificate.
-/// This does not disable certificate checks for any other application request.
+/// The invitation fingerprint authenticates exactly this self-signed leaf certificate.
+/// Pairing recovers the invitation; this does not disable other certificate checks.
 final class PinnedSignaling: NSObject, URLSessionDelegate {
   private let invitation: StreamInvitation
   private let queue: DispatchQueue
@@ -73,7 +73,7 @@ final class PinnedSignaling: NSObject, URLSessionDelegate {
         guard let self, let task, error != nil else { return }
         self.queue.async { [weak self] in
           guard let self, self.socket === task else { return }
-          self.onFailure("Lost the receiver connection. Create a new invitation.")
+          self.onFailure("Lost the receiver connection. Create a new desktop pairing code.")
         }
       }
     }
