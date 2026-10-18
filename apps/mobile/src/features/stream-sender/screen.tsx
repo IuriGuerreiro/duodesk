@@ -492,6 +492,7 @@ export default function StreamSenderScreen() {
                   openScanner={connection.openScanner}
                   closeScanner={connection.closeScanner}
                   acceptScan={connection.acceptScan}
+                  guardPrompt={connection.guardPrompt}
                 />
               ) : (
                 <Session connection={connection} />

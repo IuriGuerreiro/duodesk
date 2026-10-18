@@ -22,6 +22,7 @@ jobs:
       - run: pnpm check-types
       - run: pnpm --filter @duodesk/protocol test
       - run: pnpm --filter @duodesk/desktop test
+      - run: pnpm --filter @duodesk/mobile test
       - run: pnpm build
       - name: Check Expo export artifacts
         run: |

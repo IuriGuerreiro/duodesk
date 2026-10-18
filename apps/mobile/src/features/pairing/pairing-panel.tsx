@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Linking, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -24,6 +24,8 @@ export type PairingPanelProps = {
   openScanner: () => void;
   closeScanner: () => void;
   acceptScan: (text: string) => void;
+  /** Wraps a system permission dialog so the app leaving the foreground for it is not treated as abandoning pairing. */
+  guardPrompt: <T>(request: () => Promise<T>) => Promise<T>;
 };
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -91,10 +93,12 @@ function Scanner({ connection }: { connection: PairingPanelProps }) {
   const [requesting, setRequesting] = useState(false);
   const [cameraError, setCameraError] = useState("");
 
+  const asked = useRef(false);
+
   async function requestAccess() {
     setRequesting(true);
     try {
-      await requestPermission();
+      await connection.guardPrompt(requestPermission);
     } catch {
       setCameraError(
         "Camera access failed. Enter the address and code instead.",
@@ -103,6 +107,16 @@ function Scanner({ connection }: { connection: PairingPanelProps }) {
       setRequesting(false);
     }
   }
+
+  // Choosing "Scan QR code" is the user's request to use the camera, so ask
+  // once right away instead of showing a second button first.
+  useEffect(() => {
+    if (permission?.status === "undetermined" && !asked.current) {
+      asked.current = true;
+      void requestAccess();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [permission?.status]);
 
   return (
     <View className="gap-4">

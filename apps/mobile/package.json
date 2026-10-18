@@ -59,7 +59,8 @@
     "check-types": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "dev": "expo start --dev-client",
-    "build": "expo export --platform all"
+    "build": "expo export --platform all",
+    "test": "node --test test/*.test.mjs"
   },
   "private": true
 }

@@ -77,7 +77,7 @@ apps/mobile/src/
   app/                       # thin routes; index loads the sender, stream-test redirects to it
   features/
     stream-sender/           # screen, use-sender-session, session copy
-    pairing/                 # QR scanner, manual invitation entry, pairing client
+    pairing/                 # QR scanner and scan gate, manual entry, pairing client, connect flow
   shared/                    # NativeWind tokens, UI primitives, utilities, shared types
   (native module: apps/mobile/modules/test-video, outside src)
 apps/desktop/src/

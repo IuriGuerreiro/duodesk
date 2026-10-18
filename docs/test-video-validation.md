@@ -53,7 +53,7 @@ pnpm dlx eas-cli@25.1.1 build --platform android --profile development
 
 Install the APK from the resulting link. Start `pnpm dev:mobile` and open the development client. The `preview` profile also produces an APK with a bundled app for testing without Metro.
 
-On the same reachable LAN, open Stream test, scan the Windows pairing QR to fill the desktop address and six-digit code, then press **Verify code and connect** and **Start video**. You can enter the address and code manually without camera permission. Allow local network access for the connection.
+On the same reachable LAN, open Stream test, scan the Windows pairing QR, which verifies the code and connects automatically, then press **Start video**. You can enter the address and code manually without camera permission. Allow local network access for the connection.
 
 Keep DuoDesk in the foreground. The test screen prevents auto-lock during an active session. Backgrounding the app, leaving the test tab, stopping either side, or losing the connection ends the session. For another attempt, create a new Windows pairing code. Guest Wi-Fi isolation, a VPN, or selecting a virtual adapter can prevent direct connections.
 
