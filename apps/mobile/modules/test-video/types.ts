@@ -1,4 +1,7 @@
 import type { StreamState } from "@duodesk/protocol";
+
+export type StreamMode = "screen" | "clip";
+
 export interface SenderStats {
   codec: string;
   mbps: number;
@@ -7,8 +10,10 @@ export interface SenderStats {
   height: number;
   qualityLimit: string;
 }
+
 export interface SenderStatus {
   state: StreamState;
   message?: string;
   stats?: SenderStats;
+  mode?: StreamMode;
 }

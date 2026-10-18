@@ -36,6 +36,14 @@ function PreventSleep() {
   return null;
 }
 
+function parseBitrate(raw: string): number {
+  const value = Number(raw.trim());
+  if (!Number.isInteger(value) || value < 2 || value > 30) {
+    throw new Error("Choose a whole number from 2 to 30 Mbps.");
+  }
+  return value;
+}
+
 export default function StreamTestScreen() {
   const generation = useRef(0);
   const running = useRef(false);
@@ -49,35 +57,74 @@ export default function StreamTestScreen() {
   const [bitrate, setBitrate] = useState("12");
   const [error, setError] = useState("");
 
+  const statusRef = useRef<SenderStatus>(status);
+  const eventSeqRef = useRef<number>(0);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
+  const syncStatus = useCallback(async () => {
+    if (!sender.available) return;
+    const seqAtCall = eventSeqRef.current;
+    try {
+      const snapshot = await sender.getStatus();
+      if (eventSeqRef.current === seqAtCall) {
+        setStatus(snapshot);
+      }
+    } catch {
+      // Retain existing status if status query fails
+    }
+  }, []);
+
   useEffect(() => {
     const lifecycle = generation;
-    const subscription = sender.subscribe(setStatus);
+    const subscription = sender.subscribe((nextStatus) => {
+      eventSeqRef.current += 1;
+      setStatus(nextStatus);
+    });
+
     const appState = AppState.addEventListener("change", (next) => {
-      if (next === "background") {
+      if (next === "active") {
+        void syncStatus();
+      } else if (next === "background") {
         generation.current++;
-        setScanning(false);
         void sender.pairClose();
-        void sender.stop();
+        setScanning(false);
+        void sender.background();
       }
     });
+
     return () => {
       lifecycle.current++;
       void sender.pairClose();
       subscription.remove();
       appState.remove();
-      void sender.stop();
+      setScanning(false);
+      if (
+        statusRef.current.mode !== "screen" ||
+        statusRef.current.state !== "streaming"
+      ) {
+        void sender.background();
+      }
     };
-  }, []);
+  }, [syncStatus]);
+
   useFocusEffect(
-    useCallback(
-      () => () => {
+    useCallback(() => {
+      void syncStatus();
+      return () => {
         generation.current++;
-        setScanning(false);
         void sender.pairClose();
-        void sender.stop();
-      },
-      [],
-    ),
+        setScanning(false);
+        if (
+          statusRef.current.mode !== "screen" ||
+          statusRef.current.state !== "streaming"
+        ) {
+          void sender.background();
+        }
+      };
+    }, [syncStatus]),
   );
 
   async function run(action: () => Promise<void>) {
@@ -94,6 +141,7 @@ export default function StreamTestScreen() {
       setBusy(false);
     }
   }
+
   function accept(text: string) {
     try {
       const pairing = parsePairingQrPayload(text);
@@ -107,33 +155,42 @@ export default function StreamTestScreen() {
       setError(cause instanceof Error ? cause.message : "Invalid pairing QR.");
     }
   }
+
   async function scan() {
     setScanNotice("");
     const active = generation.current;
     const granted = permission?.granted || (await requestPermission()).granted;
     if (generation.current !== active) return;
     if (granted) setScanning(true);
-    else
+    else {
       setError(
         "Camera access is optional. Use the desktop address and six-digit code instead.",
       );
+    }
   }
+
   const canConnect =
     status.state === "idle" ||
     status.state === "failed" ||
     status.state === "stopped";
+
+  const shouldKeepAwake =
+    sender.available &&
+    status.state === "streaming" &&
+    status.mode !== "screen";
+
   const stats = status.stats;
+
   return (
     <SafeAreaView style={styles.safe}>
-      {!canConnect && sender.available && <PreventSleep />}
+      {shouldKeepAwake && <PreventSleep />}
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
         <Text style={styles.title}>Mobile → desktop</Text>
         <Text style={styles.text}>
-          Send the bundled 1080p test pattern. Keep DuoDesk open during this
-          test.
+          Stream video to DuoDesk receiver on Windows.
         </Text>
         {!sender.available && (
           <Text style={styles.error}>
@@ -163,6 +220,7 @@ export default function StreamTestScreen() {
             />
             <Button
               title="Cancel scanning"
+              disabled={busy}
               onPress={() => setScanning(false)}
             />
           </View>
@@ -226,7 +284,7 @@ export default function StreamTestScreen() {
           }
         />
         {!!scanNotice && <Text style={styles.text}>{scanNotice}</Text>}
-        <Text style={styles.label}>2. Start the test clip</Text>
+        <Text style={styles.label}>2. Start video stream</Text>
         <Text style={styles.text}>
           Maximum bitrate in Mbps, from 2 to 30. Actual bitrate adapts to the
           connection.
@@ -236,21 +294,65 @@ export default function StreamTestScreen() {
           value={bitrate}
           onChangeText={setBitrate}
           keyboardType="number-pad"
-          editable={canConnect || status.state === "ready"}
+          editable={(canConnect || status.state === "ready") && !busy}
           accessibilityLabel="Maximum bitrate Mbps"
         />
-        <Button
-          title="Start video"
-          disabled={status.state !== "ready" || busy}
-          onPress={() =>
-            void run(async () => {
-              const value = Number(bitrate);
-              if (!Number.isInteger(value) || value < 2 || value > 30)
-                throw new Error("Choose a whole number from 2 to 30 Mbps.");
-              await sender.start(value);
-            })
-          }
-        />
+        {sender.supportsScreenSharing ? (
+          <View style={styles.buttonGroup}>
+            <Button
+              title="Share screen"
+              disabled={status.state !== "ready" || busy}
+              onPress={() =>
+                void run(async () => {
+                  const value = parseBitrate(bitrate);
+                  if (
+                    Platform.OS === "android" &&
+                    Number(Platform.Version) >= 33
+                  ) {
+                    await PermissionsAndroid.request(
+                      PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+                    );
+                  }
+                  await sender.startScreen(value);
+                })
+              }
+            />
+            <Text style={styles.text}>
+              Screen sharing mirrors your display live to Windows. Audio is not
+              shared. Sharing continues when you open other apps, and can be
+              stopped from the DuoDesk notification or here.
+            </Text>
+            <Button
+              title="Start test clip"
+              disabled={status.state !== "ready" || busy}
+              onPress={() =>
+                void run(async () => {
+                  const value = parseBitrate(bitrate);
+                  await sender.start(value);
+                })
+              }
+            />
+          </View>
+        ) : (
+          <View style={styles.buttonGroup}>
+            {Platform.OS === "android" && sender.available && (
+              <Text style={styles.error}>
+                Screen sharing requires an updated Android development build.
+                Rebuild and install the app to enable screen sharing.
+              </Text>
+            )}
+            <Button
+              title="Start test clip"
+              disabled={status.state !== "ready" || busy}
+              onPress={() =>
+                void run(async () => {
+                  const value = parseBitrate(bitrate);
+                  await sender.start(value);
+                })
+              }
+            />
+          </View>
+        )}
         <Button
           title="Stop / disconnect"
           disabled={!sender.available || (canConnect && !busy)}
@@ -262,6 +364,9 @@ export default function StreamTestScreen() {
         />
         <Text accessibilityLiveRegion="polite" style={styles.label}>
           Status: {status.state}
+          {status.mode
+            ? ` (${status.mode === "screen" ? "screen" : "test clip"})`
+            : ""}
         </Text>
         {(error || status.message) && (
           <Text style={styles.error}>{error || status.message}</Text>
@@ -274,13 +379,15 @@ export default function StreamTestScreen() {
           </Text>
         )}
         <Text style={styles.text}>
-          Stopping or leaving this screen ends the session. Create a new desktop
-          pairing code before reconnecting.
+          Stopping ends the session. Create a new desktop pairing code before
+          reconnecting. Android screen sharing can also be stopped from the
+          ongoing notification.
         </Text>
       </ScrollView>
     </SafeAreaView>
   );
 }
+
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#f4f5f8" },
   content: {
@@ -290,6 +397,9 @@ const styles = StyleSheet.create({
     maxWidth: 650,
     width: "100%",
     alignSelf: "center",
+  },
+  buttonGroup: {
+    gap: 12,
   },
   title: { fontSize: 28, fontWeight: "700", color: "#172238" },
   label: { fontSize: 18, fontWeight: "600", color: "#172238" },
