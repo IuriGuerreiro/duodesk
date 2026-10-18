@@ -30,18 +30,18 @@ void (async () => {
     choose.dispatchEvent(new Event('change', {bubbles:true}));
     await wait(()=>!button('Create connection').disabled, 'Address selection failed');
     button('Create connection').click();
-    await wait(()=>document.querySelector('.code-pairing strong'), 'Pairing UI did not appear');
-    const code = document.querySelector('.code-pairing strong');
+    await wait(()=>document.querySelector('.pairing-modal .code-pairing strong'), 'Pairing modal did not appear');
+    const code = document.querySelector('.pairing-modal .code-pairing strong');
     if (!code || !/^[0-9]{6}$/.test(code.textContent)) throw Error('Pairing code missing');
-    const qr = document.querySelector('.code-pairing .qr-frame svg');
-    if (!qr) throw Error('Six-digit pairing QR missing');
-    if (qr.closest('details')) throw Error('Pairing QR should be directly visible, not inside a collapsed details toggle');
+    const qr = document.querySelector('.pairing-modal .code-pairing .qr-frame svg');
+    if (!qr) throw Error('Six-digit pairing QR missing in modal');
+    if (document.querySelector('select')) throw Error('Address selection should be hidden during active session');
+    if (button('Create connection')) throw Error('Create connection button should be hidden during active session');
     if (document.querySelector('textarea') || document.body.innerText.includes('Manual invitation')) throw Error('Legacy invitation input returned');
     if (!document.querySelector('video').controls) throw Error('Video controls missing');
-    const select = document.querySelector('select');
-    if (!select.disabled) throw Error('Address can change during session');
     button('Stop session').click();
-    await wait(()=>!document.querySelector('.code-pairing strong') && !select.disabled, 'Stop did not clear pairing UI');
+    await wait(()=>!document.querySelector('.pairing-modal') && document.querySelector('select') && !document.querySelector('select').disabled, 'Stop did not clear pairing modal and restore address select');
+    const select = document.querySelector('select');
     if (!document.querySelector('[role="status"]').textContent.includes('Session ended')) throw Error('Stopped status missing');
     if (document.querySelector('.app-header, .page-heading, .preview-notice, .diagnostics, footer')) throw Error('Removed UI returned');
     for (const name of ['camera', 'microphone']) {
@@ -53,7 +53,7 @@ void (async () => {
     await wait(()=>button('Exit fullscreen'), 'Fullscreen button did not update');
     button('Exit fullscreen').click();
     await wait(()=>!document.fullscreenElement, 'Fullscreen did not exit');
-    return {passed:true,addressOptions:select.options.length,pairingQr:true,stopped:true,videoControls:true,fullscreen:true};
+    return {passed:true,addressOptions:select.options.length,pairingQrModal:true,stopped:true,videoControls:true,fullscreen:true};
   })()`,
       true,
     );
