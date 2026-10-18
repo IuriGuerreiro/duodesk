@@ -1,1 +1,1 @@
-export { default } from "@/features/connection/connection-screen";
+export { StreamSenderScreen as default } from "@/features/stream-sender";

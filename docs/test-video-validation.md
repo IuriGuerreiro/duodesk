@@ -4,9 +4,9 @@ The first implementation sends a bundled silent MP4 from the foreground Android 
 
 ## Implementation
 
-- `packages/protocol/src/streaming.ts` validates invitations and signaling messages.
+- `packages/protocol/src/stream/` validates invitations and signaling messages.
 - `apps/desktop/src-tauri/signaling` owns the TLS listener, expiring one-use invitations, authentication, and bounded signaling transport.
-- `apps/desktop/src/streaming/receiver.ts` owns browser WebRTC negotiation, video delivery, diagnostics, and teardown.
+- `apps/desktop/src/features/receiver/video-receiver.ts` owns browser WebRTC negotiation, video delivery, diagnostics, and teardown.
 - `apps/mobile/modules/test-video/ios` owns iOS signaling, certificate pinning, WebRTC, and AVFoundation decoding.
 - `apps/mobile/modules/test-video/android` owns Android signaling, certificate pinning, WebRTC, and MediaCodec decoding.
 - `apps/mobile/src/app/stream-test.tsx` scans the pairing QR to fill the address and code, with manual address/code entry, bitrate selection, and start/stop controls.

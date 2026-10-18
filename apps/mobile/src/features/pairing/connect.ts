@@ -1,6 +1,6 @@
 import "./crypto";
 import { createPairingClient } from "@duodesk/protocol/pairing";
-import * as sender from "../../modules/test-video";
+import * as sender from "../../../modules/test-video";
 
 export async function pairWithCode(
   address: string,

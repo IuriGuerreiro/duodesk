@@ -1,7 +1,7 @@
 import { createSRPClient, createSRPServer } from "@swan-io/srp";
 import { gcm } from "@noble/ciphers/aes";
 import { bytesToHex, hexToBytes } from "@noble/ciphers/utils";
-import { parseInvitation, type Invitation } from "./streaming.ts";
+import { parseInvitation, type Invitation } from "./stream/invitation.ts";
 
 const USER = "duodesk-pair-v1";
 const AAD = new TextEncoder().encode(USER);

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { VideoReceiver } from "../src/streaming/receiver.ts";
+import { VideoReceiver } from "../src/features/receiver/video-receiver.ts";
 
 class FakePeer {
   static latest;

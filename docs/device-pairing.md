@@ -76,7 +76,7 @@ After integrating presentation from `0d4cf9d`, the combined desktop production b
 
 ## Desktop presentation integration
 
-`App.tsx` owns network enumeration, selected IP, PAKE server state, sidecar replies and video receiver lifecycle. `components/receiver-workspace.tsx` exports `ReceiverWorkspaceProps` and renders the UI. The shadcn presentation from `0d4cf9d` is integrated while preserving this branch's App logic. Network settings collapse during a session; address/code is primary, the compact address/code QR is expandable, and empty or expired codes are hidden. The optional `pairing` prop contains `address`, `code` and display-only `status`. Empty code means consumed or locked; never regenerate it in presentation. `interfaces` already contains OS names and `selectable`; do not adapt the new host response as a string array.
+`features/receiver/use-receiver-session.ts` owns network enumeration, selected IP, PAKE server state, sidecar replies and video receiver lifecycle. `features/receiver/receiver-workspace.tsx` exports `ReceiverWorkspaceProps` and renders the UI; `App.tsx` composes them. The shadcn presentation from `0d4cf9d` is integrated while preserving the receiver logic. Network settings collapse during a session; address/code is primary, the compact address/code QR is expandable, and empty or expired codes are hidden. The optional `pairing` prop contains `address`, `code` and display-only `status`. Empty code means consumed or locked; never regenerate it in presentation. `interfaces` already contains OS names and `selectable`; do not adapt the new host response as a string array.
 
 ## QR autofill update
 

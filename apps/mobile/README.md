@@ -2,7 +2,7 @@
 
 DuoDesk opens directly into the PC connection workspace. Create an invitation in the Windows receiver, scan its QR code or paste the full invitation, then start the bundled test video. The UI follows native sender events and displays the actual receiver address and stream statistics.
 
-This branch sends the test clip only. It does not capture the phone screen or microphone. The sender stops when the app backgrounds, the screen loses focus, or the screen unmounts. `use-connection.ts` owns these rules and the unchanged `connect`, `start`, `stop`, and `subscribe` bridge calls. When merging Android screen capture, move its mode-aware `background`, `getStatus`, focus, and resume handling into this hook. Do not discard those changes when resolving the old `stream-test.tsx` route conflict. Keep `start` for the test clip and add `startScreen` only behind the native capability check.
+The sender can stream the bundled test clip and, on Android development builds with native screen-sharing support, mirror the live display. It does not capture microphone audio. `src/features/stream-sender/use-sender-session.ts` owns the sender lifecycle, while `src/features/pairing/` owns QR scanning and manual invitation entry. Screen sharing remains gated by the native capability check.
 
 ## Development
 
@@ -32,6 +32,6 @@ The installed versions are Expo 58.0.14, React Native 0.88.0, React 19.3.0, Nati
 
 [NativeWind's stable installation guide](https://www.nativewind.dev/docs/getting-started/installation) documents the v4 Babel/Metro integration and Reanimated 4 support. Its published peers accept this dependency graph; its documented release target is SDK 57, so native SDK 58 runtime validation remains necessary. NativeWind 5 is still an RC and was not adopted. Expo APIs were checked against the [SDK 58 documentation](https://docs.expo.dev/versions/v58.0.0/).
 
-Button, Input, and Text are vendored from the [React Native Reusables NativeWind registry](https://github.com/founded-labs/react-native-reusables/tree/385834c2196f8a303cbc9057d1ac768f3bde0a3b/packages/registry/src/nativewind/components/ui), following its [manual installation](https://reactnativereusables.com/docs/installation/manual). They are adapted for DuoDesk tokens, larger touch targets, and React Native role types. Their MIT notice is in `src/components/ui/LICENSE`. Only the primitives used by these components are installed; no portal host is needed.
+Button, Input, and Text are vendored from the [React Native Reusables NativeWind registry](https://github.com/founded-labs/react-native-reusables/tree/385834c2196f8a303cbc9057d1ac768f3bde0a3b/packages/registry/src/nativewind/components/ui), following its [manual installation](https://reactnativereusables.com/docs/installation/manual). They are adapted for DuoDesk tokens, larger touch targets, and React Native role types. Their MIT notice is in `src/shared/ui/LICENSE`. Only the primitives used by these components are installed; no portal host is needed.
 
 Add dependencies through `pnpm --filter @duodesk/mobile exec expo install <package>`. App icon, splash, or native dependency changes require a new development build.
