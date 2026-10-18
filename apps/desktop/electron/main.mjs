@@ -1,7 +1,15 @@
-import { app, BrowserWindow, ipcMain, session, protocol } from "electron";
+import {
+  app,
+  BrowserWindow,
+  desktopCapturer,
+  ipcMain,
+  session,
+  protocol,
+} from "electron";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
+import { mayCapture, mayCheckCapture, mayRequestCapture } from "./capture.mjs";
 import { Host, validateCommand } from "./host.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const entry = "duodesk://app/index.html";
@@ -56,20 +64,42 @@ app
     session.defaultSession.setPermissionRequestHandler(
       (contents, permission, callback, details) =>
         callback(
-          permission === "fullscreen" &&
+          (permission === "fullscreen" &&
             contents === window?.webContents &&
             contents.getURL() === entry &&
             details.isMainFrame &&
-            details.requestingUrl === entry,
+            details.requestingUrl === entry) ||
+            mayRequestCapture(permission, contents, details, {
+              window,
+              entry,
+              active,
+            }),
         ),
     );
     session.defaultSession.setPermissionCheckHandler(
       (contents, permission, _origin, details) =>
-        permission === "fullscreen" &&
-        contents === window?.webContents &&
-        contents?.getURL() === entry &&
-        details.isMainFrame &&
-        details.requestingUrl === entry,
+        (permission === "fullscreen" &&
+          contents === window?.webContents &&
+          contents?.getURL() === entry &&
+          details.isMainFrame &&
+          details.requestingUrl === entry) ||
+        (!!contents &&
+          mayCheckCapture(permission, contents, details, {
+            window,
+            entry,
+            active,
+          })),
+    );
+    session.defaultSession.setDisplayMediaRequestHandler(
+      async (request, callback) => {
+        if (!mayCapture(request, { window, entry, active }))
+          return callback(null);
+        const [screen] = await desktopCapturer
+          .getSources({ types: ["screen"] })
+          .catch(() => []);
+        callback(screen ? { video: screen } : null);
+      },
+      { useSystemPicker: false },
     );
     // Renderer assets are local; signaling belongs exclusively to the Rust host.
     session.defaultSession.webRequest.onBeforeRequest((details, callback) =>

@@ -522,3 +522,27 @@ select {
 .live-dot {
   background: #28a578;
 }
+
+.mode-switch {
+  display: flex;
+  gap: 4px;
+  width: fit-content;
+  margin: 20px auto 0;
+  padding: 4px;
+  background: #e6ebf2;
+  border-radius: 10px;
+}
+.mode-switch button {
+  border: 0;
+  border-radius: 7px;
+  padding: 8px 16px;
+  background: transparent;
+  color: #4d5b70;
+  font: inherit;
+  font-weight: 600;
+}
+.mode-switch button[aria-pressed="true"] {
+  background: #fff;
+  color: #1b2738;
+  box-shadow: 0 1px 2px rgba(27, 39, 56, 0.12);
+}
