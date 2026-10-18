@@ -13,6 +13,8 @@ import {
   ShieldCheck,
   Smartphone,
   Square,
+  Volume2,
+  VolumeX,
   Wifi,
   X,
 } from "lucide-react";
@@ -30,6 +32,18 @@ export type NetworkAddress = {
   selectable: boolean;
 };
 
+export interface ReceiverAudio {
+  /** The phone negotiated an audio track. False means the phone is sharing video only. */
+  present: boolean;
+  muted: boolean;
+  /** 0–1 */
+  volume: number;
+  /** The browser refused audible autoplay, so playback started muted. */
+  blocked: boolean;
+  onMutedChange: (muted: boolean) => void;
+  onVolumeChange: (volume: number) => void;
+}
+
 export interface ReceiverWorkspaceProps {
   desktopAvailable: boolean;
   interfaces: NetworkAddress[];
@@ -43,6 +57,7 @@ export interface ReceiverWorkspaceProps {
   busy: boolean;
   remaining: number;
   videoRef: RefObject<HTMLVideoElement | null>;
+  audio: ReceiverAudio;
   onStart: () => void;
   onStop: () => void;
   onFullscreen: () => void;
@@ -67,6 +82,7 @@ export function ReceiverWorkspace({
   state,
   stats,
   videoRef,
+  audio,
 }: ReceiverWorkspaceProps) {
   const [fullscreen, setFullscreen] = useState(false);
   const [dismissedSessionId, setDismissedSessionId] = useState<string>();
@@ -87,9 +103,9 @@ export function ReceiverWorkspace({
   const hasActivePairingCode = Boolean(pairing?.code && remaining > 0);
   const modalOpen = Boolean(
     pairing &&
-      !live &&
-      invitation &&
-      dismissedSessionId !== invitation.sessionId,
+    !live &&
+    invitation &&
+    dismissedSessionId !== invitation.sessionId,
   );
 
   useEffect(() => {
@@ -142,7 +158,6 @@ export function ReceiverWorkspace({
               <video
                 ref={videoRef}
                 autoPlay
-                muted
                 playsInline
                 controls
                 aria-label="Incoming mobile video"
@@ -184,10 +199,63 @@ export function ReceiverWorkspace({
                   ? `${stats?.width ?? 0} × ${stats?.height ?? 0} · ${stats?.fps.toFixed(0) ?? 0} fps`
                   : "Video preview"}
               </span>
-              <Button variant="ghost" size="sm" onClick={onFullscreen}>
-                {fullscreen ? <Minimize /> : <Expand />}
-                {fullscreen ? "Exit fullscreen" : "Fullscreen"}
-              </Button>
+              <div className="toolbar-actions">
+                {live && (
+                  <div
+                    className="audio-controls"
+                    role="group"
+                    aria-label="Phone audio"
+                  >
+                    {audio.present ? (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() => audio.onMutedChange(!audio.muted)}
+                          aria-label={
+                            audio.muted
+                              ? "Unmute phone audio"
+                              : "Mute phone audio"
+                          }
+                          aria-pressed={audio.muted}
+                        >
+                          {audio.muted || audio.volume === 0 ? (
+                            <VolumeX />
+                          ) : (
+                            <Volume2 />
+                          )}
+                        </Button>
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={Math.round(audio.volume * 100)}
+                          onChange={(event) =>
+                            audio.onVolumeChange(
+                              Number(event.target.value) / 100,
+                            )
+                          }
+                          aria-label="Phone audio volume"
+                        />
+                        {audio.blocked && (
+                          <span className="audio-note" role="status">
+                            Sound is muted until you press unmute.
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="audio-note" role="status">
+                        No sound from the phone. Check its sharing settings.
+                      </span>
+                    )}
+                  </div>
+                )}
+                <Button variant="ghost" size="sm" onClick={onFullscreen}>
+                  {fullscreen ? <Minimize /> : <Expand />}
+                  {fullscreen ? "Exit fullscreen" : "Fullscreen"}
+                </Button>
+              </div>
             </div>
           </section>
           <aside
@@ -304,8 +372,9 @@ export function ReceiverWorkspace({
               <p className="eyebrow">{live ? "CONNECTED" : "GET STARTED"}</p>
               {live ? (
                 <p>
-                  Your device is sending video. Use the player controls to
-                  pause playback or open fullscreen.
+                  Your device is sending{" "}
+                  {audio.present ? "video and sound" : "video"}. Use the player
+                  controls to pause playback, change volume, or open fullscreen.
                 </p>
               ) : (
                 <ol>

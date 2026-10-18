@@ -169,6 +169,26 @@ h2 {
   color: #63738a;
   font-family: ui-monospace, monospace;
 }
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.audio-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #63738a;
+}
+.audio-controls input[type="range"] {
+  width: 96px;
+  accent-color: #2855d9;
+}
+.audio-note {
+  font-size: 12px;
+  color: #63738a;
+}
 .connection-panel {
   border: 1px solid #dce3eb;
   border-radius: 12px;
