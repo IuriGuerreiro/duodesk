@@ -7,12 +7,14 @@ import {
   LoaderCircle,
   Minimize,
   Monitor,
+  QrCode,
   Radio,
   RefreshCw,
   ShieldCheck,
   Smartphone,
   Square,
   Wifi,
+  X,
 } from "lucide-react";
 import type { Invitation, StreamState } from "@duodesk/protocol";
 import { createPairingQrPayload } from "@duodesk/protocol/pairing";
@@ -67,6 +69,7 @@ export function ReceiverWorkspace({
   videoRef,
 }: ReceiverWorkspaceProps) {
   const [fullscreen, setFullscreen] = useState(false);
+  const [dismissedSessionId, setDismissedSessionId] = useState<string>();
   const hasSelectableAddress = interfaces.some((address) => address.selectable);
 
   useEffect(() => {
@@ -81,6 +84,25 @@ export function ReceiverWorkspace({
 
   const live = state === "streaming";
   const waiting = !!invitation && state === "connecting";
+  const hasActivePairingCode = Boolean(pairing?.code && remaining > 0);
+  const modalOpen = Boolean(
+    pairing &&
+      !live &&
+      invitation &&
+      dismissedSessionId !== invitation.sessionId,
+  );
+
+  useEffect(() => {
+    if (!modalOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && invitation) {
+        setDismissedSessionId(invitation.sessionId);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [modalOpen, invitation]);
+
   const label = busy
     ? "Preparing receiver"
     : live
@@ -146,7 +168,7 @@ export function ReceiverWorkspace({
                     {state === "ready"
                       ? "Press Start on your mobile device to begin streaming."
                       : waiting
-                        ? "Use the connection panel to pair your phone."
+                        ? "Scan the QR code or enter the address and code on your phone."
                         : "Create a connection, then open DuoDesk on your phone. Your video will appear here."}
                   </p>
                   <span className="stage-hint">
@@ -181,158 +203,126 @@ export function ReceiverWorkspace({
                 <p>Use the same Wi-Fi or local network.</p>
               </div>
             </div>
-            {pairing && (
-              <div className="code-pairing">
-                <p className="field-label">Enter on your phone</p>
-                <code aria-label="Desktop address and port">
-                  {pairing.address}
-                </code>
-                {pairing.code && remaining > 0 && (
-                  <strong aria-label="Six-digit verification code">
-                    {pairing.code}
-                  </strong>
-                )}
-                <p role="status">{pairing.status}</p>
-                {waiting && (
-                  <span className="code-expiry">
-                    {remaining > 0
-                      ? `Expires in ${remaining}s`
-                      : "Code expired. Create a new connection."}
-                  </span>
-                )}
-              </div>
-            )}
-            <details
-              className={`network-settings ${invitation ? "session-active" : ""}`}
-              open={!invitation}
-            >
-              <summary>Network · {ip}</summary>
-              <label className="field-label" htmlFor="desktop-address">
-                Desktop address
-              </label>
-              <select
-                id="desktop-address"
-                value={ip}
-                onChange={(e) => onIpChange(e.target.value)}
-                disabled={busy || !!invitation || !hasSelectableAddress}
-              >
-                {!ip && (
-                  <option value="" disabled>
-                    {!desktopAvailable
-                      ? "Available in desktop app"
-                      : hasSelectableAddress
-                        ? "Choose Wi-Fi or Ethernet"
-                        : "No network address found"}
-                  </option>
-                )}
-                {interfaces.map((address) => (
-                  <option
-                    key={`${address.name}:${address.address}`}
-                    value={address.address}
-                    disabled={!address.selectable}
+            {!invitation ? (
+              <>
+                <div className="network-settings">
+                  <label className="field-label" htmlFor="desktop-address">
+                    Desktop address
+                  </label>
+                  <select
+                    id="desktop-address"
+                    value={ip}
+                    onChange={(e) => onIpChange(e.target.value)}
+                    disabled={busy || !hasSelectableAddress}
                   >
-                    {address.name} · {address.address}{" "}
-                    {address.kind === "lan"
-                      ? ""
-                      : address.kind === "virtual"
-                        ? "(Likely virtual / VPN)"
-                        : `(${address.kind})`}
-                  </option>
-                ))}
-              </select>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="refresh-button"
-                onClick={onRefresh}
-                disabled={!desktopAvailable || busy || !!invitation}
-              >
-                <RefreshCw />
-                Refresh addresses
-              </Button>
-              <p className="field-help">
-                Choose the network your phone is connected to.
-              </p>
-              {desktopAvailable && !hasSelectableAddress && (
-                <p className="network-help">
-                  Connect to Wi-Fi or Ethernet, then refresh the addresses.
-                </p>
-              )}
-            </details>
-            <Button
-              className="start-button"
-              onClick={onStart}
-              disabled={!desktopAvailable || !ip || busy}
-            >
-              {busy ? <LoaderCircle className="spin" /> : <Wifi />}
-              {busy
-                ? "Creating connection…"
-                : invitation
-                  ? "Create new connection"
-                  : "Create connection"}
-              {!busy && <ArrowUpRight />}
-            </Button>
-            {invitation && (
-              <Button
-                variant="outline"
-                className="stop-button"
-                onClick={onStop}
-                disabled={busy}
-              >
-                <Square /> Stop session
-              </Button>
+                    {!ip && (
+                      <option value="" disabled>
+                        {!desktopAvailable
+                          ? "Available in desktop app"
+                          : hasSelectableAddress
+                            ? "Choose Wi-Fi or Ethernet"
+                            : "No network address found"}
+                      </option>
+                    )}
+                    {interfaces.map((address) => (
+                      <option
+                        key={`${address.name}:${address.address}`}
+                        value={address.address}
+                        disabled={!address.selectable}
+                      >
+                        {address.name} · {address.address}{" "}
+                        {address.kind === "lan"
+                          ? ""
+                          : address.kind === "virtual"
+                            ? "(Likely virtual / VPN)"
+                            : `(${address.kind})`}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="refresh-button"
+                    onClick={onRefresh}
+                    disabled={!desktopAvailable || busy}
+                  >
+                    <RefreshCw />
+                    Refresh addresses
+                  </Button>
+                  <p className="field-help">
+                    Choose the network your phone is connected to.
+                  </p>
+                  {desktopAvailable && !hasSelectableAddress && (
+                    <p className="network-help">
+                      Connect to Wi-Fi or Ethernet, then refresh the addresses.
+                    </p>
+                  )}
+                </div>
+                <Button
+                  className="start-button"
+                  onClick={() => {
+                    setDismissedSessionId(undefined);
+                    onStart();
+                  }}
+                  disabled={!desktopAvailable || !ip || busy}
+                >
+                  {busy ? <LoaderCircle className="spin" /> : <Wifi />}
+                  {busy ? "Creating connection…" : "Create connection"}
+                  {!busy && <ArrowUpRight />}
+                </Button>
+              </>
+            ) : (
+              <div className="active-session-controls">
+                <div className="session-network-badge">
+                  <span>Network</span>
+                  <code>{pairing?.address ?? ip}</code>
+                </div>
+                {pairing && !live && (
+                  <Button
+                    className="start-button"
+                    onClick={() => setDismissedSessionId(undefined)}
+                    disabled={busy}
+                  >
+                    <QrCode /> Show pairing QR & code
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  className="stop-button"
+                  onClick={() => {
+                    setDismissedSessionId(undefined);
+                    onStop();
+                  }}
+                  disabled={busy}
+                >
+                  <Square /> Stop session
+                </Button>
+              </div>
             )}
             <Separator className="connection-separator" />
-            {waiting ? (
-              <div className="pairing-content">
-                {pairing?.code && remaining > 0 && (
-                  <details className="qr-details">
-                    <summary>Scan to fill the phone fields</summary>
-                    <div className="qr-frame">
-                      <QRCodeSVG
-                        value={createPairingQrPayload(
-                          pairing.address,
-                          pairing.code,
-                        )}
-                        size={168}
-                        level="M"
-                        title="DuoDesk address and six-digit pairing code"
-                      />
-                    </div>
-                    <h3>Scan to fill address and code</h3>
-                    <p>
-                      Open Stream test on your phone and scan this QR. Then tap
-                      Verify code and connect.
-                    </p>
-                  </details>
-                )}
-              </div>
-            ) : (
-              <div className="setup-guide">
-                <p className="eyebrow">{live ? "CONNECTED" : "GET STARTED"}</p>
-                {live ? (
-                  <p>
-                    Your device is sending video. Use the player controls to
-                    pause playback or open fullscreen.
-                  </p>
-                ) : (
-                  <ol>
-                    <li>
-                      <span>1</span>Create a connection on this computer.
-                    </li>
-                    <li>
-                      <span>2</span>Open DuoDesk on your phone.
-                    </li>
-                    <li>
-                      <span>3</span>
-                      {pairing
-                        ? "Enter the address and code, or scan to fill both fields."
-                        : "Create a connection, then enter its address and six-digit code."}
-                    </li>
-                  </ol>
-                )}
-              </div>
-            )}
+            <div className="setup-guide">
+              <p className="eyebrow">{live ? "CONNECTED" : "GET STARTED"}</p>
+              {live ? (
+                <p>
+                  Your device is sending video. Use the player controls to
+                  pause playback or open fullscreen.
+                </p>
+              ) : (
+                <ol>
+                  <li>
+                    <span>1</span>Choose your network address and create a
+                    connection.
+                  </li>
+                  <li>
+                    <span>2</span>Open DuoDesk on your phone.
+                  </li>
+                  <li>
+                    <span>3</span>Scan the QR code or enter the IP and code in
+                    the pairing popup.
+                  </li>
+                </ol>
+              )}
+            </div>
             <details className="help-details">
               <summary>
                 <CircleHelp size={14} />
@@ -347,6 +337,105 @@ export function ReceiverWorkspace({
             </details>
           </aside>
         </div>
+        {modalOpen && pairing && (
+          <div
+            className="pairing-modal-backdrop"
+            onClick={() =>
+              invitation && setDismissedSessionId(invitation.sessionId)
+            }
+          >
+            <div
+              className="pairing-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="pairing-modal-title"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="pairing-modal-header">
+                <div>
+                  <h2 id="pairing-modal-title">Pair your phone</h2>
+                  <p>
+                    {hasActivePairingCode
+                      ? "Scan the QR code or enter the details below on your phone"
+                      : "Enter on your phone"}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="pairing-modal-close"
+                  aria-label="Close pairing dialog"
+                  onClick={() =>
+                    invitation && setDismissedSessionId(invitation.sessionId)
+                  }
+                >
+                  <X size={16} />
+                </Button>
+              </div>
+              <div className="code-pairing">
+                {hasActivePairingCode && (
+                  <div className="qr-frame">
+                    <QRCodeSVG
+                      value={createPairingQrPayload(
+                        pairing.address,
+                        pairing.code,
+                      )}
+                      size={196}
+                      level="M"
+                      title="DuoDesk address and six-digit pairing code"
+                    />
+                  </div>
+                )}
+                <div className="pairing-details">
+                  <div className="pairing-field">
+                    <span className="pairing-meta-label">IP Address</span>
+                    <code aria-label="Desktop address and port">
+                      {pairing.address}
+                    </code>
+                  </div>
+                  {hasActivePairingCode && (
+                    <div className="pairing-field">
+                      <span className="pairing-meta-label">Pairing Code</span>
+                      <strong aria-label="Six-digit verification code">
+                        {pairing.code}
+                      </strong>
+                    </div>
+                  )}
+                </div>
+                {pairing.status && <p role="status">{pairing.status}</p>}
+                {waiting && (
+                  <span className="code-expiry">
+                    {remaining > 0
+                      ? `Expires in ${remaining}s`
+                      : "Code expired. Create a new connection."}
+                  </span>
+                )}
+              </div>
+              <div className="pairing-modal-actions">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setDismissedSessionId(undefined);
+                    onStart();
+                  }}
+                  disabled={busy}
+                >
+                  <RefreshCw /> New code
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    setDismissedSessionId(undefined);
+                    onStop();
+                  }}
+                  disabled={busy}
+                >
+                  <Square /> Stop session
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

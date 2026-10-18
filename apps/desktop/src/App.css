@@ -234,19 +234,48 @@ select {
 .start-button,
 .stop-button {
   width: 100%;
-  margin-top: 18px;
+  margin-top: 14px;
   height: 40px;
+}
+.active-session-controls {
+  display: flex;
+  flex-direction: column;
+}
+.session-network-badge {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #f5f7fb;
+  border: 1px solid #dce6f6;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #556479;
+}
+.session-network-badge span {
+  font-weight: 600;
+  color: #64748b;
+}
+.session-network-badge code {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1b2738;
+  overflow-wrap: anywhere;
 }
 .connection-separator {
   margin: 20px 0;
 }
 .qr-frame {
   background: white;
-  border: 1px solid #e1e7f0;
-  border-radius: 9px;
-  padding: 13px;
-  display: inline-block;
-  margin-bottom: 12px;
+  border: 1px solid #dce6f6;
+  border-radius: 12px;
+  padding: 16px;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(27, 39, 56, 0.05);
 }
 .setup-guide ol {
   padding-left: 0;
@@ -291,20 +320,114 @@ select {
   line-height: 1.6;
   margin: 8px 0 0;
 }
+.pairing-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(15, 25, 42, 0.55);
+  backdrop-filter: blur(4px);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+.pairing-modal {
+  width: 100%;
+  max-width: 380px;
+  background: white;
+  border: 1px solid #dce3eb;
+  border-radius: 16px;
+  padding: 22px;
+  box-shadow: 0 24px 48px -12px rgba(15, 25, 42, 0.25);
+}
+.pairing-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.pairing-modal-header h2 {
+  font-size: 17px;
+  font-weight: 650;
+  color: #1b2738;
+  margin: 0 0 4px;
+}
+.pairing-modal-header p {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.45;
+}
+.pairing-modal-close {
+  color: #64748b;
+  flex-shrink: 0;
+  margin-top: -2px;
+  margin-right: -4px;
+}
+.pairing-modal-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 16px;
+}
+.pairing-modal-actions button {
+  width: 100%;
+}
 .code-pairing {
-  padding-bottom: 20px;
+  text-align: center;
+  padding: 18px 14px;
+  margin: 0;
+  background: #f1f5fc;
+  border: 1px solid #dce6f6;
+  border-radius: 12px;
+}
+.pairing-details {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: white;
+  border: 1px solid #dce6f6;
+  border-radius: 8px;
+  padding: 12px;
+}
+.pairing-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.pairing-field + .pairing-field {
+  border-top: 1px solid #eef3fb;
+  padding-top: 10px;
+}
+.pairing-meta-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #748297;
 }
 .code-pairing code {
   display: block;
   font-size: 13px;
+  font-weight: 600;
+  color: #1b2738;
+  overflow-wrap: anywhere;
 }
 .code-pairing strong {
   display: block;
   font:
-    30px ui-monospace,
+    26px ui-monospace,
     monospace;
+  font-weight: 700;
   letter-spacing: 5px;
-  margin-top: 12px;
+  color: #1b2738;
+  margin-top: 2px;
+}
+.code-pairing p[role="status"] {
+  font-size: 11px;
+  color: #66768d;
+  line-height: 1.6;
+  margin: 10px 0 0;
 }
 
 .spin {
@@ -371,59 +494,10 @@ select {
   margin-top: 5px;
 }
 
-.code-pairing {
-  text-align: center;
-  padding: 16px 10px;
-  margin: 0 0 20px;
-  background: #f1f5fc;
-  border: 1px solid #dce6f6;
-  border-radius: 8px;
-}
-.code-pairing p[role="status"] {
-  font-size: 11px;
-  color: #66768d;
-  line-height: 1.6;
-  margin: 8px 0 0;
-}
-.code-pairing code {
-  overflow-wrap: anywhere;
-}
-.qr-details {
-  font-size: 12px;
-  color: #5e7190;
-  margin-bottom: 16px;
-}
-.qr-details summary {
-  padding: 4px 0 12px;
-}
-.qr-details h3 {
-  margin-top: 10px;
-}
-.qr-details p {
-  font-size: 12px;
-  line-height: 1.7;
-  margin: 6px 0;
-}
-
-.network-settings:not(.session-active) > summary {
-  display: none;
-}
-.network-settings.session-active {
-  margin-bottom: 18px;
-}
-.network-settings > summary {
-  font-size: 12px;
-  color: #64748b;
-  padding: 4px 0;
-  overflow-wrap: anywhere;
-}
-.network-settings[open].session-active > summary {
-  margin-bottom: 16px;
-}
 .code-expiry {
   display: block;
   font-size: 11px;
-  margin-top: 7px;
+  margin-top: 10px;
   color: #66768d;
 }
 
