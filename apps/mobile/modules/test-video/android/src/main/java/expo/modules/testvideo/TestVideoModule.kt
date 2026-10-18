@@ -18,10 +18,29 @@ class TestVideoModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("DuoDeskTestVideo")
     Constant("supportsScreenSharing") { true }
-    Events("onStatus")
+    Constant("supportsViewing") { true }
+    Events("onStatus", "onViewerStatus")
 
     OnCreate {
       VideoSenderManager.setStatusListener { sendEvent("onStatus", it) }
+      StreamViewerManager.setStatusListener { sendEvent("onViewerStatus", it) }
+    }
+
+    View(StreamViewerView::class) {
+      OnViewDestroys { view: StreamViewerView -> view.release() }
+    }
+
+    AsyncFunction("watch") { invitation: String, promise: Promise ->
+      val context = requireNotNull(appContext.reactContext).applicationContext
+      StreamViewerManager.getOrCreate(context).submit(promise) { connect(invitation) }
+    }
+
+    AsyncFunction("stopWatching") { promise: Promise ->
+      StreamViewerManager.stop(promise)
+    }
+
+    AsyncFunction("getViewerStatus") {
+      StreamViewerManager.getStatus()
     }
 
     AsyncFunction("pairRequest") { address: String, message: String, fresh: Boolean, promise: Promise ->
@@ -90,6 +109,7 @@ class TestVideoModule : Module() {
 
     OnActivityEntersBackground {
       pairing.close()
+      StreamViewerManager.stop()
       VideoSenderManager.background()
     }
 
@@ -97,6 +117,7 @@ class TestVideoModule : Module() {
       pairing.close()
       pairingQueue.shutdownNow()
       VideoSenderManager.setStatusListener(null)
+      StreamViewerManager.setStatusListener(null)
     }
   }
 }

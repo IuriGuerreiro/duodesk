@@ -1,9 +1,19 @@
-import type { SenderStatus } from "./types";
+import type { ComponentType } from "react";
+import type { ViewProps } from "react-native";
+import type { SenderStatus, ViewerStatus } from "./types";
 
-export type { SenderStatus, SenderStats, StreamMode } from "./types";
+export type {
+  SenderStatus,
+  SenderStats,
+  StreamMode,
+  ViewerStats,
+  ViewerStatus,
+} from "./types";
 
 export const available = false;
 export const supportsScreenSharing = false;
+export const supportsViewing = false;
+export const StreamViewerView: ComponentType<ViewProps> = () => null;
 
 const unsupported = async (): Promise<void> => {
   throw new Error(
@@ -35,3 +45,14 @@ export const pairRequest = async (
   return "";
 };
 export const pairClose = async (): Promise<void> => {};
+
+export const watch = (_invitation: string): Promise<void> => unsupported();
+export const stopWatching = async (): Promise<void> => {};
+export const getViewerStatus = async (): Promise<ViewerStatus> => ({
+  state: "idle",
+});
+export const subscribeViewer = (
+  _listener: (status: ViewerStatus) => void,
+): { remove(): void } => ({
+  remove() {},
+});
