@@ -14,7 +14,10 @@ app
         nodeIntegration: false,
       },
     });
-    await window.loadURL("http://127.0.0.1:1422/test/loopback.html");
+    await window.loadURL(
+      process.env.DUODESK_RECEIVER_TEST_URL ??
+        "http://127.0.0.1:1422/test/loopback.html",
+    );
     const result = await window.webContents.executeJavaScript(
       "window.runLoopback()",
     );

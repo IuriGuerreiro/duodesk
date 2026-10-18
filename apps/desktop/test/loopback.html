@@ -23,7 +23,7 @@
   <video autoplay muted playsinline></video>
   <pre id="result"></pre>
   <script type="module">
-    import { VideoReceiver } from "/src/streaming/receiver.ts";
+    import { VideoReceiver } from "/src/features/receiver/video-receiver.ts";
     window.runLoopback = async () => {
       const sessionId = "a".repeat(32),
         errors = [],

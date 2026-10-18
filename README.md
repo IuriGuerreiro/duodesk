@@ -73,7 +73,7 @@ pnpm dlx create-tauri-app@4.7.5 tauri-desktop --template react-ts --manager pnpm
 pnpm dlx create-expo-app@5.0.0 expo-mobile --template default --no-install
 ```
 
-These reconstruct the generator selections, not a captured shell transcript. The original Expo template tarball version was not recorded, and `default` can change independently of the generator version. The committed baseline and lockfile preserve the actual source and dependency graph. The imported Expo starter uses SDK 58, Router, React 19.3 and React Native 0.88. The Turbo examples were removed; app identities, workspace imports, development client, and shared tooling were integrated. Starter screens remain intact.
+These reconstruct the generator selections, not a captured shell transcript. The original Expo template tarball version was not recorded, and `default` can change independently of the generator version. The committed baseline and lockfile preserve the actual source and dependency graph. The imported Expo starter uses SDK 58, Router, React 19.3 and React Native 0.88. The Turbo examples were removed; app identities, workspace imports, development client, and shared tooling were integrated. The mobile starter screens have been replaced by the DuoDesk connection workspace. See [mobile setup and styling](apps/mobile/README.md).
 
 Official references: [Turbo installation](https://turborepo.dev/docs/getting-started/installation), [Tauri creation](https://v2.tauri.app/start/create-project/), [create-expo-app](https://docs.expo.dev/more/create-expo/), [Expo monorepos](https://docs.expo.dev/guides/monorepos/), [SDK 58](https://docs.expo.dev/versions/v58.0.0/).
 
@@ -86,3 +86,5 @@ CI runs frozen installation, lint, typechecking, desktop UI and Rust sidecar bui
 Android sender compilation, JavaScript checks, production exports, and local signaling checks pass. Windows playback and physical Android/iPad streaming still need device validation. No cloud build has been submitted for this change.
 
 DuoDesk original code uses [PolyForm Noncommercial](LICENSE.md). See [NOTICE](NOTICE) for third-party licensing; the Expo starter retains its own license notice.
+
+For desktop address selection and six-digit local pairing, see [device pairing](docs/device-pairing.md).

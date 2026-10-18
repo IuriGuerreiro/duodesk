@@ -4,7 +4,9 @@
  * will be defined in future milestone work.
  */
 export const PROTOCOL_VERSION = "0.1.0";
-export * from "./streaming.ts";
+export * from "./stream/invitation.ts";
+export * from "./stream/signal.ts";
+export * from "./stream/state.ts";
 
 export interface ProtocolHandshake {
   version: string;

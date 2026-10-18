@@ -78,7 +78,7 @@ final class VideoSender: NSObject, RTCPeerConnectionDelegate {
       }
     }
     status("connecting")
-    armTimeout("Video negotiation timed out. Create a new invitation and reconnect.")
+    armTimeout("Video negotiation timed out. Create a new desktop pairing code and reconnect.")
     peer.offer(for: constraints) { [weak self, weak peer] description, error in
       guard let self, let peer else { return }
       self.queue.async {
@@ -207,7 +207,7 @@ final class VideoSender: NSObject, RTCPeerConnectionDelegate {
     queue.async { [weak self] in
       guard let self, self.peer === peerConnection else { return }
       if newState == .connected || newState == .completed { self.timeout?.cancel(); self.timeout = nil; self.status("streaming") }
-      else if newState == .failed || newState == .disconnected { self.fail("Video connection lost. Create a new invitation.") }
+      else if newState == .failed || newState == .disconnected { self.fail("Video connection lost. Create a new desktop pairing code.") }
     }
   }
   func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState) {}
