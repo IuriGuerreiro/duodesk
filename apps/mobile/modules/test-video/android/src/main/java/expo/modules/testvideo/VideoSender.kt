@@ -1,6 +1,7 @@
 package expo.modules.testvideo
 
 import android.content.Context
+import android.content.Intent
 import expo.modules.kotlin.Promise
 import okhttp3.*
 import org.json.JSONObject
@@ -11,6 +12,7 @@ import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.ThreadFactory
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
 import javax.net.ssl.X509TrustManager
@@ -34,7 +36,13 @@ internal data class Invitation(val sessionId: String, val url: String, val token
 }
 
 internal class VideoSender(private val context: Context, private val emit: (Map<String, Any>) -> Unit) {
-  private val queue = ScheduledThreadPoolExecutor(1).apply { removeOnCancelPolicy = true }
+  @Volatile
+  private var queueThread: Thread? = null
+  private val queue = ScheduledThreadPoolExecutor(1, ThreadFactory { r ->
+    Thread(r, "duodesk-video-sender").also { queueThread = it }
+  }).apply { removeOnCancelPolicy = true }
+
+  @Volatile
   private var generation = 0L
   private var invitation: Invitation? = null
   private var socket: WebSocket? = null
@@ -43,33 +51,89 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
   private var source: VideoSource? = null
   private var track: VideoTrack? = null
   private var clip: ClipSource? = null
+  private var screen: ScreenSource? = null
   private var egl: EglBase? = null
   private var factory: PeerConnectionFactory? = null
   private var timeout: ScheduledFuture<*>? = null
   private var stats: ScheduledFuture<*>? = null
   private val candidates = mutableListOf<IceCandidate>()
   private var acceptingAnswer = false
+
+  @Volatile
   private var state = "idle"
+  @Volatile
+  private var mode: String? = null
+  @Volatile
+  private var lastStats: Map<String, Any>? = null
+  @Volatile
+  private var lastError: String? = null
+  @Volatile
+  private var serviceSessionId: Long = 0L
+
   private var previousBytes = 0.0
   private var previousTime = 0.0
+
+  fun isReady(): Boolean = (state == "ready")
+  fun currentGeneration(): Long = generation
+  fun getMode(): String? = mode
+
+  fun getStatus(): Map<String, Any> {
+    val map = mutableMapOf<String, Any>("state" to state)
+    mode?.let { map["mode"] = it }
+    lastStats?.let { map["stats"] = it }
+    lastError?.let { map["message"] = it }
+    return map
+  }
 
   private fun dispatch(action: () -> Unit) {
     if (!queue.isShutdown) runCatching {
       queue.execute { try { action() } catch (error: Exception) { fail(error.message ?: "Streaming failed") } }
     }
   }
+
   fun submit(promise: Promise, action: VideoSender.() -> Unit) {
     dispatch {
       try { action(); promise.resolve() }
       catch (error: Exception) { fail(error.message ?: "Streaming failed"); promise.reject("ERR_STREAM", error.message, error) }
     }
   }
-  fun background() = dispatch { stop() }
+
+  fun background() = dispatch {
+    if (mode == "screen") {
+      return@dispatch
+    }
+    stop()
+  }
+
   fun destroy() = dispatch {
     close(); factory?.dispose(); factory = null; egl?.release(); egl = null; queue.shutdown()
   }
-  private fun status(next: String) { state = next; emit(mapOf("state" to next)) }
-  private fun fail(message: String) { close(); state = "failed"; emit(mapOf("state" to "failed", "message" to message)) }
+
+  private fun status(next: String) {
+    state = next
+    val map = mutableMapOf<String, Any>("state" to next)
+    mode?.let { map["mode"] = it }
+    emit(map)
+  }
+
+  private fun fail(message: String) {
+    lastError = message
+    close()
+    state = "failed"
+    val map = mutableMapOf<String, Any>("state" to "failed", "message" to message)
+    mode?.let { map["mode"] = it }
+    emit(map)
+  }
+
+  fun onPermissionDenied(message: String) {
+    dispatch {
+      lastError = message
+      val map = mutableMapOf<String, Any>("state" to state, "message" to message)
+      mode?.let { map["mode"] = it }
+      emit(map)
+    }
+  }
+
   private fun armTimeout(message: String) {
     timeout?.cancel(false)
     val epoch = generation
@@ -91,7 +155,6 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       }
     }
     val tls = SSLContext.getInstance("TLS").apply { init(null, arrayOf(trust), null) }
-    // Dedicated client: its trust policy applies only to this invitation, never other app requests.
     val client = OkHttpClient.Builder().sslSocketFactory(tls.socketFactory, trust)
       .hostnameVerifier { host, _ -> host == URI(info.url).host }
       .connectionSpecs(listOf(ConnectionSpec.MODERN_TLS)).pingInterval(10, TimeUnit.SECONDS)
@@ -109,8 +172,8 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) = dispatch {
         if (generation == epoch) fail("Unexpected binary signaling message")
       }
-      override fun onFailure(webSocket: WebSocket, error: Throwable, response: Response?) = dispatch {
-        if (generation == epoch) fail("Receiver connection failed: ${error.message}")
+      override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) = dispatch {
+        if (generation == epoch) fail("Receiver connection failed: ${t.message}")
       }
       override fun onClosing(webSocket: WebSocket, code: Int, reason: String) = dispatch {
         if (generation == epoch) stop()
@@ -131,7 +194,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl.eglBaseContext)).createPeerConnectionFactory().also { factory = it }
   }
 
-  fun start(bitrateMbps: Int) {
+  private fun initPeerConnection(bitrateMbps: Int): Pair<PeerConnection, Long> {
     check(state == "ready") { "Connect to the desktop before starting" }
     require(bitrateMbps in 2..30) { "Choose a bitrate between 2 and 30 Mbps" }
     val factory = nativeFactory()
@@ -144,7 +207,6 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     peer = pc
     val source = factory.createVideoSource(true)
     this.source = source
-    source.adaptOutputFormat(1920, 1080, 30)
     val track = factory.createVideoTrack("duodesk-test-video", source)
     this.track = track
     val transceiver = checkNotNull(pc.addTransceiver(track, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_ONLY, listOf("duodesk"))))
@@ -156,9 +218,10 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     parameters.encodings.forEach { it.maxBitrateBps = bitrateMbps * 1_000_000; it.maxFramerate = 30 }
     parameters.degradationPreference = RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
     check(transceiver.sender.setParameters(parameters)) { "Could not configure video bitrate" }
-    clip = ClipSource(context, checkNotNull(egl).eglBaseContext, source.capturerObserver) { message ->
-      dispatch { if (epoch == generation) fail(message) }
-    }
+    return Pair(pc, epoch)
+  }
+
+  private fun sendOffer(pc: PeerConnection, epoch: Long) {
     status("connecting")
     armTimeout("Video negotiation timed out. Create a new desktop invitation.")
     pc.createOffer(object : SdpCallbacks({ message -> dispatch { if (epoch == generation) fail(message) } }) {
@@ -171,6 +234,70 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
         }, description)
       }
     }, MediaConstraints())
+  }
+
+  fun start(bitrateMbps: Int) {
+    mode = "clip"
+    val (pc, epoch) = initPeerConnection(bitrateMbps)
+    val src = checkNotNull(source)
+    src.adaptOutputFormat(1920, 1080, 30)
+    clip = ClipSource(context, checkNotNull(egl).eglBaseContext, src.capturerObserver) { message ->
+      dispatch { if (epoch == generation) fail(message) }
+    }
+    sendOffer(pc, epoch)
+  }
+
+  fun submitScreen(
+    bitrateMbps: Int,
+    resultData: Intent,
+    serviceSession: Long,
+    onStarted: () -> Unit,
+    onError: (Throwable) -> Unit
+  ) {
+    dispatch {
+      try {
+        this.serviceSessionId = serviceSession
+        if (generation != serviceSession) {
+          ScreenCaptureService.stop(context, serviceSession)
+          onError(IllegalStateException("Session changed before screen capture started"))
+          return@dispatch
+        }
+        startScreen(bitrateMbps, resultData, serviceSession)
+        onStarted()
+      } catch (error: Exception) {
+        fail(error.message ?: "Streaming failed")
+        onError(error)
+      }
+    }
+  }
+
+  fun startScreen(bitrateMbps: Int, resultData: Intent, serviceSession: Long = 0L) {
+    mode = "screen"
+    this.serviceSessionId = serviceSession
+    val (pc, epoch) = initPeerConnection(bitrateMbps)
+    val src = checkNotNull(source)
+    screen = ScreenSource(
+      context = context,
+      eglContext = checkNotNull(egl).eglBaseContext,
+      observer = src.capturerObserver,
+      resultData = resultData,
+      queue = queue,
+      onResize = { w, h ->
+        dispatch {
+          if (epoch == generation) {
+            src.adaptOutputFormat(w, h, 30)
+          }
+        }
+      },
+      onFailure = { message ->
+        dispatch {
+          if (epoch == generation) {
+            fail(message)
+          }
+        }
+      }
+    )
+    sendOffer(pc, epoch)
   }
 
   private fun receive(text: String) {
@@ -201,7 +328,12 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
           override fun onSetSuccess() = dispatch {
             if (peer !== pc) return@dispatch
             candidates.forEach { addCandidate(pc, it, epoch) }; candidates.clear()
-            clip?.start(); startStats(pc)
+            if (mode == "screen") {
+              screen?.start()
+            } else {
+              clip?.start()
+            }
+            startStats(pc)
           }
         }, SessionDescription(SessionDescription.Type.ANSWER, sdp))
       }
@@ -225,11 +357,13 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       override fun onAddFailure(error: String) = dispatch { if (generation == epoch) fail("Could not add ICE candidate") }
     })
   }
+
   private fun send(message: JSONObject) {
     val info = invitation ?: return
     message.put("v", 1).put("sessionId", info.sessionId)
     check(socket?.send(message.toString()) == true) { "Signaling socket is closed or busy" }
   }
+
   private fun startStats(pc: PeerConnection) {
     stats?.cancel(false)
     stats = queue.scheduleAtFixedRate({
@@ -242,13 +376,26 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
           val mbps = if (previousTime > 0 && elapsed > 0) maxOf(0.0, (bytes - previousBytes) * 8 / elapsed) else 0.0
           previousBytes = bytes; previousTime = report.timestampUs
           val codec = report.statsMap[values["codecId"]]?.members?.get("mimeType") ?: "H264"
-          emit(mapOf("state" to state, "stats" to mapOf("codec" to codec, "mbps" to mbps,
-            "fps" to (values["framesPerSecond"] ?: 0), "width" to (values["frameWidth"] ?: 0),
-            "height" to (values["frameHeight"] ?: 0), "qualityLimit" to (values["qualityLimitationReason"] ?: "unknown"))))
+          val currentStats = mapOf(
+            "codec" to codec,
+            "mbps" to mbps,
+            "fps" to (values["framesPerSecond"] ?: 0),
+            "width" to (values["frameWidth"] ?: 0),
+            "height" to (values["frameHeight"] ?: 0),
+            "qualityLimit" to (values["qualityLimitationReason"] ?: "unknown")
+          )
+          lastStats = currentStats
+          val map = mutableMapOf<String, Any>(
+            "state" to state,
+            "stats" to currentStats
+          )
+          mode?.let { map["mode"] = it }
+          emit(map)
         }
       } }
     }, 1, 1, TimeUnit.SECONDS)
   }
+
   private fun observer(epoch: Long) = object : PeerConnection.Observer {
     override fun onIceCandidate(candidate: IceCandidate) = dispatch {
       if (generation == epoch) runCatching { send(JSONObject().put("type", "candidate").put("candidate", candidate.sdp)
@@ -271,18 +418,43 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     override fun onDataChannel(channel: DataChannel) {}
     override fun onRenegotiationNeeded() {}
   }
+
   private fun close() {
     generation++
     timeout?.cancel(false); timeout = null; stats?.cancel(false); stats = null
     clip?.stop(); clip = null
+    val wasScreen = (mode == "screen" || screen != null)
+    screen?.stop(); screen = null
+    if (wasScreen) {
+      ScreenCaptureService.stop(context, serviceSessionId)
+    }
     peer?.close(); peer?.dispose(); peer = null
     track?.dispose(); track = null; source?.dispose(); source = null
+    runCatching { send(JSONObject().put("type", "stop")) }
     socket?.cancel(); socket = null
     client?.dispatcher?.executorService?.shutdown(); client?.connectionPool?.evictAll(); client = null
     invitation = null; candidates.clear(); acceptingAnswer = false; previousBytes = 0.0; previousTime = 0.0
+    mode = null
     state = "stopped"
   }
-  fun stop() { close(); status("stopped") }
+
+  fun stop(promise: Promise? = null) {
+    if (Thread.currentThread() === queueThread) {
+      close()
+      status("stopped")
+      promise?.resolve()
+    } else {
+      if (queue.isShutdown) {
+        promise?.resolve()
+        return
+      }
+      dispatch {
+        close()
+        status("stopped")
+        promise?.resolve()
+      }
+    }
+  }
 
   companion object {
     private var initialized = false
