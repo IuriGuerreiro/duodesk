@@ -59,6 +59,7 @@ class ConsentRequestTest {
       requestCode = 3001,
       senderGeneration = 0L,
       bitrateMbps = 10,
+      shareAudio = true,
       promise = promise
     )
 
@@ -82,6 +83,7 @@ class ConsentRequestTest {
       requestCode = 3002,
       senderGeneration = 1L,
       bitrateMbps = 15,
+      shareAudio = true,
       promise = promise
     )
 
@@ -110,6 +112,7 @@ class ConsentRequestTest {
         requestCode = 3000 + i,
         senderGeneration = 0L,
         bitrateMbps = 10,
+        shareAudio = true,
         promise = promise
       )
 
@@ -180,7 +183,7 @@ class ConsentRequestTest {
   @Test
   fun testPrepareScreenConsentWithoutActiveSenderRejectsPromise() {
     val promise = MockPromise()
-    val request = VideoSenderManager.prepareScreenConsent(12, promise)
+    val request = VideoSenderManager.prepareScreenConsent(12, true, promise)
     assertNull(request)
     assertTrue(promise.rejected)
     assertEquals("ERR_STREAM", promise.rejectedCode)

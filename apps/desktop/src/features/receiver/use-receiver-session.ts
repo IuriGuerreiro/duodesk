@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke, isDesktop, subscribe } from "@/shared/host";
-import type { NetworkAddress, ReceiverWorkspaceProps } from "./receiver-workspace";
+import type {
+  NetworkAddress,
+  ReceiverWorkspaceProps,
+} from "./receiver-workspace";
 import type { Invitation, StreamState } from "@duodesk/protocol";
 import { VideoReceiver, type VideoStats } from "./video-receiver";
 import {
@@ -23,6 +26,11 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
   const [stats, setStats] = useState<VideoStats>();
   const [busy, setBusy] = useState(false);
   const [remaining, setRemaining] = useState(0);
+  const [hasAudio, setHasAudio] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [volume, setVolume] = useState(1);
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+  const prefs = useRef({ muted: false, volume: 1 });
   const video = useRef<HTMLVideoElement>(null);
   const peer = useRef<VideoReceiver | undefined>(undefined);
   const current = useRef<Invitation | undefined>(undefined);
@@ -32,6 +40,50 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
     peer.current?.stop();
     peer.current = undefined;
     if (video.current) video.current.srcObject = null;
+    setHasAudio(false);
+    setAutoplayBlocked(false);
+  }
+
+  /** Starts playback with the user's sound settings; falls back to muted if the browser requires a gesture. */
+  async function play(element: HTMLVideoElement) {
+    element.volume = prefs.current.volume;
+    element.muted = prefs.current.muted;
+    try {
+      await element.play();
+      return;
+    } catch {
+      if (!element.muted) {
+        element.muted = true;
+        setAutoplayBlocked(true);
+        try {
+          await element.play();
+          return;
+        } catch {
+          // Fall through to the manual play prompt.
+        }
+      }
+    }
+    setError("Press play on the video to start playback.");
+  }
+
+  function changeMuted(next: boolean) {
+    const element = video.current;
+    prefs.current.muted = next;
+    if (!element) return;
+    element.muted = next;
+    if (!next) {
+      setAutoplayBlocked(false);
+      if (element.paused && element.srcObject) void play(element);
+    }
+  }
+
+  function changeVolume(next: number) {
+    const element = video.current;
+    prefs.current.volume = next;
+    if (!element) return;
+    element.volume = next;
+    // Dragging the slider up is an explicit request to hear audio.
+    if (next > 0 && element.muted) changeMuted(false);
   }
   async function stop() {
     current.current = undefined;
@@ -44,6 +96,19 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
     setState("stopped");
     await invoke("stream_stop").catch(() => {});
   }
+
+  useEffect(() => {
+    const element = video.current;
+    if (!element) return;
+    // Keep React state in step with the player's own controls.
+    const sync = () => {
+      prefs.current = { muted: element.muted, volume: element.volume };
+      setMuted(element.muted);
+      setVolume(element.volume);
+    };
+    element.addEventListener("volumechange", sync);
+    return () => element.removeEventListener("volumechange", sync);
+  }, []);
 
   useEffect(() => {
     mounted.current = true;
@@ -189,14 +254,11 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
         next.sessionId,
         (signal) => invoke("stream_send", { signal }),
         (stream) => {
-          if (video.current) {
-            video.current.srcObject = stream;
-            void video.current
-              .play()
-              .catch(() =>
-                setError("Press play on the video to start playback."),
-              );
-          }
+          const element = video.current;
+          if (!element) return;
+          if (element.srcObject !== stream) element.srcObject = stream;
+          setHasAudio(stream.getAudioTracks().length > 0);
+          void play(element);
         },
         (message) => {
           setError(message);
@@ -233,6 +295,14 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
     busy,
     remaining,
     videoRef: video,
+    audio: {
+      present: hasAudio,
+      muted,
+      volume,
+      blocked: autoplayBlocked,
+      onMutedChange: changeMuted,
+      onVolumeChange: changeVolume,
+    },
     onStart: () => void start(),
     onStop: () => void stop(),
     onFullscreen: () => {

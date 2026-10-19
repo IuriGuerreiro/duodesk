@@ -22,8 +22,12 @@ app
       "window.runLoopback()",
     );
     console.log(JSON.stringify(result));
+    const audio = await window.webContents.executeJavaScript(
+      "window.runAudioLoopback()",
+    );
+    console.log(JSON.stringify(audio));
     clearTimeout(deadline);
-    app.exit(result.passed ? 0 : 1);
+    app.exit(result.passed && audio.passed ? 0 : 1);
   })
   .catch((error) => {
     console.error(error);

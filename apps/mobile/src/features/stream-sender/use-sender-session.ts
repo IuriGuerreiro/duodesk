@@ -19,6 +19,22 @@ async function localNetworkPermission() {
   }
 }
 
+/** Android requires RECORD_AUDIO for any audio capture, including other apps' playback. Denial means video only. */
+async function playbackAudioPermission(): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  const result = await PermissionsAndroid.request(
+    PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+    {
+      title: "Share phone audio",
+      message:
+        "Android needs this permission to capture sound from other apps. DuoDesk does not record your microphone.",
+      buttonPositive: "Continue",
+      buttonNegative: "Not now",
+    },
+  );
+  return result === PermissionsAndroid.RESULTS.GRANTED;
+}
+
 function parseBitrate(raw: string): number {
   const value = Number(raw.trim());
   if (!Number.isInteger(value) || value < 2 || value > 30) {
@@ -36,6 +52,8 @@ export function useSenderSession() {
   const [notice, setNotice] = useState("");
   const [receiver, setReceiver] = useState<string | null>(null);
   const [bitrate, setBitrate] = useState("12");
+  const [shareAudio, setShareAudio] = useState(true);
+  const [audioNotice, setAudioNotice] = useState("");
   const [error, setError] = useState("");
   const [intent, setIntent] = useState<"connect" | "start" | "screen">(
     "connect",
@@ -226,8 +244,16 @@ export function useSenderSession() {
           PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
         );
       }
+      let audio = shareAudio && sender.supportsPlaybackAudio;
+      setAudioNotice("");
+      if (audio && !(await playbackAudioPermission())) {
+        audio = false;
+        setAudioNotice(
+          "Audio permission was denied, so only video is shared. You can allow it in Android settings.",
+        );
+      }
       setIntent("screen");
-      await sender.startScreen(value);
+      await sender.startScreen(value, audio);
     });
   }
 
@@ -255,6 +281,10 @@ export function useSenderSession() {
     receiver,
     bitrate,
     setBitrate,
+    shareAudio,
+    setShareAudio,
+    audioNotice,
+    supportsPlaybackAudio: sender.supportsPlaybackAudio,
     error,
     setError,
     canPair,

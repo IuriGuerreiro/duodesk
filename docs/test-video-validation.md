@@ -13,7 +13,7 @@ The first implementation sends a bundled silent MP4 from the foreground Android 
 
 The iOS module uses Expo Modules directly and pins JitsiWebRTC 155.0.0. This replaces the proposed React Native WebRTC wrapper evaluation: a custom source can feed the same native peer connection without private wrapper integration or a second WebRTC framework. The app needs a new native development build. Expo Go cannot run this feature.
 
-Video buffers remain native. The clip loops with monotonic capture timestamps, paced from presentation times, and a bounded decode loop. H.264 is required for this experiment, with RTX recovery where supported. Target output is 1080p/30 fps with a selectable 2–30 Mbps ceiling; actual encoding and quality depend on the device and network. Audio is not captured.
+Video buffers remain native. The clip loops with monotonic capture timestamps, paced from presentation times, and a bounded decode loop. H.264 is required for this experiment, with RTX recovery where supported. Target output is 1080p/30 fps with a selectable 2–30 Mbps ceiling; actual encoding and quality depend on the device and network. The test clip has no audio. Android screen sharing can also send other apps' playback audio; see [android-playback-audio.md](android-playback-audio.md).
 
 The desktop displays a six-digit code with a two-minute lifetime. Its QR contains only the local address and code, not the internal invitation or certificate fingerprint. SRP authenticates pairing; the recovered invitation still pins the exact TLS certificate. Reconnection requires a fresh code. There is no global certificate bypass or public STUN/TURN dependency. Do not share screenshots of an active code or pairing QR.
 
