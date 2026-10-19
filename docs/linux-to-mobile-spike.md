@@ -40,4 +40,4 @@ A throwaway Electron app (not committed). It called `getDisplayMedia` through `s
 
 ## Manual check on the phone
 
-The viewer does not exist yet. Steps for it will be in the final report.
+See [desktop-to-phone screen sharing](desktop-to-phone-screen-share.md) for the phone test steps.

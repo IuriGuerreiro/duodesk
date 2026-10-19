@@ -77,14 +77,16 @@ apps/mobile/src/
   app/                       # thin routes; index loads the sender, stream-test redirects to it
   features/
     stream-sender/           # screen, use-sender-session, session copy
-    pairing/                 # QR scanner, manual invitation entry, pairing client
+    stream-viewer/           # watch the desktop screen (/watch), native view
+    pairing/                 # QR scanner, manual invitation entry, pairing client, invitation handoff
   shared/                    # NativeWind tokens, UI primitives, utilities, shared types
   (native module: apps/mobile/modules/test-video, outside src)
 apps/desktop/src/
   features/receiver/         # workspace UI, use-receiver-session, video-receiver (WebRTC)
-  shared/                    # host adapter (Electron/Tauri), shadcn ui/, lib/
+  features/screen-share/     # Share this screen: workspace UI, session hook, screen-sender (WebRTC)
+  shared/                    # host adapter (Electron/Tauri), session/ (pairing + host events), pairing/ (dialog, address picker), shadcn ui/, lib/
 packages/protocol/src/
-  stream/                    # invitation.ts, signal.ts, state.ts, internal guards.ts
+  stream/                    # invitation.ts, signal.ts, direction.ts (route table), state.ts, internal guards.ts
 ```
 
 The protocol package keeps its existing public stream exports in `src/index.ts`.
