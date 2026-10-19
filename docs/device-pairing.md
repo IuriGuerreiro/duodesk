@@ -12,7 +12,7 @@ Rebuild the phone development client after installing dependencies: `pnpm --filt
 
 1. Open the Electron receiver on Linux, macOS or Windows, or the retained Tauri host. Choose the Wi-Fi or Ethernet address connected to the same router as the phone. Nothing is selected automatically.
 2. Choose **Create pairing code**. The desktop shows its address including a port, such as `192.168.1.20:39871`, and six digits. Use the actual values shown.
-3. In the mobile **Stream test** tab, scan the desktop pairing QR to fill the address and code, then choose **Verify code and connect**. You can also enter both values manually.
+3. In the mobile **Stream test** tab, scan the desktop pairing QR. A valid QR verifies the code and connects at once, with no second tap. If it fails, the address and code stay filled in so you can retry or correct them, or scan a new QR. You can also enter both values manually and choose **Connect to PC**.
 4. Once ready, select the bitrate and start the video. Stop or leave the mobile screen to disconnect. Create a fresh code to reconnect.
 
 Rebuild both the desktop and mobile development clients for this change. Expo Go and older mobile binaries lack the native pairing transport. iOS and Android use the same protocol.
@@ -21,7 +21,7 @@ The dropdown includes interface names supplied by the OS. Local/private IPv4 add
 
 The phone uses the desktop address, not its own address. A guest Wi-Fi network, client isolation or VPN may prevent access. Allow DuoDesk and its signaling sidecar through the desktop firewall on a private network. Both bootstrap and TLS signaling use temporary TCP ports; media uses WebRTC's dynamic ports. No internet, hosted signaling, STUN or TURN is needed. Connection refusal, an outdated port, firewall filtering and network isolation cannot always be distinguished reliably. Mobile separates failure to reach the address from failure during code verification and gives steps for both; it does not claim to detect the phone subnet. Do not expose either listener through port forwarding.
 
-The pairing QR contains only the desktop's local address and temporary six-digit code. Scanning fills the same fields as manual entry; both paths use the same authenticated pairing protocol. The QR does not contain the invitation, token, or certificate fingerprint. Anyone who can see an active QR can read the code, so protect it like the displayed digits and do not post screenshots.
+The pairing QR contains only the desktop's local address and temporary six-digit code. Scanning fills the same fields as manual entry and starts the same connect step; both paths use the same authenticated pairing protocol. The QR carries no expiry, so an expired or used code is reported by the desktop as a failed code check. The QR does not contain the invitation, token, or certificate fingerprint. Anyone who can see an active QR can read the code, so protect it like the displayed digits and do not post screenshots.
 
 ## Trust and protocol
 
@@ -81,6 +81,10 @@ After integrating presentation from `0d4cf9d`, the combined desktop production b
 ## QR autofill update
 
 Protocol tests, desktop/mobile lint and type checks, desktop renderer build, and mobile Android/iOS/web exports passed after replacing the legacy invitation QR/JSON paths. The Electron UI smoke verified the six-digit code, collapsed pairing QR, removal of invitation textareas, stop behavior, video controls, and fullscreen. No physical phone camera scan or native Android/iOS/Windows/macOS compilation was performed for this update.
+
+## QR auto-connect
+
+`pairing/scan-gate.ts` turns the camera's repeated barcode events into one request: a valid QR disarms the gate synchronously, and an unreadable payload is reported once. `pairing/connect-flow.ts` is the shared connect step for scans and manual entry: local network permission, SRP code check, then the native sender, stopping if the attempt was cancelled. React Native on Android can report a system permission dialog as the app going to the background (not confirmed on a device here), so `use-sender-session.ts` ignores that signal while a dialog it opened is pending (`guardPrompt`); otherwise the attempt would be cancelled right after the user answered. The camera permission is requested once when the scanner opens. Tests: `pnpm --filter @duodesk/mobile test` covers repeated events, invalid, expired and reused codes, denied permission, cancellation, retry, and a real SRP exchange from QR to sender. A physical phone scanning a live desktop QR has not been tested.
 
 ## References
 

@@ -2,7 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Keyboard, PermissionsAndroid, Platform } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { parsePairingQrPayload } from "@duodesk/protocol/pairing";
-import { pairWithCode, type PairingMode } from "@/features/pairing";
+import {
+  connectToDesktop,
+  createScanGate,
+  pairWithCode,
+  type PairingMode,
+} from "@/features/pairing";
 import * as sender from "../../../modules/test-video";
 import type { SenderStatus } from "../../../modules/test-video";
 
@@ -13,6 +18,11 @@ async function localNetworkPermission() {
     const result = await PermissionsAndroid.request(
       PermissionsAndroid.PERMISSIONS.ACCESS_LOCAL_NETWORK,
     );
+    if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
+      throw new Error(
+        "Local network access is blocked. Allow it for DuoDesk in your phone’s app settings, then connect again.",
+      );
+    }
     if (result !== PermissionsAndroid.RESULTS.GRANTED) {
       throw new Error("Allow local network access to connect to your PC.");
     }
@@ -62,7 +72,10 @@ export function useSenderSession() {
   const requestId = useRef(0);
   const active = useRef(true);
   const generation = useRef(0);
-  const scanning = useRef(false);
+  const [gate] = useState(() => createScanGate(parsePairingQrPayload));
+  // Android can report a system permission dialog as the app going to the
+  // background; that must not cancel the attempt waiting on the answer.
+  const prompts = useRef(0);
   const statusRef = useRef<SenderStatus>(status);
   const eventSeq = useRef(0);
 
@@ -71,8 +84,17 @@ export function useSenderSession() {
   }, [status]);
 
   const closeScanner = useCallback(() => {
-    scanning.current = false;
+    gate.close();
     setMode("closed");
+  }, [gate]);
+
+  const guardPrompt = useCallback(async <T>(request: () => Promise<T>) => {
+    prompts.current += 1;
+    try {
+      return await request();
+    } finally {
+      prompts.current -= 1;
+    }
   }, []);
 
   const syncStatus = useCallback(async () => {
@@ -114,7 +136,7 @@ export function useSenderSession() {
     const appState = AppState.addEventListener("change", (next) => {
       if (next === "active") {
         void syncStatus();
-      } else if (next === "background") {
+      } else if (next === "background" && prompts.current === 0) {
         generation.current += 1;
         closeScanner();
         void sender.pairClose();
@@ -182,43 +204,53 @@ export function useSenderSession() {
     setNotice("");
   }
 
-  function connect() {
-    if (!canPair || !sender.available || !canSubmit) return;
+  function pair(target: string, pairingCode: string) {
     Keyboard.dismiss();
     void run("connect", async (epoch) => {
-      const target = address.trim();
-      const cancelled = () => !active.current || generation.current !== epoch;
-      await localNetworkPermission();
-      if (cancelled()) return;
-      closeScanner();
-      const invitation = await pairWithCode(target, code, cancelled);
-      if (cancelled()) return;
-      setIntent("connect");
-      setReceiver(target);
-      setCodeValue("");
-      await sender.connect(invitation);
+      await connectToDesktop(
+        {
+          requestLocalNetwork: () => guardPrompt(localNetworkPermission),
+          pair: pairWithCode,
+          connect: sender.connect,
+        },
+        {
+          address: target,
+          code: pairingCode,
+          cancelled: () => !active.current || generation.current !== epoch,
+          onPaired: () => {
+            closeScanner();
+            setIntent("connect");
+            setReceiver(target);
+            setCodeValue("");
+          },
+        },
+      );
     });
   }
 
+  function connect() {
+    if (!canPair || !sender.available || !canSubmit) return;
+    pair(address.trim(), code);
+  }
+
+  // A valid QR is a complete request: connect without a second tap. Fields stay
+  // filled and visible so a failed attempt can be retried or corrected.
   function acceptScan(text: string) {
-    if (!scanning.current) return;
-    try {
-      const pairing = parsePairingQrPayload(text);
-      scanning.current = false;
-      setAddressValue(pairing.address);
-      setCodeValue(pairing.code);
-      setError("");
-      setNotice("Address and code filled in. Tap Connect to continue.");
+    if (locked.current || !canPair || !sender.available) return;
+    const scan = gate.accept(text);
+    if (scan.kind === "invalid") {
+      setError(scan.message);
+    } else if (scan.kind === "pairing") {
+      setAddressValue(scan.address);
+      setCodeValue(scan.code);
+      setNotice("");
       setMode("manual");
-    } catch {
-      setError(
-        "That QR code is not a current DuoDesk code. Scan a new one from your PC.",
-      );
+      pair(scan.address, scan.code);
     }
   }
 
   function openScanner() {
-    scanning.current = true;
+    gate.open();
     setError("");
     setNotice("");
     setMode("scan");
@@ -298,6 +330,7 @@ export function useSenderSession() {
     startScreen,
     stop,
     acceptScan,
+    guardPrompt,
     openScanner,
     closeScanner,
   };

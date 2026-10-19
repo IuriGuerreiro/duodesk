@@ -5,4 +5,9 @@ export default [
   ...expoConfig,
   { ignores: ["dist/**", ".expo/**", "android/**", "ios/**"] },
   { rules },
+  {
+    // Unit tests run under plain node, so they import feature internals directly.
+    files: ["test/**"],
+    rules: { "no-restricted-imports": "off" },
+  },
 ];
