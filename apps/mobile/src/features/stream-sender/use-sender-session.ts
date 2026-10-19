@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Keyboard, PermissionsAndroid, Platform } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
+import { parseInvitation } from "@duodesk/protocol";
 import { parsePairingQrPayload } from "@duodesk/protocol/pairing";
-import { pairWithCode, type PairingMode } from "@/features/pairing";
+import {
+  holdInvitation,
+  pairWithCode,
+  type PairingMode,
+} from "@/features/pairing";
 import * as sender from "../../../modules/test-video";
 import type { SenderStatus } from "../../../modules/test-video";
 
@@ -28,6 +33,7 @@ function parseBitrate(raw: string): number {
 }
 
 export function useSenderSession() {
+  const router = useRouter();
   const [status, setStatus] = useState<SenderStatus>({ state: "idle" });
   const [operation, setOperation] = useState<Operation>(null);
   const [mode, setMode] = useState<PairingMode>("closed");
@@ -175,9 +181,19 @@ export function useSenderSession() {
       closeScanner();
       const invitation = await pairWithCode(target, code, cancelled);
       if (cancelled()) return;
+      setCodeValue("");
+      // The desktop chose the direction when it made the code, so route by it.
+      if (parseInvitation(invitation).direction === "desktop-to-phone") {
+        if (!sender.supportsViewing)
+          throw new Error(
+            "Watching your PC screen needs the Android app with the latest build.",
+          );
+        holdInvitation(invitation);
+        router.push("/watch");
+        return;
+      }
       setIntent("connect");
       setReceiver(target);
-      setCodeValue("");
       await sender.connect(invitation);
     });
   }
