@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { invoke, isDesktop, subscribe } from "./host";
 import { ReceiverWorkspace } from "./components/receiver-workspace";
 import type { Invitation, StreamState } from "@duodesk/protocol";
@@ -33,6 +33,39 @@ export default function App() {
     await invoke("stream_stop").catch(() => {});
   }
 
+  // One receiver per video run; a paused phone gets a fresh one on the same session.
+  function receive(session: Invitation) {
+    peer.current = new VideoReceiver(
+      session.sessionId,
+      (signal) => invoke("stream_send", { signal }),
+      (stream) => {
+        if (video.current) {
+          video.current.srcObject = stream;
+          void video.current
+            .play()
+            .catch(() =>
+              setError("Press play on the video to start playback."),
+            );
+        }
+      },
+      (message) => {
+        setError(message);
+        void stop();
+        setState("failed");
+      },
+      (connection) => {
+        if (connection === "connected") setState("streaming");
+      },
+    );
+  }
+
+  const onPause = useEffectEvent((session: Invitation) => {
+    release();
+    setStats(undefined);
+    setState("ready");
+    receive(session);
+  });
+
   useEffect(() => {
     mounted.current = true;
     if (!isDesktop()) return;
@@ -50,8 +83,11 @@ export default function App() {
       if (
         payload.kind === "signal" &&
         payload.signal.sessionId === active.sessionId
-      )
-        peer.current?.receive(payload.signal);
+      ) {
+        if (payload.signal.type === "pause") {
+          onPause(active);
+        } else peer.current?.receive(payload.signal);
+      }
       if (payload.kind === "state" && payload.sessionId === active.sessionId) {
         setState(payload.state);
         if (payload.state === "stopped" || payload.state === "failed") {
@@ -106,28 +142,7 @@ export default function App() {
         return;
       }
       current.current = next;
-      peer.current = new VideoReceiver(
-        next.sessionId,
-        (signal) => invoke("stream_send", { signal }),
-        (stream) => {
-          if (video.current) {
-            video.current.srcObject = stream;
-            void video.current
-              .play()
-              .catch(() =>
-                setError("Press play on the video to start playback."),
-              );
-          }
-        },
-        (message) => {
-          setError(message);
-          void stop();
-          setState("failed");
-        },
-        (connection) => {
-          if (connection === "connected") setState("streaming");
-        },
-      );
+      receive(next);
       setInvitation(next);
       setRemaining(120);
       setState("connecting");

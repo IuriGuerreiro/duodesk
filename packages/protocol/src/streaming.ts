@@ -21,6 +21,7 @@ export type Signal = { v: 1; sessionId: string } & (
       sdpMLineIndex: number;
     }
   | { type: "stop" }
+  | { type: "pause" }
 );
 
 const record = (value: unknown): value is Record<string, unknown> =>
@@ -86,7 +87,9 @@ export function parseSignal(text: string, sessionId: string): Signal {
   const valid =
     value.type === "pair"
       ? exact(value, [...base, "token"]) && hex(value.token)
-      : value.type === "paired" || value.type === "stop"
+      : value.type === "paired" ||
+          value.type === "stop" ||
+          value.type === "pause"
         ? exact(value, base)
         : value.type === "offer" || value.type === "answer"
           ? exact(value, [...base, "sdp"]) &&
