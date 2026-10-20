@@ -1,5 +1,6 @@
 use futures_util::{SinkExt, StreamExt};
 use rand::RngCore;
+pub mod discovery;
 mod pairing;
 pub use pairing::{NetworkAddress, PairReply};
 use serde::{Deserialize, Serialize};
@@ -264,8 +265,15 @@ pub async fn start(ip: String, emit: Arc<dyn Fn(Event) + Send + Sync>) -> Result
     );
     let (pairing_replies, replies) = mpsc::channel(4);
     let (claimed, claim_watch) = watch::channel(false);
+    // Advertise only while the bootstrap listener exists; pairing::spawn drops it on close.
+    let advertisement = discovery::advertise(
+        ip.parse().map_err(|_| "Invalid IP")?,
+        bootstrap.local_addr().map_err(|e| e.to_string())?.port(),
+        &random_hex(4),
+    );
     pairing::spawn(
         bootstrap,
+        advertisement,
         invitation.clone(),
         emit.clone(),
         cancelled.clone(),

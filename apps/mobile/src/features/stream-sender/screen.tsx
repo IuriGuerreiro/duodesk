@@ -493,6 +493,8 @@ export default function StreamSenderScreen() {
                   closeScanner={connection.closeScanner}
                   acceptScan={connection.acceptScan}
                   guardPrompt={connection.guardPrompt}
+                  nearby={connection.nearby}
+                  selectNearby={connection.selectNearby}
                 />
               ) : (
                 <Session connection={connection} />

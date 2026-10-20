@@ -8,11 +8,18 @@ export type {
   StreamMode,
 } from "./types";
 
-type Events = { onStatus: (status: SenderStatus) => void };
+export type NearbyEvent = Record<string, unknown>;
+type Events = {
+  onStatus: (status: SenderStatus) => void;
+  onNearby: (event: NearbyEvent) => void;
+};
 
 declare class TestVideoNative extends NativeModule<Events> {
   readonly supportsScreenSharing?: boolean;
   readonly supportsPlaybackAudio?: boolean;
+  readonly supportsNearby?: boolean;
+  nearbyStart?(): Promise<void>;
+  nearbyStop?(): Promise<void>;
   pairRequest(
     address: string,
     message: string,
@@ -107,3 +114,19 @@ export const pairRequest = (address: string, message: string, fresh: boolean) =>
 export const pairClose = async () => {
   await native?.pairClose();
 };
+
+/** True when this build can browse for nearby desktops (Android NSD). */
+export const supportsNearby: boolean = Boolean(native?.supportsNearby);
+export const nearbyStart = async (): Promise<void> => {
+  if (!supportsNearby) throw new Error("Nearby discovery is not available.");
+  await native?.nearbyStart?.();
+};
+export const nearbyStop = async (): Promise<void> => {
+  if (supportsNearby) await native?.nearbyStop?.();
+};
+export const subscribeNearby = (
+  listener: (event: NearbyEvent) => void,
+): { remove(): void } =>
+  (supportsNearby && native?.addListener("onNearby", listener)) || {
+    remove() {},
+  };

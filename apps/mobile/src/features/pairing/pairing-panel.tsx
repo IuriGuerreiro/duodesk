@@ -5,6 +5,8 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Text } from "@/shared/ui/text";
+import type { NearbyDesktop } from "@duodesk/protocol/discovery";
+import type { Nearby } from "./use-nearby";
 
 export type PairingMode = "closed" | "manual" | "scan";
 
@@ -26,6 +28,9 @@ export type PairingPanelProps = {
   acceptScan: (text: string) => void;
   /** Wraps a system permission dialog so the app leaving the foreground for it is not treated as abandoning pairing. */
   guardPrompt: <T>(request: () => Promise<T>) => Promise<T>;
+  nearby: Nearby;
+  /** Fills the address only; the user still enters the PC's code. */
+  selectNearby: (device: NearbyDesktop) => void;
 };
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -194,6 +199,74 @@ function Scanner({ connection }: { connection: PairingPanelProps }) {
   );
 }
 
+const nearbyCopy: Record<Nearby["status"], string> = {
+  idle: "",
+  searching:
+    "Looking for PCs with a pairing code open. Choose Create pairing code in DuoDesk on your PC.",
+  "needs-permission": "Allow local network access to find PCs automatically.",
+  denied:
+    "Local network access was denied. Allow it in your phone’s app settings, or scan the QR code instead.",
+  unsupported: "",
+  error:
+    "Couldn’t search the network. Check Wi-Fi and try again, or scan the QR code.",
+};
+
+function NearbyList({ connection }: { connection: PairingPanelProps }) {
+  const { nearby } = connection;
+  if (nearby.status === "idle" || nearby.status === "unsupported") return null;
+  const searching = nearby.status === "searching";
+  return (
+    <View className="gap-2">
+      <View className="flex-row items-center gap-2">
+        <Text className="flex-1 font-semibold">Nearby PCs</Text>
+        {searching && <ActivityIndicator color="#2855D9" />}
+      </View>
+      {nearby.devices.map((device) => {
+        const selected = connection.address === device.address;
+        return (
+          <Button
+            key={device.id}
+            variant={selected ? "secondary" : "outline"}
+            className="h-auto justify-start py-3"
+            disabled={!connection.available || connection.busy}
+            accessibilityLabel={`${device.name}, ${device.address}. Select, then enter its code.`}
+            onPress={() => connection.selectNearby(device)}
+          >
+            <Icon name="desktop-outline" size={20} />
+            <View className="flex-1">
+              <Text className="font-semibold" numberOfLines={1}>
+                {device.name}
+              </Text>
+              <Text className="text-xs text-muted-foreground">
+                {device.address}
+              </Text>
+            </View>
+            {selected && <Icon name="checkmark" size={18} />}
+          </Button>
+        );
+      })}
+      {(!searching || nearby.devices.length === 0) && (
+        <Text
+          accessibilityLiveRegion="polite"
+          className="text-sm leading-5 text-muted-foreground"
+        >
+          {nearbyCopy[nearby.status]}
+        </Text>
+      )}
+      {!searching && (
+        <Button variant="outline" size="sm" onPress={nearby.retry}>
+          <Icon name="refresh" size={18} />
+          <Text>
+            {nearby.status === "needs-permission"
+              ? "Find nearby PCs"
+              : "Try again"}
+          </Text>
+        </Button>
+      )}
+    </View>
+  );
+}
+
 export function PairingPanel(connection: PairingPanelProps) {
   if (connection.mode === "scan") return <Scanner connection={connection} />;
   return (
@@ -209,6 +282,7 @@ export function PairingPanel(connection: PairingPanelProps) {
           </Text>
         </View>
       </View>
+      <NearbyList connection={connection} />
       <Button
         disabled={!connection.available || connection.busy}
         onPress={connection.openScanner}

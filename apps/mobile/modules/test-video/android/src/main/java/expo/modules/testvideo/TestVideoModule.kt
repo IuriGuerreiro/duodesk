@@ -11,6 +11,12 @@ class TestVideoModule : Module() {
   private val pairing = PairingTransport()
   private val pairingQueue = java.util.concurrent.Executors.newSingleThreadExecutor()
 
+  private var nearby: NearbyBrowser? = null
+
+  private fun nearby(): NearbyBrowser = nearby ?: NearbyBrowser(requireNotNull(appContext.reactContext).applicationContext) {
+    sendEvent("onNearby", it)
+  }.also { nearby = it }
+
   private fun sender(): VideoSender {
     val context = requireNotNull(appContext.reactContext).applicationContext
     return VideoSenderManager.getOrCreateSender(context)
@@ -20,7 +26,8 @@ class TestVideoModule : Module() {
     Name("DuoDeskTestVideo")
     Constant("supportsScreenSharing") { true }
     Constant("supportsPlaybackAudio") { Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q }
-    Events("onStatus")
+    Constant("supportsNearby") { true }
+    Events("onStatus", "onNearby")
 
     OnCreate {
       VideoSenderManager.setStatusListener { sendEvent("onStatus", it) }
@@ -34,6 +41,9 @@ class TestVideoModule : Module() {
       }
     }
     AsyncFunction("pairClose") { pairing.close() }
+
+    AsyncFunction("nearbyStart") { nearby().start() }
+    AsyncFunction("nearbyStop") { nearby?.stop() }
 
     AsyncFunction("connect") { invitation: String, promise: Promise ->
       sender().submit(promise) { connect(invitation) }
@@ -92,11 +102,13 @@ class TestVideoModule : Module() {
 
     OnActivityEntersBackground {
       pairing.close()
+      nearby?.stop()
       VideoSenderManager.background()
     }
 
     OnDestroy {
       pairing.close()
+      nearby?.destroy()
       pairingQueue.shutdownNow()
       VideoSenderManager.setStatusListener(null)
     }

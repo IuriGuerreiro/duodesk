@@ -43,3 +43,11 @@ export const pairRequest = async (
   return "";
 };
 export const pairClose = async (): Promise<void> => {};
+
+export type NearbyEvent = Record<string, unknown>;
+export const supportsNearby = false;
+export const nearbyStart = (): Promise<void> => unsupported();
+export const nearbyStop = async (): Promise<void> => {};
+export const subscribeNearby = (
+  _listener: (event: NearbyEvent) => void,
+): { remove(): void } => ({ remove() {} });
