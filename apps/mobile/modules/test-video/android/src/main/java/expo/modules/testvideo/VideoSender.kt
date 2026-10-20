@@ -1,6 +1,8 @@
 package expo.modules.testvideo
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
+import android.os.Build
 import expo.modules.kotlin.Promise
 import okhttp3.*
 import org.json.JSONObject
@@ -131,6 +133,10 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl.eglBaseContext)).createPeerConnectionFactory().also { factory = it }
   }
 
+  private fun debugEmulator(): Boolean =
+    context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0 &&
+      (Build.HARDWARE in setOf("ranchu", "goldfish") || Build.FINGERPRINT.startsWith("generic"))
+
   fun start(bitrateMbps: Int) {
     check(state == "ready") { "Connect to the desktop before starting" }
     require(bitrateMbps in 2..30) { "Choose a bitrate between 2 and 30 Mbps" }
@@ -150,8 +156,10 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     val transceiver = checkNotNull(pc.addTransceiver(track, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_ONLY, listOf("duodesk"))))
     val codecs = factory.getRtpSenderCapabilities(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO).codecs
     val h264 = codecs.filter { it.name.equals("H264", true) }
-    check(h264.isNotEmpty()) { "This Android device has no supported H.264 encoder" }
-    transceiver.setCodecPreferences(h264 + codecs.filter { it.name.equals("rtx", true) }).throwError()
+    // Emulators have no H.264 encoder; debug builds there fall back to software VP8 for UI testing.
+    val video = h264.ifEmpty { if (debugEmulator()) codecs.filter { it.name.equals("VP8", true) } else h264 }
+    check(video.isNotEmpty()) { "This Android device has no supported H.264 encoder" }
+    transceiver.setCodecPreferences(video + codecs.filter { it.name.equals("rtx", true) }).throwError()
     val parameters = transceiver.sender.parameters
     parameters.encodings.forEach { it.maxBitrateBps = bitrateMbps * 1_000_000; it.maxFramerate = 30 }
     parameters.degradationPreference = RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
