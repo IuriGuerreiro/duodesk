@@ -20,6 +20,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@duodesk/design-tokens':
+        specifier: workspace:*
+        version: link:../../packages/design-tokens
       '@duodesk/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -99,6 +102,9 @@ importers:
 
   apps/mobile:
     dependencies:
+      '@duodesk/design-tokens':
+        specifier: workspace:*
+        version: link:../../packages/design-tokens
       '@duodesk/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -211,6 +217,21 @@ importers:
       wrangler:
         specifier: 4.129.0
         version: 4.129.0
+
+  packages/design-tokens:
+    devDependencies:
+      '@duodesk/eslint-config':
+        specifier: workspace:*
+        version: link:../eslint-config
+      '@duodesk/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      eslint:
+        specifier: 10.9.1
+        version: 10.9.1(jiti@2.7.0)(supports-color@10.2.2)
+      typescript:
+        specifier: ~6.0.3
+        version: 6.0.3
 
   packages/eslint-config:
     dependencies:
