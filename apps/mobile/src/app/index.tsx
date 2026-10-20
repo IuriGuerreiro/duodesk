@@ -1,7 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
-  AppState,
   Platform,
   Pressable,
   Text,
@@ -38,13 +37,10 @@ export default function SenderScreen() {
   const [details, setDetails] = useState(false);
 
   useEffect(() => {
+    // Screen sharing keeps running in the background; only leaving the app ends it.
     const subscription = sender.subscribe(setStatus);
-    const appState = AppState.addEventListener("change", (next) => {
-      if (next === "background") void sender.stop();
-    });
     return () => {
       subscription.remove();
-      appState.remove();
       void sender.stop();
     };
   }, []);
@@ -224,7 +220,13 @@ export default function SenderScreen() {
             </View>
             <Action
               variant="danger"
-              label="Stop"
+              label="Stop streaming"
+              disabled={busy}
+              onPress={() => void run(sender.pause)}
+            />
+            <Action
+              variant="ghost"
+              label="Disconnect"
               disabled={busy}
               onPress={() => void run(sender.stop)}
             />

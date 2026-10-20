@@ -1,6 +1,8 @@
 package expo.modules.testvideo
 
 import android.content.Context
+import android.content.Intent
+import android.media.projection.MediaProjection
 import android.content.pm.ApplicationInfo
 import android.os.Build
 import expo.modules.kotlin.Promise
@@ -38,13 +40,15 @@ internal data class Invitation(val sessionId: String, val url: String, val token
 internal class VideoSender(private val context: Context, private val emit: (Map<String, Any>) -> Unit) {
   private val queue = ScheduledThreadPoolExecutor(1).apply { removeOnCancelPolicy = true }
   private var generation = 0L
+  private var videoRun = 0L
   private var invitation: Invitation? = null
   private var socket: WebSocket? = null
   private var client: OkHttpClient? = null
   private var peer: PeerConnection? = null
   private var source: VideoSource? = null
   private var track: VideoTrack? = null
-  private var clip: ClipSource? = null
+  private var screen: ScreenCapturerAndroid? = null
+  private var surfaces: SurfaceTextureHelper? = null
   private var egl: EglBase? = null
   private var factory: PeerConnectionFactory? = null
   private var timeout: ScheduledFuture<*>? = null
@@ -137,7 +141,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0 &&
       (Build.HARDWARE in setOf("ranchu", "goldfish") || Build.FINGERPRINT.startsWith("generic"))
 
-  fun start(bitrateMbps: Int) {
+  fun start(bitrateMbps: Int, permission: Intent) {
     check(state == "ready") { "Connect to the desktop before starting" }
     require(bitrateMbps in 2..30) { "Choose a bitrate between 2 and 30 Mbps" }
     val factory = nativeFactory()
@@ -164,9 +168,12 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     parameters.encodings.forEach { it.maxBitrateBps = bitrateMbps * 1_000_000; it.maxFramerate = 30 }
     parameters.degradationPreference = RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
     check(transceiver.sender.setParameters(parameters)) { "Could not configure video bitrate" }
-    clip = ClipSource(context, checkNotNull(egl).eglBaseContext, source.capturerObserver) { message ->
-      dispatch { if (epoch == generation) fail(message) }
-    }
+    val run = videoRun
+    surfaces = SurfaceTextureHelper.create("duodesk-screen", checkNotNull(egl).eglBaseContext)
+    screen = ScreenCapturerAndroid(permission, object : MediaProjection.Callback() {
+      // The user ended sharing from the system UI: keep the desktop link, like the app's Stop button.
+      override fun onStop() = dispatch { if (epoch == generation && run == videoRun) pause() }
+    }).apply { initialize(surfaces, context, source.capturerObserver) }
     status("connecting")
     armTimeout("Video negotiation timed out. Create a new desktop invitation.")
     pc.createOffer(object : SdpCallbacks({ message -> dispatch { if (epoch == generation) fail(message) } }) {
@@ -209,7 +216,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
           override fun onSetSuccess() = dispatch {
             if (peer !== pc) return@dispatch
             candidates.forEach { addCandidate(pc, it, epoch) }; candidates.clear()
-            clip?.start(); startStats(pc)
+            startCapture(); startStats(pc)
           }
         }, SessionDescription(SessionDescription.Type.ANSWER, sdp))
       }
@@ -238,6 +245,13 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     message.put("v", 1).put("sessionId", info.sessionId)
     check(socket?.send(message.toString()) == true) { "Signaling socket is closed or busy" }
   }
+  /** Captures the full display, scaled so the long side fits 1080p. */
+  private fun startCapture() {
+    val metrics = context.resources.displayMetrics
+    val scale = minOf(1.0, 1920.0 / maxOf(metrics.widthPixels, metrics.heightPixels))
+    val even = { size: Int -> (size * scale).toInt() and 1.inv() }
+    checkNotNull(screen).startCapture(even(metrics.widthPixels), even(metrics.heightPixels), 30)
+  }
   private fun startStats(pc: PeerConnection) {
     stats?.cancel(false)
     stats = queue.scheduleAtFixedRate({
@@ -257,13 +271,13 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       } }
     }, 1, 1, TimeUnit.SECONDS)
   }
-  private fun observer(epoch: Long) = object : PeerConnection.Observer {
+  private fun observer(epoch: Long, run: Long = videoRun) = object : PeerConnection.Observer {
     override fun onIceCandidate(candidate: IceCandidate) = dispatch {
-      if (generation == epoch) runCatching { send(JSONObject().put("type", "candidate").put("candidate", candidate.sdp)
+      if (generation == epoch && videoRun == run) runCatching { send(JSONObject().put("type", "candidate").put("candidate", candidate.sdp)
         .put("sdpMid", candidate.sdpMid ?: JSONObject.NULL).put("sdpMLineIndex", candidate.sdpMLineIndex)) }.onFailure { fail("Could not send ICE candidate") }
     }
     override fun onIceConnectionChange(next: PeerConnection.IceConnectionState) = dispatch {
-      if (generation != epoch) return@dispatch
+      if (generation != epoch || videoRun != run) return@dispatch
       when (next) {
         PeerConnection.IceConnectionState.CONNECTED, PeerConnection.IceConnectionState.COMPLETED -> { timeout?.cancel(false); status("streaming") }
         PeerConnection.IceConnectionState.FAILED, PeerConnection.IceConnectionState.DISCONNECTED -> fail("Video connection lost. Create a new desktop invitation.")
@@ -279,18 +293,32 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     override fun onDataChannel(channel: DataChannel) {}
     override fun onRenegotiationNeeded() {}
   }
-  private fun close() {
-    generation++
+  private fun closeVideo() {
+    videoRun++
     timeout?.cancel(false); timeout = null; stats?.cancel(false); stats = null
-    clip?.stop(); clip = null
+    runCatching { screen?.stopCapture() }; screen?.dispose(); screen = null
+    surfaces?.dispose(); surfaces = null
+    ScreenShareService.stop(context)
     peer?.close(); peer?.dispose(); peer = null
     track?.dispose(); track = null; source?.dispose(); source = null
+    candidates.clear(); acceptingAnswer = false; previousBytes = 0.0; previousTime = 0.0
+  }
+  private fun close() {
+    generation++
+    closeVideo()
     socket?.cancel(); socket = null
     client?.dispatcher?.executorService?.shutdown(); client?.connectionPool?.evictAll(); client = null
     invitation = null; candidates.clear(); acceptingAnswer = false; previousBytes = 0.0; previousTime = 0.0
     state = "stopped"
   }
   fun stop() { close(); status("stopped") }
+  /** Ends the video but keeps the desktop link, so streaming can start again without re-pairing. */
+  fun pause() {
+    if (peer == null) return
+    closeVideo()
+    runCatching { send(JSONObject().put("type", "pause")) }.onFailure { fail("Desktop connection lost") }
+    if (state != "failed") status("ready")
+  }
 
   companion object {
     private var initialized = false
