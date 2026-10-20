@@ -20,6 +20,12 @@ import {
 } from "lucide-react";
 import type { Invitation, StreamState } from "@duodesk/protocol";
 import { createPairingQrPayload } from "@duodesk/protocol/pairing";
+import {
+  ControlStatus,
+  ControlSurface,
+  useControlView,
+  type ControlLink,
+} from "@/features/remote-control";
 import type { VideoStats } from "./video-receiver";
 import { Button } from "@/shared/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
@@ -58,6 +64,8 @@ export interface ReceiverWorkspaceProps {
   remaining: number;
   videoRef: RefObject<HTMLVideoElement | null>;
   audio: ReceiverAudio;
+  /** Phone remote control for the current session. Absent when no session exists. */
+  control?: ControlLink;
   onStart: () => void;
   onStop: () => void;
   onFullscreen: () => void;
@@ -83,7 +91,9 @@ export function ReceiverWorkspace({
   stats,
   videoRef,
   audio,
+  control,
 }: ReceiverWorkspaceProps) {
+  const controlView = useControlView(control);
   const [fullscreen, setFullscreen] = useState(false);
   const [dismissedSessionId, setDismissedSessionId] = useState<string>();
   const hasSelectableAddress = interfaces.some((address) => address.selectable);
@@ -159,9 +169,11 @@ export function ReceiverWorkspace({
                 ref={videoRef}
                 autoPlay
                 playsInline
-                controls
+                // The player's own bar would sit under the control layer, so it steps aside while control is on.
+                controls={controlView.phase !== "active"}
                 aria-label="Incoming mobile video"
               />
+              <ControlSurface link={control} videoRef={videoRef} />
               {!live && (
                 <div className="stage-empty">
                   <div className="device-illustration">
@@ -200,6 +212,7 @@ export function ReceiverWorkspace({
                   : "Video preview"}
               </span>
               <div className="toolbar-actions">
+                {live && <ControlStatus link={control} videoRef={videoRef} />}
                 {live && (
                   <div
                     className="audio-controls"

@@ -2,6 +2,7 @@ package expo.modules.testvideo
 
 import android.content.Context
 import android.os.Build
+import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
@@ -19,6 +20,7 @@ class TestVideoModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("DuoDeskTestVideo")
     Constant("supportsScreenSharing") { true }
+    Constant("supportsRemoteControl") { true }
     Constant("supportsPlaybackAudio") { Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q }
     Events("onStatus")
 
@@ -64,11 +66,30 @@ class TestVideoModule : Module() {
 
       val request = VideoSenderManager.prepareScreenConsent(bitrateMbps, shareAudio, promise) ?: return@AsyncFunction
       try {
-        val captureIntent = mediaProjectionManager.createScreenCaptureIntent()
+        // Remote control maps pointer positions onto the whole display, so a capture of a single app is not offered.
+        // Before Android 14 the system only captures the whole display anyway.
+        val captureIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+          mediaProjectionManager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay())
+        } else {
+          mediaProjectionManager.createScreenCaptureIntent()
+        }
         activity.startActivityForResult(captureIntent, request.requestCode)
       } catch (error: Exception) {
         VideoSenderManager.abortConsent(request.id, "ERR_PROJECTION", "Failed to launch screen capture dialog: ${error.message}", error)
       }
+    }
+
+    AsyncFunction("allowControl") { promise: Promise ->
+      sender().controlAction(promise) { allow() }
+    }
+
+    AsyncFunction("revokeControl") { promise: Promise ->
+      sender().controlAction(promise) { revoke(); null }
+    }
+
+    AsyncFunction("openAccessibilitySettings") {
+      val context = requireNotNull(appContext.reactContext)
+      context.startActivity(ControlAccessibilityService.settingsIntent())
     }
 
     AsyncFunction("stop") { promise: Promise ->

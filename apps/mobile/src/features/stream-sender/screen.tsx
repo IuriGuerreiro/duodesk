@@ -16,7 +16,7 @@ import { Text } from "@/shared/ui/text";
 import { cn } from "@/shared/lib/utils";
 import { PairingDeviceLink, PairingPanel } from "@/features/pairing";
 import { useSenderSession } from "./use-sender-session";
-import { screenStreamingCopy, sessionCopy } from "./session-copy";
+import { controlCopy, screenStreamingCopy, sessionCopy } from "./session-copy";
 
 type SenderSession = ReturnType<typeof useSenderSession>;
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -228,6 +228,11 @@ function Session({ connection }: { connection: SenderSession }) {
             </Text>
           </View>
         )}
+        {screenMode &&
+          status.state === "streaming" &&
+          connection.supportsRemoteControl && (
+            <RemoteControlCard connection={connection} />
+          )}
         {status.state === "connecting" && (
           <Text
             accessibilityLiveRegion="polite"
@@ -246,6 +251,47 @@ function Session({ connection }: { connection: SenderSession }) {
           ? "Sharing continues when you open other apps. Stop it here or from the DuoDesk notification. Reconnecting needs a new pairing code."
           : "Keep DuoDesk open. Leaving the app ends this session. Reconnecting needs a new pairing code."}
       </Text>
+    </View>
+  );
+}
+
+function RemoteControlCard({ connection }: { connection: SenderSession }) {
+  const copy = controlCopy(connection.status.control);
+  if (!copy) return null;
+  const on = copy.state === "on";
+  const press =
+    copy.action === "allow"
+      ? connection.allowControl
+      : copy.action === "stop"
+        ? connection.stopControl
+        : connection.openAccessibilitySettings;
+  return (
+    <View
+      className={cn(
+        "gap-3 rounded-xl border p-4",
+        on ? "border-[#B9E0D3] bg-[#F1FAF6]" : "border-border bg-white",
+      )}
+    >
+      <View
+        accessibilityLiveRegion="polite"
+        className="flex-row items-center gap-3"
+      >
+        <Icon
+          name={on ? "hand-left" : "hand-left-outline"}
+          color={on ? "#147D64" : "#2855D9"}
+        />
+        <Text className="flex-1 font-semibold">{copy.title}</Text>
+      </View>
+      <Text className="text-sm leading-5 text-muted-foreground">
+        {copy.detail}
+      </Text>
+      <Button
+        variant={on ? "destructive" : "outline"}
+        disabled={connection.controlBusy}
+        onPress={press}
+      >
+        <Text>{copy.buttonLabel}</Text>
+      </Button>
     </View>
   );
 }

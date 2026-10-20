@@ -1,0 +1,72 @@
+# Android tap and swipe from the desktop
+
+While an Android phone shares its screen, the paired desktop can **tap** (a click) and **swipe** (a click-drag). This is the whole feature. Keyboard and text input, Back/Home/Recents, mouse wheel, multi-touch, iOS control and unattended access are out of scope.
+
+## Consent: three separate things
+
+1. **The phone owner turns on the DuoDesk accessibility service** in Android Settings → Accessibility. DuoDesk cannot do this itself. On Android 13+ a sideloaded build may first need App info → ⋮ → _Allow restricted settings_. The service declares `canPerformGestures` only. It listens to no events and has no `canRetrieveWindowContent`, so it cannot read the screen.
+2. **The owner taps "Allow control" in DuoDesk, for this session.** Enabling the service grants nothing by itself. Control is off at the start of every session and after every reconnect.
+3. **The owner can stop at any time**: the "Stop control" button, the "Stop control" action in the sharing notification (which also says the PC can control the phone), turning the service off, stopping the share, or disconnecting.
+
+DuoDesk does not try to get around the lock screen, secure (`FLAG_SECURE`) windows, or other protections. Android may ignore or cancel injected gestures there, and the desktop sees `cancelled` or `failed`.
+
+## Wire protocol
+
+Defined in `packages/protocol/src/control/`, mirrored in `ControlWire.kt`. Two data channels ride on the existing WebRTC connection, both **negotiated** (fixed ids, created by both ends before the offer, so neither waits for an announcement):
+
+| Channel           | Id  | Direction  | Delivery                                                   | Carries            |
+| ----------------- | --- | ---------- | ---------------------------------------------------------- | ------------------ |
+| `duodesk-control` | 1   | phone → PC | reliable, ordered                                          | `status`, `result` |
+| `duodesk-input`   | 2   | PC → phone | ordered, packets expire after 500 ms (`maxPacketLifeTime`) | `tap`, `swipe`     |
+
+Commands travel on a short-lived channel so a network stall cannot replay old input later. Every message is JSON, at most 2048 bytes, version 1, carries the stream `sessionId`, and has exactly the documented fields. Anything else is dropped.
+
+- `status`: `{epoch, state:"on", geometry:{width,height,rotation}}` or `{epoch, state:"off", reason}`. Sent on every change and repeated every second, so a channel that opens late learns the state. The desktop treats 4 s of silence as off.
+- `tap`: `{epoch, seq, x, y}`. `swipe`: `{epoch, seq, durationMs 50–2000, points: 2–32 × [x, y]}`. Coordinates are 0–1 over the **whole captured display**.
+- `result`: `{epoch, seq, status: done | cancelled | failed}` or `rejected` with reason `stale | off | invalid | busy`.
+
+## Safety rules the phone enforces
+
+- Input is accepted only while control is on and only when the command's `epoch` equals the current one. The epoch increases on Allow, stop, rotation or resize, and loss of the service, so a command made for an old screen shape or an old grant is refused, never remapped.
+- `seq` must increase; replays are refused.
+- **One gesture at a time, nothing queued.** A command that arrives while one is running is rejected `busy`. The desktop does the same and never queues.
+- Gestures are single finished strokes (taps are 50 ms; swipes ≤ 2 s, ≤ 32 points). They are not split into held-down pieces, so a stop can never leave a finger stuck down. A gesture already handed to Android (2 s at most) cannot be recalled; nothing new starts after a stop.
+- Control turns off, and stays off until allowed again, if the display size cannot be read.
+
+## Coordinates and capture scope
+
+- **Capture scope.** The screen-capture prompt is created with `MediaProjectionConfig.createConfigForDefaultDisplay()` on Android 14+, so the only choice is the whole screen. Before Android 14 the system always captures the whole screen. Single-app sharing is therefore not offered; control needs the full display.
+- **The phone is authoritative for geometry.** `readDisplayGeometry` (real display size and rotation) feeds both the capture size and the `status` geometry, so the encoded frame and the touch space describe the same display. The desktop never infers display size from encoded dimensions; it only checks that the picture's aspect ratio matches the reported display (2% tolerance) and pauses input when it does not, for example while frames catch up after a rotation. It also waits 400 ms after any epoch change.
+- **Desktop mapping.** The click layer sits exactly over the video's drawn picture (`object-fit: contain`), so black margins never receive clicks. The picture rectangle is re-measured on resize, fullscreen and video size change. Pointer positions are normalised against that rectangle at the moment of the click. A gesture that started under an older epoch is dropped.
+- **Pixels.** `round(x × (width − 1))`, clamped to the display. Identical on both sides (`toPixel`, `RemoteControl.pixel`).
+- **Clicks and drags.** Primary button only. Movement ≤ 8 px and ≤ 500 ms is a tap. A longer stationary press is ignored. Anything that moves is a swipe sent on release, simplified to ≤ 24 points. Escape, window blur or pointer cancel discards the gesture.
+
+## Code map
+
+| Where                                                                       | What                                                     |
+| --------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `packages/protocol/src/control/`                                            | Messages, validators, mapping helpers                    |
+| `apps/mobile/modules/test-video/android/.../ControlWire.kt`                 | Strict parsing and message writers                       |
+| `.../RemoteControl.kt`                                                      | Per-session grant, epoch, gating (no Android types)      |
+| `.../ControlAccessibilityService.kt`, `res/xml/duodesk_control_service.xml` | Gesture-only service and its declaration                 |
+| `.../DisplayGeometry.kt`, `ScreenSource.kt`                                 | Display size and rotation                                |
+| `.../VideoSender.kt`                                                        | Channels, heartbeat, teardown ordering                   |
+| `.../ScreenCaptureService.kt`                                               | Notification text and "Stop control" action              |
+| `apps/mobile/src/features/stream-sender/`                                   | Settings / Allow / Stop UI                               |
+| `apps/desktop/src/features/remote-control/`                                 | `ControlLink`, gesture recorder, click layer, status bar |
+
+The accessibility service is declared in the module's own manifest and resources, merged by Gradle like the existing capture service, so no config plugin is needed and `android/` stays generated.
+
+## Verification record
+
+| Check                                                                                                  | Result                  |
+| ------------------------------------------------------------------------------------------------------ | ----------------------- |
+| Protocol tests (validation, letterbox mapping, aspect check, pixel rounding)                           | pass                    |
+| Desktop unit tests (link gating, epochs, pause, timeouts, recorder)                                    | pass                    |
+| Kotlin unit tests (wire format 6, grant / epoch / busy / replay / revoke / rotation / service loss 19) | pass                    |
+| Electron loopback over real WebRTC: negotiated channels, status, tap, swipe, result, revoke            | pass                    |
+| Existing video and audio loopbacks                                                                     | pass                    |
+| Debug APK builds                                                                                       | see the final report    |
+| **Real-device tap and swipe, rotation, fullscreen, audio and video continuing, lock screen**           | **not run** (see below) |
+
+No physical phone was connected when the feature was finished (the Samsung SM-A266B had been on the machine earlier) and the machine has no emulator image, so injection through Android's `dispatchGesture` has not been exercised on hardware. Manual steps are in [manual-verification-android-screen-sharing.md](manual-verification-android-screen-sharing.md#remote-control).

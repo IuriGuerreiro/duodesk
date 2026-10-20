@@ -542,3 +542,19 @@ select {
 .live-dot {
   background: #28a578;
 }
+
+.control-surface {
+  position: absolute;
+  z-index: 2;
+  cursor: crosshair;
+  touch-action: none;
+  outline: 2px solid rgba(40, 85, 217, 0.55);
+  outline-offset: -2px;
+}
+.control-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #63738a;
+}

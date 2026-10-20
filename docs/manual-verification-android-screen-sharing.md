@@ -162,3 +162,18 @@ Needs Android 10+ and an app that allows capture (YouTube and Spotify do; phone 
 5. Deny the microphone prompt, or turn the switch off. Confirm video still streams, the badge reads `NO AUDIO`, and the phone explains why. Microphone audio is never used instead.
 6. Stop from the notification, the app and the desktop. After each, confirm no capture indicator remains and `adb shell dumpsys media.audio_flinger | grep -i record` shows no DuoDesk record.
 7. Reconnect with a new pairing code and repeat step 3. Revoke the projection from the status bar chip or quick settings mid-stream and confirm everything stops.
+
+## Remote control
+
+Design and safety rules: [android-remote-control.md](android-remote-control.md). Start a screen share with the desktop receiver, then:
+
+1. **Service off.** The phone shows "Let your PC tap and swipe" with "Open accessibility settings". The desktop says "Control off. On the phone, turn on the DuoDesk accessibility service…". Clicking the video does nothing.
+2. **Service on, not allowed.** Turn on DuoDesk in Settings → Accessibility (on Android 13+ allow restricted settings first). The phone now offers "Allow control". The desktop still says control is off.
+3. **Allow.** Tap "Allow control". The desktop shows "Control on", the player bar disappears, and a blue outline marks the picture. The notification reads "Your PC can tap and swipe on this phone" with a "Stop control" action.
+4. **Tap and swipe.** Click an app icon on the desktop: it opens. Click-drag up or down on a list: it scrolls. A drag that leaves the picture still ends at its edge. Right-click and a long press without moving do nothing.
+5. **Letterbox.** Resize the window so black bars show. Clicks on the bars do nothing; clicks at the picture's corners hit the phone's corners. Repeat in fullscreen.
+6. **Rotation.** Rotate the phone with an auto-rotating app open. The desktop briefly says "syncing", then clicks land correctly in the new orientation.
+7. **Stop paths.** Each must stop input at once, and the desktop must say control is off: "Stop control" in the app; "Stop control" in the notification; turn the accessibility service off; stop sharing; disconnect from the desktop. After each, a new session starts with control **off**.
+8. **Pause.** "Pause" on the desktop stops sending; the phone stays allowed.
+9. **Protected screens.** Open the lock screen or a payment screen. Gestures may be ignored; the desktop must not report success when Android cancelled them.
+10. **Media.** Throughout, video keeps flowing, and with audio on, sound continues.

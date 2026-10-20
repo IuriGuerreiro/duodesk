@@ -65,6 +65,7 @@ export function useSenderSession() {
   const [shareAudio, setShareAudio] = useState(true);
   const [audioNotice, setAudioNotice] = useState("");
   const [error, setError] = useState("");
+  const [controlBusy, setControlBusy] = useState(false);
   const [intent, setIntent] = useState<"connect" | "start" | "screen">(
     "connect",
   );
@@ -289,6 +290,30 @@ export function useSenderSession() {
     });
   }
 
+  // Control actions are quick and independent of the pairing lock; a refusal explains itself and ends nothing.
+  async function controlAction(action: () => Promise<void>) {
+    if (controlBusy) return;
+    setControlBusy(true);
+    setError("");
+    try {
+      await action();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Couldn’t change remote control. Try again.",
+      );
+    } finally {
+      if (active.current) setControlBusy(false);
+      void syncStatus();
+    }
+  }
+
+  const allowControl = () => controlAction(sender.allowControl);
+  const stopControl = () => controlAction(sender.revokeControl);
+  const openAccessibilitySettings = () =>
+    controlAction(sender.openAccessibilitySettings);
+
   function stop() {
     if (locked.current === "stop") return;
     generation.current += 1;
@@ -329,6 +354,11 @@ export function useSenderSession() {
     start,
     startScreen,
     stop,
+    controlBusy,
+    supportsRemoteControl: sender.supportsRemoteControl,
+    allowControl,
+    stopControl,
+    openAccessibilitySettings,
     acceptScan,
     guardPrompt,
     openScanner,

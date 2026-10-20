@@ -62,3 +62,52 @@ export function screenStreamingCopy(audio: SenderStatus["audio"]): SessionCopy {
     tone: "green",
   };
 }
+
+type ControlCopy = {
+  state: "on" | "off";
+  /** "settings" opens Android's Accessibility settings, "allow" grants this session, "stop" takes it back. */
+  action: "settings" | "allow" | "stop";
+  title: string;
+  detail: string;
+  buttonLabel: string;
+};
+
+/** What the phone owner is told about letting the PC tap and swipe. Returns undefined when it does not apply. */
+export function controlCopy(
+  control: SenderStatus["control"],
+): ControlCopy | undefined {
+  if (!control || control.reason === "unsupported") return undefined;
+  if (control.state === "on") {
+    return {
+      state: "on",
+      action: "stop",
+      title: "Your PC can control this phone",
+      detail:
+        "It can tap and swipe while this screen share lasts. Stop it here or from the DuoDesk notification. It also ends when you disconnect.",
+      buttonLabel: "Stop control",
+    };
+  }
+  if (!control.serviceEnabled) {
+    return {
+      state: "off",
+      action: "settings",
+      title: "Let your PC tap and swipe",
+      detail:
+        "First turn on the DuoDesk accessibility service in Android settings. It can only perform taps and swipes; it cannot read your screen. If Android says the setting is restricted, open DuoDesk's App info, tap ⋮, choose Allow restricted settings, then try again. Turning the service on does not give your PC control yet.",
+      buttonLabel: "Open accessibility settings",
+    };
+  }
+  const lead =
+    control.reason === "revoked"
+      ? "Control was stopped. "
+      : control.reason === "geometry-unknown"
+        ? "Control turned off because the screen size could not be confirmed. "
+        : "";
+  return {
+    state: "off",
+    action: "allow",
+    title: "Let your PC tap and swipe",
+    detail: `${lead}Allow your PC to tap and swipe on this phone for this screen share only. Taps and swipes appear as if you touched the screen. You stay in charge and can stop at any time. Android's protected screens, like the lock screen and some payment screens, may ignore them.`,
+    buttonLabel: "Allow control",
+  };
+}

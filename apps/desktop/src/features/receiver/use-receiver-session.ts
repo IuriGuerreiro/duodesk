@@ -5,6 +5,7 @@ import type {
   ReceiverWorkspaceProps,
 } from "./receiver-workspace";
 import type { Invitation, StreamState } from "@duodesk/protocol";
+import { ControlLink } from "@/features/remote-control";
 import { VideoReceiver, type VideoStats } from "./video-receiver";
 import {
   createPairingServer,
@@ -26,6 +27,7 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
   const [stats, setStats] = useState<VideoStats>();
   const [busy, setBusy] = useState(false);
   const [remaining, setRemaining] = useState(0);
+  const [control, setControl] = useState<ControlLink>();
   const [hasAudio, setHasAudio] = useState(false);
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(1);
@@ -39,6 +41,7 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
   function release() {
     peer.current?.stop();
     peer.current = undefined;
+    setControl(undefined);
     if (video.current) video.current.srcObject = null;
     setHasAudio(false);
     setAutoplayBlocked(false);
@@ -268,6 +271,11 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
         (connection) => {
           if (connection === "connected") setState("streaming");
         },
+        (rtc) => {
+          const link = new ControlLink(rtc, next.sessionId);
+          setControl(link);
+          return link;
+        },
       );
       setInvitation(next);
       setRemaining(120);
@@ -295,6 +303,7 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
     busy,
     remaining,
     videoRef: video,
+    control,
     audio: {
       present: hasAudio,
       muted,
