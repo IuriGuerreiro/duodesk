@@ -28,7 +28,7 @@ void (async () => {
     await wait(()=>document.querySelector('[aria-label="Manual invitation"]'), 'Pairing UI did not appear');
     const invitation = JSON.parse(document.querySelector('[aria-label="Manual invitation"]').value);
     if (!invitation.url.startsWith('wss://') || invitation.fingerprint.length !== 64) throw Error('Invalid real invitation');
-    if (!document.querySelector('video').controls) throw Error('Video controls missing');
+    if (document.querySelector('video').controls) throw Error('Native video controls should be replaced by the live bar');
     const select = document.querySelector('select');
     if (!select.disabled) throw Error('Address can change during session');
     button('Stop session').click();
@@ -44,7 +44,7 @@ void (async () => {
     await wait(()=>button('Exit fullscreen'), 'Fullscreen button did not update');
     button('Exit fullscreen').click();
     await wait(()=>!document.fullscreenElement, 'Fullscreen did not exit');
-    return {passed:true,addressOptions:select.options.length,stopped:true,videoControls:true,fullscreen:true};
+    return {passed:true,addressOptions:select.options.length,stopped:true,videoControls:false,fullscreen:true};
   })()`,
       true,
     );

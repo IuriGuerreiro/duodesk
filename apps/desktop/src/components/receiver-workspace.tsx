@@ -1,26 +1,21 @@
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import {
-  ArrowUpRight,
+  Check,
   CircleHelp,
   Copy,
   Expand,
-  Minimize,
   LoaderCircle,
-  Monitor,
-  Radio,
+  Minimize,
   RefreshCw,
   ShieldCheck,
-  Smartphone,
   Square,
   Wifi,
 } from "lucide-react";
 import type { Invitation, StreamState } from "@duodesk/protocol";
 import type { VideoStats } from "../streaming/receiver";
 import { Button } from "./ui/button";
-import { Badge } from "./ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
-import { Separator } from "./ui/separator";
 import { Textarea } from "./ui/textarea";
 
 export interface ReceiverWorkspaceProps {
@@ -48,6 +43,10 @@ export interface ReceiverWorkspaceProps {
   pairing?: { address: string; code: string; status: string };
 }
 
+type Phase = "setup" | "pair" | "connecting" | "live";
+
+const CHROME_HIDE_MS = 2000;
+
 export function ReceiverWorkspace({
   busy,
   desktopAvailable,
@@ -68,6 +67,19 @@ export function ReceiverWorkspace({
 }: ReceiverWorkspaceProps) {
   const [copyStatus, setCopyStatus] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
+  const [chromeHidden, setChromeHidden] = useState(false);
+  const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const phase: Phase =
+    state === "streaming"
+      ? "live"
+      : invitation && state === "ready"
+        ? "connecting"
+        : invitation
+          ? "pair"
+          : "setup";
+  const live = phase === "live";
+
   useEffect(() => {
     const update = () =>
       setFullscreen(
@@ -77,279 +89,159 @@ export function ReceiverWorkspace({
     document.addEventListener("fullscreenchange", update);
     return () => document.removeEventListener("fullscreenchange", update);
   }, []);
-  const live = state === "streaming";
-  const waiting = !!invitation && state === "connecting";
+
+  // While live, hide the controls until the pointer moves.
+  function scheduleHide() {
+    clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => setChromeHidden(true), CHROME_HIDE_MS);
+  }
+  function wake() {
+    setChromeHidden(false);
+    if (live) scheduleHide();
+  }
+  useEffect(() => {
+    if (live) scheduleHide();
+    return () => clearTimeout(hideTimer.current);
+  }, [live]);
+  const hidden = live && chromeHidden;
+
   const label = busy
     ? "Preparing receiver"
     : live
-      ? "Receiving video"
-      : state === "ready"
+      ? "Live"
+      : phase === "connecting"
         ? "Device connected"
-        : waiting
-          ? "Waiting for device"
+        : phase === "pair"
+          ? "Waiting for phone"
           : state === "failed"
             ? "Connection failed"
             : state === "stopped"
               ? "Session ended"
               : "Ready to connect";
+  const tone = live
+    ? "live"
+    : state === "failed"
+      ? "danger"
+      : phase === "setup"
+        ? "idle"
+        : "busy";
+
   async function copy(value: string) {
     try {
       await navigator.clipboard.writeText(value);
       setCopyStatus("Copied to clipboard");
     } catch {
-      setCopyStatus("Copy unavailable. Select and copy the text below.");
+      setCopyStatus("Copy unavailable. Select and copy the text above.");
     }
   }
+
+  const expiry = `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}`;
+
   return (
-    <div className="workspace">
-      <main id="receiver">
-        {error && (
-          <Alert variant="destructive" className="error-notice">
-            <CircleHelp />
-            <AlertTitle>Unable to continue the session</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-        <div className="receiver-layout">
-          <section className="receiver-panel" aria-labelledby="preview-title">
-            <div className="panel-heading">
-              <h2 id="preview-title">
-                <Radio size={16} /> Live view
-              </h2>
-              <span role="status">{label}</span>
-            </div>
-            <div
-              className={`video-stage ${live ? "has-video" : ""}`}
-              aria-busy={busy}
+    <main
+      id="receiver"
+      className={`receiver-panel phase-${phase} ${hidden ? "chrome-hidden" : ""}`}
+      onPointerMove={wake}
+    >
+      <header className="topbar">
+        <div className="brand">
+          <span className="brand-mark" aria-hidden />
+          DuoDesk
+        </div>
+        <span className={`status-pill tone-${tone}`} role="status">
+          <span className="dot" />
+          {label}
+        </span>
+        <div className="topbar-actions">
+          <label className="network-select">
+            <Wifi size={14} />
+            <span className="sr-only">Desktop address</span>
+            <select
+              id="desktop-address"
+              value={ip}
+              onChange={(e) => onIpChange(e.target.value)}
+              disabled={busy || !!invitation || !interfaces.length}
             >
-              <video
-                ref={videoRef}
-                autoPlay
-                muted
-                playsInline
-                controls
-                aria-label="Incoming mobile video"
-              />
-              {!live && (
-                <div className="stage-empty">
-                  <div className="device-illustration">
-                    <Monitor size={56} strokeWidth={1} />
-                    <Smartphone size={29} strokeWidth={1.4} />
-                  </div>
-                  <h3>
-                    {busy
-                      ? "Preparing your connection…"
-                      : state === "ready"
-                        ? "Your device is connected"
-                        : waiting
-                          ? "Ready when your phone is"
-                          : state === "failed"
-                            ? "Let's reconnect"
-                            : "Your stream belongs here"}
-                  </h3>
-                  <p>
-                    {state === "ready"
-                      ? "Press Start on your mobile device to begin streaming."
-                      : waiting
-                        ? "Use the connection panel to pair your phone."
-                        : "Create a connection, then open DuoDesk on your phone. Your video will appear here."}
-                  </p>
-                  <span className="stage-hint">
-                    <ShieldCheck size={13} /> Direct device-to-device video
-                  </span>
-                </div>
+              {!ip && (
+                <option value="" disabled>
+                  {!desktopAvailable
+                    ? "Available in desktop app"
+                    : interfaces.length
+                      ? "Choose network"
+                      : "No network found"}
+                </option>
               )}
-            </div>
-            <div className="video-toolbar">
-              <span>
-                <span className={`status-dot ${live ? "live-dot" : ""}`} />
-                {live
-                  ? `${stats?.width ?? 0} × ${stats?.height ?? 0} · ${stats?.fps.toFixed(0) ?? 0} fps`
-                  : "Video preview"}
-              </span>
-              <Button variant="ghost" size="sm" onClick={onFullscreen}>
-                {fullscreen ? <Minimize /> : <Expand />}
-                {fullscreen ? "Exit fullscreen" : "Fullscreen"}
-              </Button>
-            </div>
-          </section>
-          <aside
-            className="connection-panel"
-            aria-labelledby="connection-title"
+              {interfaces.map((address) => (
+                <option
+                  key={address.address}
+                  value={address.address}
+                  disabled={!address.selectable}
+                >
+                  {address.name} · {address.address}
+                  {address.kind === "lan" ? "" : ` (${address.kind})`}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onRefresh}
+            disabled={!desktopAvailable || busy || !!invitation}
+            aria-label="Refresh addresses"
+            title="Refresh addresses"
           >
-            <div className="connection-heading">
-              <span className="connection-icon">
-                <Wifi size={20} />
-              </span>
-              <div>
-                <h2 id="connection-title">Connect a device</h2>
-                <p>Use the same Wi-Fi or local network.</p>
-              </div>
-            </div>
-            {pairing && (
-              <div className="code-pairing">
-                <p className="field-label">Enter on your phone</p>
-                <code>{pairing.address}</code>
-                {pairing.code && remaining > 0 && (
-                  <strong>{pairing.code}</strong>
-                )}
-                <p role="status">{pairing.status}</p>
-                {waiting && (
-                  <span className="code-expiry">
-                    {remaining > 0
-                      ? `Expires in ${remaining}s`
-                      : "Code expired. Create a new connection."}
-                  </span>
-                )}
-              </div>
+            <RefreshCw />
+          </Button>
+          <Button variant="ghost" size="sm" onClick={onFullscreen}>
+            {fullscreen ? <Minimize /> : <Expand />}
+            {fullscreen ? "Exit fullscreen" : "Fullscreen"}
+          </Button>
+        </div>
+      </header>
+
+      <div
+        className={`video-stage ${live ? "has-video" : ""}`}
+        aria-busy={busy}
+      >
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          aria-label="Incoming mobile video"
+        />
+
+        {phase === "setup" && (
+          <section className="stage-card" aria-labelledby="setup-title">
+            <p className="eyebrow">Step 1 of 2</p>
+            <h1 id="setup-title">
+              {state === "failed" ? "Let's reconnect" : "Pair your phone"}
+            </h1>
+            <p className="lead">
+              Create a connection, then scan the code with DuoDesk on your
+              phone. Both devices need the same Wi-Fi.
+            </p>
+            {error && (
+              <Alert variant="destructive" className="error-notice">
+                <CircleHelp />
+                <AlertTitle>Unable to continue the session</AlertTitle>
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
             )}
-            <details
-              className={`network-settings ${invitation ? "session-active" : ""}`}
-              open={!invitation}
-            >
-              <summary>Network · {ip}</summary>
-              <label className="field-label" htmlFor="desktop-address">
-                Desktop address
-              </label>
-              <select
-                id="desktop-address"
-                value={ip}
-                onChange={(e) => onIpChange(e.target.value)}
-                disabled={busy || !!invitation || !interfaces.length}
-              >
-                {!ip && (
-                  <option value="" disabled>
-                    {!desktopAvailable
-                      ? "Available in desktop app"
-                      : interfaces.length
-                        ? "Choose Wi-Fi or Ethernet"
-                        : "No network address found"}
-                  </option>
-                )}
-                {interfaces.map((address) => (
-                  <option
-                    key={address.address}
-                    value={address.address}
-                    disabled={!address.selectable}
-                  >
-                    {address.name} · {address.address}{" "}
-                    {address.kind === "lan" ? "" : `(${address.kind})`}
-                  </option>
-                ))}
-              </select>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="refresh-button"
-                onClick={onRefresh}
-                disabled={!desktopAvailable || busy || !!invitation}
-              >
-                <RefreshCw />
-                Refresh addresses
-              </Button>
-              <p className="field-help">
-                Choose the network your phone is connected to.
-              </p>
-              {desktopAvailable && !interfaces.length && (
-                <p className="network-help">
-                  Connect to Wi-Fi or Ethernet, then refresh the addresses.
-                </p>
-              )}
-            </details>
             <Button
-              className="start-button"
+              size="lg"
+              className="primary-action"
               onClick={onStart}
               disabled={!desktopAvailable || !ip || busy}
             >
               {busy ? <LoaderCircle className="spin" /> : <Wifi />}
-              {busy
-                ? "Creating connection…"
-                : invitation
-                  ? "Create new connection"
-                  : "Create connection"}
-              {!busy && <ArrowUpRight />}
+              {busy ? "Creating connection…" : "Create connection"}
             </Button>
-            {invitation && (
-              <Button
-                variant="outline"
-                className="stop-button"
-                onClick={onStop}
-                disabled={busy}
-              >
-                <Square /> Stop session
-              </Button>
-            )}
-            <Separator className="connection-separator" />
-            {waiting ? (
-              <div className="pairing-content">
-                <details
-                  className="qr-details"
-                  open={pairing ? undefined : true}
-                >
-                  <summary>Scan QR code instead</summary>
-                  <div className="qr-frame">
-                    <QRCodeSVG
-                      value={JSON.stringify(invitation)}
-                      size={168}
-                      level="M"
-                      title="Scan to connect to DuoDesk"
-                    />
-                  </div>
-                  <h3>Scan to connect</h3>
-                  <p>
-                    Open the Stream test tab in DuoDesk on your phone and scan
-                    this code.
-                  </p>
-                </details>
-                {!pairing && (
-                  <Badge variant="secondary">
-                    Expires in {Math.floor(remaining / 60)}:
-                    {String(remaining % 60).padStart(2, "0")}
-                  </Badge>
-                )}
-                <details className="manual-details">
-                  <summary>Manual invitation</summary>
-                  <Textarea
-                    aria-label="Manual invitation"
-                    readOnly
-                    value={JSON.stringify(invitation)}
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void copy(JSON.stringify(invitation))}
-                  >
-                    <Copy />
-                    Copy invitation
-                  </Button>
-                  <p role="status">{copyStatus}</p>
-                </details>
-              </div>
-            ) : (
-              <div className="setup-guide">
-                <p className="eyebrow">{live ? "CONNECTED" : "GET STARTED"}</p>
-                {live ? (
-                  <p>
-                    Your device is sending video. Use the player controls to
-                    pause playback or open fullscreen.
-                  </p>
-                ) : (
-                  <ol>
-                    <li>
-                      <span>1</span>Create a connection on this computer.
-                    </li>
-                    <li>
-                      <span>2</span>Open DuoDesk on your phone.
-                    </li>
-                    <li>
-                      <span>3</span>
-                      {pairing
-                        ? "Enter the address and code, or scan the QR code."
-                        : "Scan the QR code to start pairing."}
-                    </li>
-                  </ol>
-                )}
-              </div>
+            {desktopAvailable && !interfaces.length && (
+              <p className="hint">
+                Connect to Wi-Fi or Ethernet, then refresh the addresses.
+              </p>
             )}
             <details className="help-details">
               <summary>
@@ -359,13 +251,118 @@ export function ReceiverWorkspace({
               <p>
                 Keep both devices on the same network. Allow DuoDesk through
                 your firewall on private networks. Guest Wi-Fi, VPNs, or blocked
-                UDP can prevent video. Create a new connection if the invitation
-                expires.
+                UDP can prevent video.
               </p>
             </details>
-          </aside>
-        </div>
-      </main>
-    </div>
+          </section>
+        )}
+
+        {phase === "pair" && invitation && (
+          <section
+            className="stage-card pair-card"
+            aria-labelledby="pair-title"
+          >
+            <p className="eyebrow">Step 2 of 2</p>
+            <h1 id="pair-title">Scan with your phone</h1>
+            <p className="lead">
+              Open DuoDesk on your phone and point the camera at this code.
+            </p>
+            <div className="qr-frame">
+              <QRCodeSVG
+                value={JSON.stringify(invitation)}
+                size={196}
+                level="M"
+                bgColor="#ffffff"
+                fgColor="#0a0a0b"
+                title="Scan to connect to DuoDesk"
+              />
+            </div>
+            {pairing && (
+              <div className="code-pairing">
+                <code>{pairing.address}</code>
+                {pairing.code && remaining > 0 && (
+                  <strong>{pairing.code}</strong>
+                )}
+                <p>{pairing.status}</p>
+              </div>
+            )}
+            <p className="expiry">
+              {remaining > 0
+                ? `Code expires in ${expiry}`
+                : "Code expired. Stop and create a new connection."}
+            </p>
+            <details className="manual-details">
+              <summary>Can't scan? Copy the invitation</summary>
+              <Textarea
+                aria-label="Manual invitation"
+                readOnly
+                value={JSON.stringify(invitation)}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void copy(JSON.stringify(invitation))}
+              >
+                <Copy />
+                Copy invitation
+              </Button>
+              {copyStatus && <p className="hint">{copyStatus}</p>}
+            </details>
+            <Button
+              variant="ghost"
+              className="secondary-action"
+              onClick={onStop}
+              disabled={busy}
+            >
+              <Square /> Stop session
+            </Button>
+          </section>
+        )}
+
+        {phase === "connecting" && (
+          <section className="stage-card" aria-labelledby="connecting-title">
+            <h1 id="connecting-title">Connecting</h1>
+            <ol className="steps">
+              <li className="done">
+                <Check /> Phone found
+              </li>
+              <li className="done">
+                <ShieldCheck /> Secure link ready
+              </li>
+              <li className="active">
+                <LoaderCircle className="spin" /> Waiting for video — press
+                Start on your phone
+              </li>
+            </ol>
+            <Button
+              variant="ghost"
+              className="secondary-action"
+              onClick={onStop}
+              disabled={busy}
+            >
+              <Square /> Stop session
+            </Button>
+          </section>
+        )}
+
+        {live && (
+          <div className="live-bar">
+            <span className="live-stats">
+              {stats
+                ? `${stats.width} × ${stats.height} · ${stats.fps.toFixed(0)} fps`
+                : "Receiving video"}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="stop-live"
+              onClick={onStop}
+            >
+              <Square /> Stop session
+            </Button>
+          </div>
+        )}
+      </div>
+    </main>
   );
 }
