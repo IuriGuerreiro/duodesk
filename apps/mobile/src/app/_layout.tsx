@@ -1,9 +1,9 @@
-import { DarkTheme, Stack, ThemeProvider } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { StatusBar } from 'expo-status-bar';
-import { colors } from '@duodesk/design-tokens';
+import { DarkTheme, Stack, ThemeProvider } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
+import { StatusBar } from "expo-status-bar";
+import { colors } from "@duodesk/design-tokens";
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
+import { AnimatedSplashOverlay } from "@/components/animated-icon";
 
 SplashScreen.preventAutoHideAsync();
 
