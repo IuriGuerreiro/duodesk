@@ -84,6 +84,21 @@ export function validateCommand(method, args) {
       !/^\d{1,3}(\.\d{1,3}){3}$/.test(args.ip)
     )
       throw new Error("Invalid interface");
+  } else if (method === "stream_pair_reply") {
+    const reply = args?.reply;
+    if (
+      !args ||
+      Object.keys(args).join() !== "reply" ||
+      !reply ||
+      Object.keys(reply).sort().join() !== "complete,message,requestId" ||
+      typeof reply.requestId !== "string" ||
+      !/^[a-f0-9]{32}$/.test(reply.requestId) ||
+      typeof reply.message !== "string" ||
+      Buffer.byteLength(reply.message) > 8192 ||
+      reply.message.includes("\n") ||
+      typeof reply.complete !== "boolean"
+    )
+      throw new Error("Invalid pairing reply");
   } else if (method === "stream_send") {
     if (
       !args ||

@@ -10,12 +10,12 @@ Assumptions: Tauri was intended by "Tari"; phones include Android and iPhone; in
 
 ## Platform capabilities
 
-| Device | Send screen | View screen | Allow remote control |
-| --- | --- | --- | --- |
-| Windows | Yes, native capture | Yes | Yes, subject to Windows privilege restrictions |
-| iPad / iPhone | User-initiated native broadcast | Yes | Excluded from baseline; arbitrary system input injection has no established public implementation for this project |
-| Android | Yes, with session consent | Yes | Conditional, prototype a user-enabled accessibility implementation |
-| Browser | Optional later | Optional later | Can send commands to a paired native host; cannot provide general OS input injection itself |
+| Device        | Send screen                     | View screen    | Allow remote control                                                                                               |
+| ------------- | ------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Windows       | Yes, native capture             | Yes            | Yes, subject to Windows privilege restrictions                                                                     |
+| iPad / iPhone | User-initiated native broadcast | Yes            | Excluded from baseline; arbitrary system input injection has no established public implementation for this project |
+| Android       | Yes, with session consent       | Yes            | Conditional, prototype a user-enabled accessibility implementation                                                 |
+| Browser       | Optional later                  | Optional later | Can send commands to a paired native host; cannot provide general OS input injection itself                        |
 
 An iPad can control Windows even though Windows cannot generally control the iPad. Do not represent these as a single symmetric feature. Protected content, lock screens, background execution, and audio need separate platform validation.
 
@@ -68,6 +68,29 @@ docs/
 
 Create native Rust crates only when the feasibility work establishes their responsibilities. Add apps/web only when there is a concrete website requirement.
 
+## Feature map
+
+Current code is split by feature. A feature exposes a public `index.ts`; everything else in its folder is private. Other code imports `@/features/<name>`, never a file inside it. ESLint enforces this (`no-restricted-imports` in `packages/eslint-config/rules.js`).
+
+```text
+apps/mobile/src/
+  app/                       # thin routes; index loads the sender, stream-test redirects to it
+  features/
+    stream-sender/           # screen, use-sender-session, session copy
+    pairing/                 # QR scanner and scan gate, manual entry, pairing client, connect flow
+  shared/                    # NativeWind tokens, UI primitives, utilities, shared types
+  (native module: apps/mobile/modules/test-video, outside src)
+apps/desktop/src/
+  features/receiver/         # workspace UI, use-receiver-session, video-receiver (WebRTC)
+  shared/                    # host adapter (Electron/Tauri), shadcn ui/, lib/
+packages/protocol/src/
+  stream/                    # invitation.ts, signal.ts, state.ts, internal guards.ts
+```
+
+The protocol package keeps its existing public stream exports in `src/index.ts`.
+
+Add a new capability (discovery, remote control, screen capture) as its own folder under `features/`. Put code in `shared/` only once two features need it.
+
 ## Delivery plan
 
 1. **Prove the hard paths.** On physical hardware, stream an iPad screen into a minimal Windows receiver. Then stream Windows into the iPad and send touch-generated mouse commands back. Measure latency, CPU, dropped frames, rotation handling, and disconnect behavior. Confirm the Windows media path and Apple capture lifecycle before building the full shell.
@@ -93,6 +116,7 @@ First release acceptance: works without internet on a normal non-isolated LAN; u
 - [Tauri frontend configuration](https://v2.tauri.app/start/frontend/) recommends Vite for SPA frontends.
 - [Apple ReplayKit security](https://support.apple.com/en-gb/guide/security/seca5fc039dd/web) describes broadcast capture and upload extensions. Recheck current capture APIs and deployment availability against the selected minimum iOS version before implementation; newer ScreenCaptureKit documentation also needs evaluation.
 - [Android MediaProjection](https://developer.android.com/media/grow/media-projection) documents capture consent and foreground execution requirements.
+- [Android audio playback capture](https://developer.android.com/media/platform/av-capture) documents capturing other apps' audio; see [android-playback-audio.md](android-playback-audio.md) for the DuoDesk design.
 - [Android AccessibilityService](https://developer.android.com/reference/android/accessibilityservice/AccessibilityService) documents gesture dispatch capabilities. This does not establish app-store eligibility or universal device support.
 - [Windows capture](https://learn.microsoft.com/en-us/windows/uwp/audio-video-camera/screen-capture) provides native frame capture.
 - [Windows SendInput](https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-sendinput) documents input injection and UIPI restrictions.

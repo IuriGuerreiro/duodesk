@@ -1,42 +1,108 @@
 package expo.modules.testvideo
 
-import android.app.Activity
+import android.content.Context
+import android.os.Build
 import android.media.projection.MediaProjectionManager
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
-private const val SCREEN_REQUEST = 4202
-
 class TestVideoModule : Module() {
-  private var sender: VideoSender? = null
-  private var pending: Pair<Int, Promise>? = null
-  private val context get() = requireNotNull(appContext.reactContext).applicationContext
-  private fun session(): VideoSender = sender ?: VideoSender(context) { sendEvent("onStatus", it) }.also { sender = it }
+  private val pairing = PairingTransport()
+  private val pairingQueue = java.util.concurrent.Executors.newSingleThreadExecutor()
+
+  private fun sender(): VideoSender {
+    val context = requireNotNull(appContext.reactContext).applicationContext
+    return VideoSenderManager.getOrCreateSender(context)
+  }
 
   override fun definition() = ModuleDefinition {
     Name("DuoDeskTestVideo")
+    Constant("supportsScreenSharing") { true }
+    Constant("supportsPlaybackAudio") { Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q }
     Events("onStatus")
-    AsyncFunction("connect") { invitation: String, promise: Promise -> session().submit(promise) { connect(invitation) } }
-    // Screen capture needs fresh user consent for every run.
+
+    OnCreate {
+      VideoSenderManager.setStatusListener { sendEvent("onStatus", it) }
+    }
+
+    AsyncFunction("pairRequest") { address: String, message: String, fresh: Boolean, promise: Promise ->
+      val ticket = pairing.ticket()
+      pairingQueue.execute {
+        try { promise.resolve(pairing.request(address, message, fresh, ticket)) }
+        catch (error: Exception) { pairing.close(); promise.reject("ERR_PAIRING", "Pairing failed. Check the desktop address, code and Wi-Fi. Create a new code if expired or locked.", error) }
+      }
+    }
+    AsyncFunction("pairClose") { pairing.close() }
+
+    AsyncFunction("connect") { invitation: String, promise: Promise ->
+      sender().submit(promise) { connect(invitation) }
+    }
+
     AsyncFunction("start") { bitrateMbps: Int, promise: Promise ->
-      val activity = appContext.currentActivity ?: return@AsyncFunction promise.reject("ERR_STREAM", "DuoDesk is not in the foreground", null)
-      pending?.second?.reject("ERR_STREAM", "Screen sharing was restarted", null)
-      pending = bitrateMbps to promise
-      val projection = context.getSystemService(MediaProjectionManager::class.java)
-      activity.startActivityForResult(projection.createScreenCaptureIntent(), SCREEN_REQUEST)
+      sender().submit(promise) { start(bitrateMbps) }
     }
-    AsyncFunction("pause") { promise: Promise -> sender?.submit(promise) { pause() } ?: promise.resolve() }
-    AsyncFunction("stop") { promise: Promise -> sender?.submit(promise) { stop() } ?: promise.resolve() }
-    OnActivityResult { _, result ->
-      if (result.requestCode != SCREEN_REQUEST) return@OnActivityResult
-      val (bitrate, promise) = pending ?: return@OnActivityResult
-      pending = null
-      val permission = result.data
-      if (result.resultCode != Activity.RESULT_OK || permission == null)
-        return@OnActivityResult promise.reject("ERR_STREAM", "Screen sharing was not allowed", null)
-      ScreenShareService.start(context) { session().submit(promise) { start(bitrate, permission) } }
+
+    AsyncFunction("startScreen") { bitrateMbps: Int, shareAudio: Boolean, promise: Promise ->
+      val s = sender()
+      if (!s.isReady()) {
+        promise.reject("ERR_STREAM", "Connect to the desktop before starting", null)
+        return@AsyncFunction
+      }
+      if (bitrateMbps !in 2..30) {
+        promise.reject("ERR_STREAM", "Choose a bitrate between 2 and 30 Mbps", null)
+        return@AsyncFunction
+      }
+      val activity = appContext.currentActivity ?: run {
+        promise.reject("ERR_ACTIVITY", "Current activity is not available", null)
+        return@AsyncFunction
+      }
+      val mediaProjectionManager = activity.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager ?: run {
+        promise.reject("ERR_PROJECTION", "Media projection is not supported on this device", null)
+        return@AsyncFunction
+      }
+
+      val request = VideoSenderManager.prepareScreenConsent(bitrateMbps, shareAudio, promise) ?: return@AsyncFunction
+      try {
+        val captureIntent = mediaProjectionManager.createScreenCaptureIntent()
+        activity.startActivityForResult(captureIntent, request.requestCode)
+      } catch (error: Exception) {
+        VideoSenderManager.abortConsent(request.id, "ERR_PROJECTION", "Failed to launch screen capture dialog: ${error.message}", error)
+      }
     }
-    OnDestroy { sender?.destroy(); sender = null; ScreenShareService.stop(context) }
+
+    AsyncFunction("pause") { promise: Promise ->
+      VideoSenderManager.getActiveSender()?.submit(promise) { pause() } ?: promise.resolve()
+    }
+
+    AsyncFunction("stop") { promise: Promise ->
+      VideoSenderManager.stop(promise)
+    }
+
+    AsyncFunction("background") { promise: Promise ->
+      VideoSenderManager.background()
+      promise.resolve()
+    }
+
+    AsyncFunction("getStatus") {
+      VideoSenderManager.getStatus()
+    }
+
+    OnActivityResult { activity, payload ->
+      if (VideoSenderManager.isConsentRequestCode(payload.requestCode)) {
+        VideoSenderManager.onConsentResult(activity, payload.requestCode, payload.resultCode, payload.data)
+      }
+    }
+
+    OnActivityEntersBackground {
+      pairing.close()
+      VideoSenderManager.background()
+    }
+
+    OnDestroy {
+      pairing.close()
+      pairingQueue.shutdownNow()
+      VideoSenderManager.setStatusListener(null)
+    }
   }
 }

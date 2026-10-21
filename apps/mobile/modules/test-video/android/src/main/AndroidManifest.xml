@@ -4,9 +4,14 @@
   <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <!-- Android requires this for AudioPlaybackCapture. The app never opens the microphone. -->
+  <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
   <application>
     <service
-      android:name="expo.modules.testvideo.ScreenShareService"
+      android:name=".ScreenCaptureService"
+      android:enabled="true"
       android:exported="false"
       android:foregroundServiceType="mediaProjection" />
   </application>

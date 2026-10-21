@@ -1,5 +1,7 @@
 use futures_util::{SinkExt, StreamExt};
 use rand::RngCore;
+mod pairing;
+pub use pairing::{NetworkAddress, PairReply};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -63,6 +65,18 @@ pub struct Invitation {
 #[derive(Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Event {
+    PairingStatus {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        status: String,
+    },
+    Pairing {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        #[serde(rename = "requestId")]
+        request_id: String,
+        message: String,
+    },
     Signal {
         signal: Signal,
     },
@@ -74,6 +88,8 @@ pub enum Event {
 }
 pub struct Session {
     pub invitation: Invitation,
+    pub pairing_address: String,
+    pairing_replies: mpsc::Sender<PairReply>,
     outgoing: mpsc::Sender<Signal>,
     cancel: watch::Sender<bool>,
     #[cfg(test)]
@@ -85,6 +101,21 @@ impl Drop for Session {
     }
 }
 impl Session {
+    pub fn pair_reply(&self, reply: PairReply) -> Result<(), String> {
+        if reply.message.len() > 8192
+            || reply.message.contains('\n')
+            || reply.request_id.len() != 32
+            || !reply
+                .request_id
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return Err("Invalid pairing reply".into());
+        }
+        self.pairing_replies
+            .try_send(reply)
+            .map_err(|_| "Pairing closed or busy".into())
+    }
     pub fn send(&self, signal: Signal) -> Result<(), String> {
         validate(&signal, &self.invitation.session_id)?;
         if !matches!(
@@ -98,18 +129,28 @@ impl Session {
             .map_err(|_| "Session closed or busy".into())
     }
 }
-pub fn interfaces() -> Vec<String> {
-    let mut result: Vec<String> = if_addrs::get_if_addrs()
-        .unwrap_or_default()
+pub fn network_addresses() -> Result<Vec<NetworkAddress>, String> {
+    let mut result: Vec<_> = if_addrs::get_if_addrs()
+        .map_err(|_| "Could not enumerate network interfaces")?
         .into_iter()
         .filter_map(|i| match i.ip() {
-            IpAddr::V4(ip) if !ip.is_loopback() && !ip.is_unspecified() => Some(ip.to_string()),
+            IpAddr::V4(ip) => Some(NetworkAddress::new(i.name, ip)),
             _ => None,
         })
         .collect();
-    result.sort();
-    result.dedup();
-    result
+    result.sort_by(|a, b| {
+        (a.kind != "lan", &a.name, &a.address).cmp(&(b.kind != "lan", &b.name, &b.address))
+    });
+    result.dedup_by(|a, b| a.name == b.name && a.address == b.address);
+    Ok(result)
+}
+pub fn interfaces() -> Vec<String> {
+    network_addresses()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|a| a.selectable)
+        .map(|a| a.address)
+        .collect()
 }
 fn random_hex(bytes: usize) -> String {
     let mut data = vec![0; bytes];
@@ -214,6 +255,24 @@ pub async fn start(ip: String, emit: Arc<dyn Fn(Event) + Send + Sync>) -> Result
     };
     let (outgoing, mut outgoing_rx) = mpsc::channel::<Signal>(64);
     let (cancel, mut cancelled) = watch::channel(false);
+    let bootstrap = TcpListener::bind((ip.as_str(), 0))
+        .await
+        .map_err(|e| e.to_string())?;
+    let pairing_address = format!(
+        "{}:{}",
+        ip,
+        bootstrap.local_addr().map_err(|e| e.to_string())?.port()
+    );
+    let (pairing_replies, replies) = mpsc::channel(4);
+    let (claimed, claim_watch) = watch::channel(false);
+    pairing::spawn(
+        bootstrap,
+        invitation.clone(),
+        emit.clone(),
+        cancelled.clone(),
+        claim_watch,
+        replies,
+    );
     let info = invitation.clone();
     tokio::spawn(async move {
         let state = |s: &str| {
@@ -247,6 +306,7 @@ pub async fn start(ip: String, emit: Arc<dyn Fn(Event) + Send + Sync>) -> Result
             };
             // Consume the invitation by closing the listener after the first authenticated peer.
             drop(listener);
+            let _ = claimed.send(true);
             websocket.send(Message::text(serde_json::to_string(&Signal { v: 1, session_id: info.session_id.clone(), payload: Payload::Paired }).unwrap())).await.map_err(|e| e.to_string())?;
             state("ready");
             loop {
@@ -286,6 +346,8 @@ pub async fn start(ip: String, emit: Arc<dyn Fn(Event) + Send + Sync>) -> Result
     });
     Ok(Session {
         invitation,
+        pairing_address,
+        pairing_replies,
         outgoing,
         cancel,
         #[cfg(test)]

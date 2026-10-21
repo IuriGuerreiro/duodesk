@@ -19,7 +19,7 @@
     "package:dir": "pnpm build && electron-builder --dir --publish never",
     "ui:build": "tsc && vite build",
     "test:electron": "node scripts/run-electron.mjs scripts/smoke.mjs",
-    "test:host": "node --test test/native-host.integration.mjs",
+    "test:host": "node --test test/*.integration.mjs",
     "test:receiver": "node scripts/run-electron.mjs scripts/receiver-smoke.mjs",
     "test:ui": "node scripts/run-electron.mjs scripts/ui-smoke.mjs"
   },

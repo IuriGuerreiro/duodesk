@@ -13,9 +13,9 @@ Initial target: 1920×1080 at 30 fps, H.264 where both peers support it, adjusta
    Define one sender/receiver session and states: idle, connecting, streaming, stopped, failed. Reject stale-session messages and queue ICE until the remote description is set.
 3. **Add local signaling in `apps/desktop/src-tauri/src/signaling/`.**
    Use a Rust WebSocket listener on a selected LAN interface, plus Tauri commands to start/stop it and display connection details.
-   Pair through an expiring, one-use QR invitation carrying a high-entropy secret and certificate fingerprint. Use TLS with native certificate pinning on iPad; no global certificate bypass.
+   Pair through an expiring, one-use invitation protected by a six-digit SRP-6a code. The desktop QR contains only the LAN address and code; native TLS certificate pinning still authenticates the recovered invitation. Never bypass certificate validation.
    Authenticate before relaying signaling to the local webview. Keep secrets out of logs, limit connection attempts, and close the listener when stopped. Document Windows firewall access.
-4. **Build the Windows receiver in `apps/desktop/src/streaming/`.**
+4. **Build the Windows receiver in `apps/desktop/src/features/receiver/`.**
    Use WebView2 RTCPeerConnection with a receive-only video transceiver and an HTML video element.
    Accept the iPad offer, negotiate supported codecs, exchange ICE, and show connection/errors/fullscreen controls. Use direct LAN candidates without public STUN/TURN.
    Explicitly release peer connections, media references, and event listeners on stop, disconnect, and window teardown.
@@ -24,7 +24,7 @@ Initial target: 1920×1080 at 30 fps, H.264 where both peers support it, adjusta
    Pace frames by presentation timestamps, loop with monotonic stream timestamps, and drop overdue frames instead of building a queue. Never send frame buffers through JavaScript.
    Connect this source to the verified WebRTC integration, reusing its encoder pipeline. Keep native ownership explicit to avoid duplicate WebRTC frameworks or incompatible track objects.
 6. **Add the sender route at `apps/mobile/src/app/stream-test.tsx`.**
-   Scan the invitation using an SDK-compatible camera module; provide manual entry of the full invitation as fallback.
+   Scan the desktop pairing QR to fill address and code, with manual entry of those two values as fallback. Do not expose the full invitation JSON in the mobile UI.
    Expose Connect, Start, Stop, connection state, and errors through a small session-module interface. Send video only; pause/stop explicitly when the app backgrounds.
    Configure LAN/camera permissions and any scoped transport settings through Expo configuration/plugins. Preserve web export with a native-only feature fallback.
 7. **Add diagnostics and meaningful checks.**

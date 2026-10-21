@@ -226,6 +226,20 @@ select:disabled {
   font-size: 12px;
   color: var(--dd-text-2);
 }
+.audio-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dd-text-2);
+}
+.audio-controls input[type="range"] {
+  width: 88px;
+  accent-color: var(--dd-blue);
+}
+.audio-note {
+  font-size: 12px;
+  color: var(--dd-text-3);
+}
 .live-bar .stop-live {
   border-radius: 999px;
   color: var(--dd-danger);

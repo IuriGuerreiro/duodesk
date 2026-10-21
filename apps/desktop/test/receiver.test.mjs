@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { VideoReceiver } from "../src/streaming/receiver.ts";
+import {
+  VideoReceiver,
+  preferStereoOpus,
+} from "../src/features/receiver/video-receiver.ts";
 
 class FakePeer {
   static latest;
@@ -11,7 +14,10 @@ class FakePeer {
   constructor() {
     FakePeer.latest = this;
   }
-  addTransceiver() {}
+  transceivers = [];
+  addTransceiver(kind, init) {
+    this.transceivers.push({ kind, init });
+  }
   async setRemoteDescription(description) {
     this.remoteDescription = description;
     this.calls.push("remote");
@@ -86,4 +92,66 @@ test("stale session closes the peer without processing its SDP", async () => {
   assert.equal(peer.closed, true);
   assert.equal(errors.length, 1);
   assert.deepEqual(peer.calls, []);
+});
+
+test("requests receive-only video and audio on one peer", () => {
+  const { peer } = setup();
+  assert.deepEqual(
+    peer.transceivers.map(({ kind, init }) => [kind, init.direction]),
+    [
+      ["video", "recvonly"],
+      ["audio", "recvonly"],
+    ],
+  );
+});
+test("tracks from one phone share a single stream", () => {
+  globalThis.MediaStream = class {
+    tracks = [];
+    getTracks() {
+      return this.tracks;
+    }
+    addTrack(track) {
+      this.tracks.push(track);
+    }
+    removeTrack(track) {
+      this.tracks = this.tracks.filter((item) => item !== track);
+    }
+  };
+  const streams = [];
+  globalThis.RTCPeerConnection = FakePeer;
+  new VideoReceiver(
+    sessionId,
+    async () => {},
+    (stream) => streams.push(stream),
+    () => {},
+    () => {},
+  );
+  const video = { kind: "video" };
+  const audio = { kind: "audio" };
+  FakePeer.latest.ontrack({ track: video });
+  FakePeer.latest.ontrack({ track: audio });
+  FakePeer.latest.ontrack({ track: audio });
+  assert.equal(streams[0], streams[1]);
+  assert.deepEqual(streams[1].getTracks(), [video, audio]);
+  delete globalThis.MediaStream;
+});
+test("stereo Opus is requested in the answer", () => {
+  const rtpmap = "a=rtpmap:111 opus/48000/2";
+  assert.equal(
+    preferStereoOpus(`${rtpmap}\r\na=fmtp:111 minptime=10;useinbandfec=1\r\n`),
+    `${rtpmap}\r\na=fmtp:111 minptime=10;useinbandfec=1;stereo=1\r\n`,
+  );
+  assert.equal(
+    preferStereoOpus(`${rtpmap}\na=fmtp:111 stereo=0;useinbandfec=1\n`),
+    `${rtpmap}\na=fmtp:111 useinbandfec=1;stereo=1\n`,
+  );
+  assert.equal(
+    preferStereoOpus(`${rtpmap}\r\na=rtcp-fb:111 transport-cc\r\n`),
+    `${rtpmap}\r\na=fmtp:111 stereo=1\r\na=rtcp-fb:111 transport-cc\r\n`,
+  );
+  const done = `${rtpmap}\r\na=fmtp:111 stereo=1;minptime=10\r\n`;
+  assert.equal(preferStereoOpus(done), done);
+  const video =
+    "m=video 9 UDP/TLS/RTP/SAVPF 102\r\na=fmtp:102 level-asymmetry-allowed=1\r\n";
+  assert.equal(preferStereoOpus(video), video);
 });
