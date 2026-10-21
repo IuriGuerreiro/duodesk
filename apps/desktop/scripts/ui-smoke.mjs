@@ -29,18 +29,45 @@ void (async () => {
     choose.value = [...choose.options].find(o=>o.value && !o.disabled).value;
     choose.dispatchEvent(new Event('change', {bubbles:true}));
     await wait(()=>!button('Create connection').disabled, 'Address selection failed');
+    const Peer = window.RTCPeerConnection;
+    let peer;
+    window.RTCPeerConnection = class extends Peer {
+      constructor(config) { super(config); peer = this; }
+    };
     button('Create connection').click();
-    await wait(()=>document.querySelector('.pairing-modal .code-pairing strong'), 'Pairing modal did not appear');
-    const code = document.querySelector('.pairing-modal .code-pairing strong');
+    await wait(()=>document.querySelector('[aria-label="Six-digit verification code"]'), 'Pairing code did not appear');
+    const code = document.querySelector('[aria-label="Six-digit verification code"]');
     if (!code || !/^[0-9]{6}$/.test(code.textContent)) throw Error('Pairing code missing');
-    const qr = document.querySelector('.pairing-modal .code-pairing .qr-frame svg');
-    if (!qr) throw Error('Six-digit pairing QR missing in modal');
-    if (document.querySelector('select')) throw Error('Address selection should be hidden during active session');
+    const qr = document.querySelector('.pair-card .qr-frame svg');
+    if (!qr) throw Error('Six-digit pairing QR missing');
+    if (!document.querySelector('select').disabled) throw Error('Address selection should be disabled during active session');
     if (button('Create connection')) throw Error('Create connection button should be hidden during active session');
     if (document.querySelector('textarea') || document.body.innerText.includes('Manual invitation')) throw Error('Legacy invitation input returned');
-    if (!document.querySelector('video').controls) throw Error('Video controls missing');
+    if (!document.querySelector('video')) throw Error('Video stage missing');
+    window.RTCPeerConnection = Peer;
+    const video = document.querySelector('video');
+    const canvas = document.createElement('canvas');
+    canvas.width = 32; canvas.height = 32;
+    const context = canvas.getContext('2d');
+    const draw = setInterval(() => context.fillRect(0, 0, 32, 32), 30);
+    const media = canvas.captureStream(30);
+    const play = video.play.bind(video);
+    let attempts = 0;
+    video.play = () => {
+      attempts++;
+      return attempts <= 2 ? Promise.reject(new DOMException('Playback blocked', 'NotAllowedError')) : play();
+    };
+    peer.ontrack({track: media.getVideoTracks()[0]});
+    Object.defineProperty(peer, 'connectionState', {value: 'connected'});
+    peer.onconnectionstatechange();
+    await wait(()=>button('Play video') && document.querySelector('[role="alert"]'), 'Playback recovery missing in live view');
+    button('Play video').click();
+    await wait(()=>!button('Play video') && !video.paused, 'Manual playback retry failed');
+    delete video.play;
+    clearInterval(draw);
+    media.getTracks().forEach(track=>track.stop());
     button('Stop session').click();
-    await wait(()=>!document.querySelector('.pairing-modal') && document.querySelector('select') && !document.querySelector('select').disabled, 'Stop did not clear pairing modal and restore address select');
+    await wait(()=>!document.querySelector('.pair-card') && document.querySelector('select') && !document.querySelector('select').disabled, 'Stop did not clear pairing card and restore address select');
     const select = document.querySelector('select');
     if (!document.querySelector('[role="status"]').textContent.includes('Session ended')) throw Error('Stopped status missing');
     if (document.querySelector('.app-header, .page-heading, .preview-notice, .diagnostics, footer')) throw Error('Removed UI returned');
@@ -53,7 +80,7 @@ void (async () => {
     await wait(()=>button('Exit fullscreen'), 'Fullscreen button did not update');
     button('Exit fullscreen').click();
     await wait(()=>!document.fullscreenElement, 'Fullscreen did not exit');
-    return {passed:true,addressOptions:select.options.length,pairingQrModal:true,stopped:true,videoControls:true,fullscreen:true};
+    return {passed:true,addressOptions:select.options.length,pairingQrCard:true,stopped:true,videoStage:true,playbackRecovery:true,fullscreen:true};
   })()`,
       true,
     );

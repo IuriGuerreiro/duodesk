@@ -6,6 +6,7 @@ import {
   Expand,
   LoaderCircle,
   Minimize,
+  Play,
   RefreshCw,
   ShieldCheck,
   Square,
@@ -51,6 +52,8 @@ export interface ReceiverWorkspaceProps {
   busy: boolean;
   remaining: number;
   videoRef: RefObject<HTMLVideoElement | null>;
+  playbackFailed: boolean;
+  onPlay: () => void;
   audio: ReceiverAudio;
   onStart: () => void;
   onStop: () => void;
@@ -73,10 +76,12 @@ export function ReceiverWorkspace({
   ip,
   onFullscreen,
   onIpChange,
+  onPlay,
   onRefresh,
   onStart,
   onStop,
   pairing,
+  playbackFailed,
   remaining,
   state,
   stats,
@@ -119,7 +124,7 @@ export function ReceiverWorkspace({
     if (live) scheduleHide();
     return () => clearTimeout(hideTimer.current);
   }, [live]);
-  const hidden = live && chromeHidden;
+  const hidden = live && chromeHidden && !playbackFailed;
 
   const label = busy
     ? "Preparing receiver"
@@ -316,7 +321,16 @@ export function ReceiverWorkspace({
           </section>
         )}
 
-        {phase === "connecting" && (
+        {playbackFailed && (
+          <section className="stage-card" aria-label="Video playback">
+            <p role="alert">Video could not start. Press play to try again.</p>
+            <Button onClick={onPlay}>
+              <Play /> Play video
+            </Button>
+          </section>
+        )}
+
+        {phase === "connecting" && !playbackFailed && (
           <section className="stage-card" aria-labelledby="connecting-title">
             <h1 id="connecting-title">Connecting</h1>
             <ol className="steps">
