@@ -23,6 +23,7 @@ export const startScreen = (
   _bitrateMbps: number,
   _shareAudio: boolean,
 ): Promise<void> => unsupported();
+export const pause = async (): Promise<void> => {};
 export const stop = async (): Promise<void> => {};
 export const background = async (): Promise<void> => {};
 export const getStatus = async (): Promise<SenderStatus> => ({

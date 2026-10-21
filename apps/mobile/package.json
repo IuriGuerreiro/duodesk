@@ -4,6 +4,7 @@
   "main": "expo-router/entry",
   "license": "PolyForm-Noncommercial-1.0.0",
   "dependencies": {
+    "@duodesk/design-tokens": "workspace:*",
     "@duodesk/protocol": "workspace:*",
     "@expo/ui": "~58.0.20",
     "@expo/vector-icons": "^15.1.1",
@@ -54,7 +55,7 @@
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
-    "ios": "expo start --ios",
+    "ios": "expo run:ios",
     "web": "expo start --web",
     "check-types": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
