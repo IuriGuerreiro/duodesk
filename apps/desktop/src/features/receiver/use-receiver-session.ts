@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from "react";
 import { invoke, isDesktop, subscribe, type TrustStatus } from "@/shared/host";
 import type {
   NetworkAddress,
@@ -30,6 +36,7 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+  const [playbackFailed, setPlaybackFailed] = useState(false);
   const prefs = useRef({ muted: false, volume: 1 });
   const video = useRef<HTMLVideoElement>(null);
   const peer = useRef<VideoReceiver | undefined>(undefined);
@@ -89,30 +96,35 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
     peer.current?.stop();
     peer.current = undefined;
     if (video.current) video.current.srcObject = null;
+    setPlaybackFailed(false);
     setHasAudio(false);
     setAutoplayBlocked(false);
   }, []);
 
   /** Starts playback with the user's sound settings; falls back to muted if the browser requires a gesture. */
   const play = useCallback(async (element: HTMLVideoElement) => {
+    const media = element.srcObject;
     element.volume = prefs.current.volume;
     element.muted = prefs.current.muted;
     try {
       await element.play();
+      if (element.srcObject === media) setPlaybackFailed(false);
       return;
     } catch {
+      if (element.srcObject !== media) return;
       if (!element.muted) {
         element.muted = true;
         setAutoplayBlocked(true);
         try {
           await element.play();
+          if (element.srcObject === media) setPlaybackFailed(false);
           return;
         } catch {
           // Fall through to the manual play prompt.
         }
       }
     }
-    setError("Press play on the video to start playback.");
+    if (element.srcObject === media) setPlaybackFailed(true);
   }, []);
 
   function changeMuted(next: boolean) {
@@ -181,6 +193,11 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
     },
     [release, play, stop],
   );
+
+  const onPause = useEffectEvent((session: Invitation) => {
+    receiveInvitation(session);
+    setState("ready");
+  });
 
   useEffect(() => {
     const element = video.current;
@@ -301,8 +318,10 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
       if (
         payload.kind === "signal" &&
         payload.signal.sessionId === active.sessionId
-      )
-        peer.current?.receive(payload.signal);
+      ) {
+        if (payload.signal.type === "pause") onPause(active);
+        else peer.current?.receive(payload.signal);
+      }
       if (payload.kind === "state" && payload.sessionId === active.sessionId) {
         setState(payload.state);
         if (payload.state === "ready") {
@@ -431,6 +450,10 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
     busy,
     remaining,
     videoRef: video,
+    playbackFailed,
+    onPlay: () => {
+      if (video.current) void play(video.current);
+    },
     audio: {
       present: hasAudio,
       muted,

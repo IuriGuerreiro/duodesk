@@ -2,6 +2,7 @@ package expo.modules.testvideo
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.Manifest
 import android.media.AudioFormat
@@ -60,6 +61,9 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
   private var enrollmentTimeout: ScheduledFuture<*>? = null
   private fun trustStore() = TrustedDesktopStore.get(context)
 
+  /** Bumped only when the desktop link closes, so pausing video keeps the socket's callbacks alive. */
+  @Volatile
+  private var link = 0L
   private var invitation: Invitation? = null
   private var socket: WebSocket? = null
   private var client: OkHttpClient? = null
@@ -201,9 +205,9 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       trustStore()
       connect(text)
       enrollment = Enrollment.AwaitPair(name, promise)
-      val epoch = generation
+      val linkEpoch = link
       enrollmentTimeout = queue.schedule({
-        if (generation == epoch) rejectEnrollment("Desktop approval timed out. This desktop was not remembered. Try pairing again.")
+        if (link == linkEpoch) rejectEnrollment("Desktop approval timed out. This desktop was not remembered. Try pairing again.")
       }, 125, TimeUnit.SECONDS)
     } catch (error: Exception) {
       fail(error.message ?: "Could not remember the desktop")
@@ -251,26 +255,27 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       .connectionSpecs(listOf(ConnectionSpec.MODERN_TLS)).pingInterval(10, TimeUnit.SECONDS)
       .connectTimeout(10, TimeUnit.SECONDS).readTimeout(0, TimeUnit.MILLISECONDS).build()
     this.client = client
+    val linkEpoch = link
     status("connecting")
     armTimeout("Connection timed out. Check Wi-Fi and the desktop firewall.")
     socket = client.newWebSocket(Request.Builder().url(info.url).build(), object : WebSocketListener() {
       override fun onOpen(webSocket: WebSocket, response: Response) = dispatch {
-        if (generation == epoch) send(JSONObject().put("type", "pair").put("token", info.token))
+        if (link == linkEpoch) send(JSONObject().put("type", "pair").put("token", info.token))
       }
       override fun onMessage(webSocket: WebSocket, text: String) = dispatch {
-        if (generation == epoch) runCatching { receive(text) }.onFailure { fail(it.message ?: "Invalid signaling message") }
+        if (link == linkEpoch) runCatching { receive(text) }.onFailure { fail(it.message ?: "Invalid signaling message") }
       }
       override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) = dispatch {
-        if (generation == epoch) fail("Unexpected binary signaling message")
+        if (link == linkEpoch) fail("Unexpected binary signaling message")
       }
       override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) = dispatch {
-        if (generation == epoch) fail("Receiver connection failed: ${t.message}")
+        if (link == linkEpoch) fail("Receiver connection failed: ${t.message}")
       }
       override fun onClosing(webSocket: WebSocket, code: Int, reason: String) = dispatch {
-        if (generation == epoch) stop()
+        if (link == linkEpoch) stop()
       }
       override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = dispatch {
-        if (generation == epoch) stop()
+        if (link == linkEpoch) stop()
       }
     })
   }
@@ -344,8 +349,10 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     val transceiver = checkNotNull(pc.addTransceiver(track, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_ONLY, listOf("duodesk"))))
     val codecs = factory.getRtpSenderCapabilities(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO).codecs
     val h264 = codecs.filter { it.name.equals("H264", true) }
-    check(h264.isNotEmpty()) { "This Android device has no supported H.264 encoder" }
-    transceiver.setCodecPreferences(h264 + codecs.filter { it.name.equals("rtx", true) }).throwError()
+    // Emulators have no H.264 encoder; debug builds there fall back to software VP8 for UI testing.
+    val video = h264.ifEmpty { if (debugEmulator()) codecs.filter { it.name.equals("VP8", true) } else h264 }
+    check(video.isNotEmpty()) { "This Android device has no supported H.264 encoder" }
+    transceiver.setCodecPreferences(video + codecs.filter { it.name.equals("rtx", true) }).throwError()
     val parameters = transceiver.sender.parameters
     parameters.encodings.forEach { it.maxBitrateBps = bitrateMbps * 1_000_000; it.maxFramerate = 30 }
     parameters.degradationPreference = RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
@@ -353,6 +360,10 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     if (withAudio) addAudioTrack(factory, pc)
     return Pair(pc, epoch)
   }
+
+  private fun debugEmulator(): Boolean =
+    (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 &&
+      (Build.HARDWARE in setOf("ranchu", "goldfish") || Build.FINGERPRINT.startsWith("generic"))
 
   private fun sendOffer(pc: PeerConnection, epoch: Long) {
     status("connecting")
@@ -608,8 +619,8 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     override fun onRenegotiationNeeded() {}
   }
 
-  private fun close() {
-    rejectEnrollment("Connection ended before saving was confirmed. This desktop was not remembered. Pair again to retry.")
+  /** Tears down capture and the peer but keeps the desktop link open. */
+  private fun closeVideo() {
     generation++
     timeout?.cancel(false); timeout = null; stats?.cancel(false); stats = null
     clip?.stop(); clip = null
@@ -625,12 +636,28 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     audioTrack?.dispose(); audioTrack = null; audioSource?.dispose(); audioSource = null
     audioState = AudioStatus.OFF; audioMessage = null; silence.reset()
     previousAudioBytes = 0.0; previousAudioTime = 0.0
+    candidates.clear(); acceptingAnswer = false; previousBytes = 0.0; previousTime = 0.0
+    mode = null
+  }
+
+  private fun close() {
+    rejectEnrollment("Connection ended before saving was confirmed. This desktop was not remembered. Pair again to retry.")
+    closeVideo()
+    link++
     runCatching { send(JSONObject().put("type", "stop")) }
     socket?.cancel(); socket = null
     client?.dispatcher?.executorService?.shutdown(); client?.connectionPool?.evictAll(); client = null
-    invitation = null; candidates.clear(); acceptingAnswer = false; previousBytes = 0.0; previousTime = 0.0
-    mode = null
+    invitation = null
     state = "stopped"
+  }
+
+  /** Ends the video only; the desktop stays paired and a new start needs no new invitation. */
+  fun pause() {
+    if (peer == null) return
+    closeVideo()
+    runCatching { send(JSONObject().put("type", "pause")) }.onFailure { return fail("Desktop connection lost") }
+    lastStats = null
+    status("ready")
   }
 
   fun stop(promise: Promise? = null) {

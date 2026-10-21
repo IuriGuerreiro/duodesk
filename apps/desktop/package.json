@@ -25,6 +25,7 @@
     "test:trusted": "node scripts/trust-smoke.mjs"
   },
   "dependencies": {
+    "@duodesk/design-tokens": "workspace:*",
     "@duodesk/protocol": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/api": "^2",

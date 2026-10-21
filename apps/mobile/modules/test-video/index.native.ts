@@ -32,6 +32,7 @@ declare class TestVideoNative extends NativeModule<Events> {
   connect(invitation: string): Promise<void>;
   start(bitrateMbps: number): Promise<void>;
   startScreen?(bitrateMbps: number, shareAudio: boolean): Promise<void>;
+  pause?(): Promise<void>;
   stop(): Promise<void>;
   background?(): Promise<void>;
   getStatus?(): Promise<SenderStatus>;
@@ -77,6 +78,11 @@ export const startScreen = async (
     );
   }
   return mod.startScreen(bitrateMbps, shareAudio && supportsPlaybackAudio);
+};
+
+/** Ends the video but keeps the desktop paired. */
+export const pause = async (): Promise<void> => {
+  await native?.pause?.();
 };
 
 export const stop = async (): Promise<void> => {

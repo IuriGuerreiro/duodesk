@@ -22,7 +22,14 @@ import {
 } from "@/features/trusted-desktops";
 
 type Operation =
-  "reconnect" | "trust" | "connect" | "start" | "screen" | "stop" | null;
+  | "reconnect"
+  | "trust"
+  | "connect"
+  | "start"
+  | "screen"
+  | "pause"
+  | "stop"
+  | null;
 
 async function localNetworkPermission() {
   if (Platform.OS === "android" && Number(Platform.Version) >= 37) {
@@ -360,6 +367,11 @@ export function useSenderSession() {
     });
   }
 
+  /** Ends the video only; the phone stays paired so the next share needs no new code. */
+  function pause() {
+    void run("pause", () => sender.pause());
+  }
+
   const stop = useCallback(() => {
     if (locked.current === "stop") return;
     generation.current += 1;
@@ -463,6 +475,7 @@ export function useSenderSession() {
     connect,
     start,
     startScreen,
+    pause,
     stop,
     acceptScan,
     guardPrompt,

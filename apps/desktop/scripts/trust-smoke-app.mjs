@@ -57,6 +57,7 @@ void app.whenReady().then(async () => {
       );
     const initial = await command("trust_status");
     assert.equal(initial.enabled, false);
+    await evaluate("document.querySelector('.trust-menu details').open = true");
     const ip = (await command("stream_interfaces")).find(
       (item) => item.selectable,
     )?.address;
@@ -214,7 +215,7 @@ void app.whenReady().then(async () => {
       await waitFor(
         () =>
           evaluate(
-            "document.querySelector('.trust-notice')?.textContent.includes('Trust smoke phone reconnected automatically')",
+            "document.querySelector('.trust-banner')?.textContent.includes('Trust smoke phone reconnected automatically')",
           ),
         "Visible reconnect notice absent",
       );

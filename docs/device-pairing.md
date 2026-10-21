@@ -13,7 +13,7 @@ Rebuild the phone development client after installing dependencies: `pnpm --filt
 1. Open the Electron receiver on Linux, macOS or Windows, or the retained Tauri host. Choose the Wi-Fi or Ethernet address connected to the same router as the phone. Nothing is selected automatically.
 2. Choose **Create pairing code**. The desktop shows its address including a port, such as `192.168.1.20:39871`, and six digits. Use the actual values shown.
 3. In the mobile **Stream test** tab, scan the desktop pairing QR. A valid QR verifies the code and connects at once, with no second tap. If it fails, the address and code stay filled in so you can retry or correct them, or scan a new QR. You can also enter both values manually and choose **Connect to PC**.
-4. Once ready, select the bitrate and start the video. Stop or leave the mobile screen to disconnect. Use a fresh code for a one-time connection, or use a saved desktop as described below.
+4. Once ready, select the bitrate and start the video. Stop sharing ends the video while keeping the desktop paired. Disconnect ends the link. After disconnecting, use a fresh code or a saved desktop as described below.
 
 Rebuild both the desktop and mobile development clients for this change. Expo Go and older mobile binaries lack the native pairing transport. iOS and Android use the same protocol.
 
