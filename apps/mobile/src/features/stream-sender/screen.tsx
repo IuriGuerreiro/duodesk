@@ -294,29 +294,31 @@ function SessionControls({ connection }: { connection: SenderSession }) {
               and install the app to enable it.
             </Text>
           )}
+        {status.state === "streaming" && (
+          <Button
+            variant="destructive"
+            disabled={connection.busy}
+            onPress={connection.pause}
+          >
+            <Icon name="stop" color="white" size={18} />
+            <Text>Stop streaming</Text>
+          </Button>
+        )}
         <Button
-          variant={status.state === "streaming" ? "destructive" : "outline"}
+          variant="outline"
           size={status.state === "ready" ? "sm" : "default"}
           disabled={stopping}
           onPress={connection.stop}
         >
           {stopping ? (
-            <ActivityIndicator
-              color={status.state === "streaming" ? "white" : "#2855D9"}
-            />
+            <ActivityIndicator color="#2855D9" />
           ) : (
-            <Icon
-              name={status.state === "streaming" ? "stop" : "close"}
-              color={status.state === "streaming" ? "white" : "#17243D"}
-              size={18}
-            />
+            <Icon name="close" color="#17243D" size={18} />
           )}
           <Text>
             {stopping
               ? "Ending session…"
-              : status.state === "streaming"
-                ? "Stop & disconnect"
-                : status.state === "connecting"
+              : status.state === "connecting"
                   ? "Cancel connection"
                   : "Disconnect"}
           </Text>
