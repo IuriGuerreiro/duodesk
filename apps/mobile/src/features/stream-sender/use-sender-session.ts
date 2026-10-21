@@ -6,8 +6,10 @@ import {
   connectToDesktop,
   createScanGate,
   pairWithCode,
+  useNearby,
   type PairingMode,
 } from "@/features/pairing";
+import type { NearbyDesktop } from "@duodesk/protocol/discovery";
 import * as sender from "../../../modules/test-video";
 import type { SenderStatus } from "../../../modules/test-video";
 
@@ -164,6 +166,7 @@ export function useSenderSession() {
     status.state === "stopped";
   const busy = operation !== null || status.state === "connecting";
   const canSubmit = address.trim().length > 0 && /^[0-9]{6}$/.test(code);
+  const nearby = useNearby(canPair && sender.available, guardPrompt);
 
   async function run(
     kind: Exclude<Operation, null>,
@@ -247,6 +250,17 @@ export function useSenderSession() {
       setMode("manual");
       pair(scan.address, scan.code);
     }
+  }
+
+  // Discovery is only an address shortcut: the code from the PC is still
+  // required, so LAN presence alone never connects or grants anything.
+  function selectNearby(device: NearbyDesktop) {
+    if (locked.current) return;
+    setAddressValue(device.address);
+    setCodeValue("");
+    setError("");
+    setNotice(`Enter the six-digit code shown on ${device.name}.`);
+    setMode("manual");
   }
 
   function openScanner() {
@@ -337,6 +351,8 @@ export function useSenderSession() {
     stop,
     acceptScan,
     guardPrompt,
+    nearby,
+    selectNearby,
     openScanner,
     closeScanner,
   };
