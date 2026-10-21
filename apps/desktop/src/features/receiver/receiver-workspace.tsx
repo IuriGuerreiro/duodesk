@@ -24,6 +24,7 @@ import type { VideoStats } from "./video-receiver";
 import { Button } from "@/shared/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Separator } from "@/shared/ui/separator";
+import { TrustedDevices, type TrustedDevicesProps } from "./trusted-devices";
 
 export type NetworkAddress = {
   name: string;
@@ -63,6 +64,7 @@ export interface ReceiverWorkspaceProps {
   onFullscreen: () => void;
   /** Supplied by the pairing feature. This component never creates codes. */
   pairing?: { address: string; code: string; status: string };
+  trust?: TrustedDevicesProps;
 }
 
 export function ReceiverWorkspace({
@@ -83,6 +85,7 @@ export function ReceiverWorkspace({
   stats,
   videoRef,
   audio,
+  trust,
 }: ReceiverWorkspaceProps) {
   const [fullscreen, setFullscreen] = useState(false);
   const [dismissedSessionId, setDismissedSessionId] = useState<string>();
@@ -104,6 +107,7 @@ export function ReceiverWorkspace({
   const modalOpen = Boolean(
     pairing &&
     !live &&
+    state !== "ready" &&
     invitation &&
     dismissedSessionId !== invitation.sessionId,
   );
@@ -368,6 +372,12 @@ export function ReceiverWorkspace({
               </div>
             )}
             <Separator className="connection-separator" />
+            {trust && (
+              <>
+                <TrustedDevices {...trust} />
+                <Separator className="connection-separator" />
+              </>
+            )}
             <div className="setup-guide">
               <p className="eyebrow">{live ? "CONNECTED" : "GET STARTED"}</p>
               {live ? (

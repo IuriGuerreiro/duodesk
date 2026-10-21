@@ -1,8 +1,17 @@
-import { app, BrowserWindow, ipcMain, session, protocol } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  session,
+  protocol,
+  safeStorage,
+} from "electron";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { Host, validateCommand } from "./host.mjs";
+import { TrustStore } from "./trust-store.mjs";
+import { TrustBackend } from "./trust-backend.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const entry = "duodesk://app/index.html";
 const csp =
@@ -16,11 +25,20 @@ protocol.registerSchemesAsPrivileged([
 let window;
 let host;
 let activeSession;
+let trust;
+let commands = Promise.resolve();
+function emit(payload) {
+  if (payload.kind === "trust_reconnected")
+    activeSession = payload.invitation.sessionId;
+  if (window && !window.isDestroyed())
+    window.webContents.send("duodesk:event", payload);
+}
 app.commandLine.appendSwitch(
   "force-webrtc-ip-handling-policy",
   "default_public_and_private_interfaces",
 );
 function closeHost() {
+  trust?.reset();
   host?.close();
   host = undefined;
   activeSession = undefined;
@@ -53,6 +71,12 @@ async function open() {
 app
   .whenReady()
   .then(async () => {
+    const store = new TrustStore(
+      path.join(app.getPath("userData"), "trusted-devices.enc"),
+      safeStorage,
+    );
+    await store.load();
+    trust = new TrustBackend(store, emit);
     session.defaultSession.setPermissionRequestHandler(
       (contents, permission, callback, details) =>
         callback(
@@ -120,36 +144,49 @@ app
       )
         throw new Error("Untrusted sender");
       validateCommand(method, args);
-      if (!host) {
-        const binary = path.join(
-          app.isPackaged ? process.resourcesPath : root,
-          "bin",
-          `duodesk-host${process.platform === "win32" ? ".exe" : ""}`,
-        );
-        host = new Host(
-          binary,
-          (payload) => {
-            if (window && !window.isDestroyed())
-              window.webContents.send("duodesk:event", payload);
-          },
-          () => {
-            host = undefined;
-            if (activeSession && window && !window.isDestroyed())
-              window.webContents.send("duodesk:event", {
-                kind: "state",
-                sessionId: activeSession,
-                state: "failed",
-              });
-            activeSession = undefined;
-          },
-        );
-      }
-      const owner = host;
-      const result = await owner.request(method, args);
-      if (owner !== host || owner.closed)
-        throw new Error("Desktop host stopped");
-      if (method === "stream_start") activeSession = result.invitation.sessionId;
-      if (method === "stream_stop") activeSession = undefined;
+      const command = async () => {
+        if (!host) {
+          const binary = path.join(
+            app.isPackaged ? process.resourcesPath : root,
+            "bin",
+            `duodesk-host${process.platform === "win32" ? ".exe" : ""}`,
+          );
+          const nextHost = new Host(
+            binary,
+            (payload) => {
+              if (host !== nextHost) return;
+              if (!trust.onEvent(payload, nextHost)) emit(payload);
+            },
+            () => {
+              if (host !== nextHost) return;
+              trust.reset();
+              host = undefined;
+              trust.changed();
+              if (activeSession && window && !window.isDestroyed())
+                window.webContents.send("duodesk:event", {
+                  kind: "state",
+                  sessionId: activeSession,
+                  state: "failed",
+                });
+              activeSession = undefined;
+            },
+          );
+          host = nextHost;
+        }
+        const owner = host;
+        if (method === "stream_start") await trust.beforeStart(owner, args.ip);
+        const result = method.startsWith("trust_")
+          ? await trust.command(owner, method, args)
+          : await owner.request(method, args);
+        if (owner !== host || owner.closed)
+          throw new Error("Desktop host stopped");
+        if (method === "stream_start")
+          activeSession = result.invitation.sessionId;
+        if (method === "stream_stop") activeSession = undefined;
+        return result;
+      };
+      const result = commands.then(command);
+      commands = result.catch(() => {});
       return result;
     });
     await open();

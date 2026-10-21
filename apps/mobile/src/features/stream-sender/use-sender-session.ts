@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, Keyboard, PermissionsAndroid, Platform } from "react-native";
+import {
+  AppState,
+  BackHandler,
+  Keyboard,
+  PermissionsAndroid,
+  Platform,
+} from "react-native";
 import { useFocusEffect } from "expo-router";
 import { parsePairingQrPayload } from "@duodesk/protocol/pairing";
 import {
@@ -9,9 +15,14 @@ import {
   type PairingMode,
 } from "@/features/pairing";
 import * as sender from "../../../modules/test-video";
-import type { SenderStatus } from "../../../modules/test-video";
+import type { SavedDesktop, SenderStatus } from "../../../modules/test-video";
+import {
+  createReconnectFlow,
+  type ReconnectState,
+} from "@/features/trusted-desktops";
 
-type Operation = "connect" | "start" | "screen" | "stop" | null;
+type Operation =
+  "reconnect" | "trust" | "connect" | "start" | "screen" | "stop" | null;
 
 async function localNetworkPermission() {
   if (Platform.OS === "android" && Number(Platform.Version) >= 37) {
@@ -65,6 +76,13 @@ export function useSenderSession() {
   const [shareAudio, setShareAudio] = useState(true);
   const [audioNotice, setAudioNotice] = useState("");
   const [error, setError] = useState("");
+  const [remember, setRemember] = useState(false);
+  const [savedDesktops, setSavedDesktops] = useState<SavedDesktop[]>([]);
+  const [trustError, setTrustError] = useState("");
+  const [trustNotice, setTrustNotice] = useState("");
+  const [reconnectState, setReconnectState] = useState<ReconnectState>({
+    kind: "idle",
+  });
   const [intent, setIntent] = useState<"connect" | "start" | "screen">(
     "connect",
   );
@@ -78,6 +96,32 @@ export function useSenderSession() {
   const prompts = useRef(0);
   const statusRef = useRef<SenderStatus>(status);
   const eventSeq = useRef(0);
+  const [reconnectFlow] = useState(() =>
+    createReconnectFlow({
+      request: sender.reconnectTrusted,
+      connect: sender.connect,
+      close: sender.cancelTrusted,
+      onState: setReconnectState,
+    }),
+  );
+
+  const refreshSaved = useCallback(async () => {
+    if (!sender.supportsTrustedDevices) return;
+    try {
+      const desktops = await sender.listTrustedDesktops();
+      if (active.current) {
+        setSavedDesktops(desktops);
+        setTrustError("");
+      }
+    } catch (cause) {
+      if (active.current)
+        setTrustError(
+          cause instanceof Error
+            ? cause.message
+            : "Saved desktops could not be loaded.",
+        );
+    }
+  }, []);
 
   useEffect(() => {
     statusRef.current = status;
@@ -116,14 +160,16 @@ export function useSenderSession() {
     generation.current += 1;
     closeScanner();
     void sender.pairClose();
+    void reconnectFlow.cancel();
     const current = statusRef.current;
     if (current.mode !== "screen" || current.state !== "streaming") {
       void sender.background();
     }
-  }, [closeScanner]);
+  }, [closeScanner, reconnectFlow]);
 
   useEffect(() => {
     active.current = true;
+    void Promise.resolve().then(refreshSaved);
     const subscription = sender.subscribe((next) => {
       if (!active.current) return;
       eventSeq.current += 1;
@@ -136,10 +182,12 @@ export function useSenderSession() {
     const appState = AppState.addEventListener("change", (next) => {
       if (next === "active") {
         void syncStatus();
+        void refreshSaved();
       } else if (next === "background" && prompts.current === 0) {
         generation.current += 1;
         closeScanner();
         void sender.pairClose();
+        void reconnectFlow.cancel();
         void sender.background();
       }
     });
@@ -149,7 +197,7 @@ export function useSenderSession() {
       appState.remove();
       leaveScreen();
     };
-  }, [closeScanner, leaveScreen, syncStatus]);
+  }, [closeScanner, leaveScreen, reconnectFlow, refreshSaved, syncStatus]);
 
   useFocusEffect(
     useCallback(() => {
@@ -165,34 +213,37 @@ export function useSenderSession() {
   const busy = operation !== null || status.state === "connecting";
   const canSubmit = address.trim().length > 0 && /^[0-9]{6}$/.test(code);
 
-  async function run(
-    kind: Exclude<Operation, null>,
-    action: (epoch: number) => Promise<void>,
-  ) {
-    if (locked.current === "stop" || (locked.current && kind !== "stop"))
-      return;
-    locked.current = kind;
-    const currentRequest = ++requestId.current;
-    const epoch = generation.current;
-    setOperation(kind);
-    setError("");
-    try {
-      await action(epoch);
-    } catch (cause) {
-      if (active.current && generation.current === epoch) {
-        setError(
-          cause instanceof Error
-            ? cause.message
-            : "Something went wrong. Try again.",
-        );
+  const run = useCallback(
+    async (
+      kind: Exclude<Operation, null>,
+      action: (epoch: number) => Promise<void>,
+    ) => {
+      if (locked.current === "stop" || (locked.current && kind !== "stop"))
+        return;
+      locked.current = kind;
+      const currentRequest = ++requestId.current;
+      const epoch = generation.current;
+      setOperation(kind);
+      setError("");
+      try {
+        await action(epoch);
+      } catch (cause) {
+        if (active.current && generation.current === epoch) {
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "Something went wrong. Try again.",
+          );
+        }
+      } finally {
+        if (requestId.current === currentRequest) {
+          locked.current = null;
+          if (active.current) setOperation(null);
+        }
       }
-    } finally {
-      if (requestId.current === currentRequest) {
-        locked.current = null;
-        if (active.current) setOperation(null);
-      }
-    }
-  }
+    },
+    [],
+  );
 
   function setAddress(value: string) {
     setAddressValue(value);
@@ -207,15 +258,35 @@ export function useSenderSession() {
   function pair(target: string, pairingCode: string) {
     Keyboard.dismiss();
     void run("connect", async (epoch) => {
+      setTrustNotice("");
       await connectToDesktop(
         {
           requestLocalNetwork: () => guardPrompt(localNetworkPermission),
           pair: pairWithCode,
           connect: sender.connect,
+          connectRemembered: async (invitation) => {
+            setTrustNotice(
+              "Waiting for approval on your PC. Keep DuoDesk open on both devices.",
+            );
+            try {
+              await sender.connectAndRemember(invitation, "Android phone");
+              if (active.current && generation.current === epoch) {
+                setTrustNotice(
+                  "Desktop saved. Turn on Allow reconnects in DuoDesk on your PC when you want to reconnect.",
+                );
+                await refreshSaved();
+              }
+            } catch (cause) {
+              if (active.current && generation.current === epoch)
+                setTrustNotice("");
+              throw cause;
+            }
+          },
         },
         {
           address: target,
           code: pairingCode,
+          remember: remember && sender.supportsTrustedDevices,
           cancelled: () => !active.current || generation.current !== epoch,
           onPaired: () => {
             closeScanner();
@@ -289,18 +360,82 @@ export function useSenderSession() {
     });
   }
 
-  function stop() {
+  const stop = useCallback(() => {
     if (locked.current === "stop") return;
     generation.current += 1;
     void run("stop", async () => {
       closeScanner();
       void sender.pairClose();
+      await reconnectFlow.cancel();
+      setTrustNotice("");
       await sender.stop();
+    });
+  }, [closeScanner, reconnectFlow, run]);
+
+  function reconnectDesktop(desktop: SavedDesktop, nextAddress: string) {
+    if (!canPair || !sender.supportsTrustedDevices || busy) return;
+    Keyboard.dismiss();
+    void run("reconnect", async (epoch) => {
+      closeScanner();
+      setTrustNotice("");
+      await guardPrompt(localNetworkPermission);
+      if (!active.current || generation.current !== epoch) return;
+      await sender.updateTrustedAddress(
+        desktop.fingerprint,
+        nextAddress.trim(),
+      );
+      if (!active.current || generation.current !== epoch) return;
+      await refreshSaved();
+      setReceiver(nextAddress.trim());
+      setIntent("connect");
+      await reconnectFlow.run(desktop.fingerprint);
     });
   }
 
+  function forgetDesktop(fingerprint: string) {
+    if (busy) return;
+    void run("trust", async () => {
+      await reconnectFlow.cancel();
+      await sender.forgetTrustedDesktop(fingerprint);
+      setTrustNotice(
+        "Desktop forgotten on this phone. Remove this phone from the PC's approved devices to revoke its desktop entry too.",
+      );
+      await refreshSaved();
+    });
+  }
+
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener(
+        "hardwareBackPress",
+        () => {
+          if (locked.current === "connect" || locked.current === "reconnect") {
+            stop();
+            return true;
+          }
+          if (mode === "scan") {
+            closeScanner();
+            return true;
+          }
+          return false;
+        },
+      );
+      return () => subscription.remove();
+    }, [mode, closeScanner, stop]),
+  );
+
   return {
     status,
+    remember,
+    setRemember,
+    savedDesktops,
+    trustError,
+    trustNotice,
+    supportsTrustedDevices: sender.supportsTrustedDevices,
+    reconnectState,
+    reconnectDesktop,
+    forgetDesktop,
+    retrySaved: refreshSaved,
     operation,
     mode,
     setMode,

@@ -1,12 +1,18 @@
 import { invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { Signal, StreamState } from "@duodesk/protocol";
+import type { Signal, StreamState, TrustEvent } from "@duodesk/protocol";
+export type { TrustStatus } from "@duodesk/protocol";
 export type StreamEvent =
+  | TrustEvent
   | { kind: "pairingstatus"; sessionId: string; status: "used" | "locked" }
   | { kind: "pairing"; sessionId: string; requestId: string; message: string }
   | { kind: "signal"; signal: Signal }
   | { kind: "state"; sessionId: string; state: StreamState };
 type Command =
+  | "trust_status"
+  | "trust_allow"
+  | "trust_approve"
+  | "trust_revoke"
   | "stream_pair_reply"
   | "stream_interfaces"
   | "stream_start"

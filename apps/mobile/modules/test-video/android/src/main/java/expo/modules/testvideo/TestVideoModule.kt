@@ -9,6 +9,17 @@ import expo.modules.kotlin.modules.ModuleDefinition
 
 class TestVideoModule : Module() {
   private val pairing = PairingTransport()
+  private val reconnect = TrustedReconnectTransport()
+  private val trustQueue = java.util.concurrent.Executors.newSingleThreadExecutor()
+  private fun trustStore() = TrustedDesktopStore.get(requireNotNull(appContext.reactContext).applicationContext)
+  private fun trustAction(promise: Promise, action: () -> Any?) {
+    trustQueue.execute {
+      try { promise.resolve(action()) }
+      catch (error: Exception) {
+        promise.reject((error as? TrustFailure)?.code ?: "ERR_TRUST_STORAGE", error.message ?: "Secure trust storage failed", error)
+      }
+    }
+  }
   private val pairingQueue = java.util.concurrent.Executors.newSingleThreadExecutor()
 
   private fun sender(): VideoSender {
@@ -20,6 +31,7 @@ class TestVideoModule : Module() {
     Name("DuoDeskTestVideo")
     Constant("supportsScreenSharing") { true }
     Constant("supportsPlaybackAudio") { Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q }
+    Constant("supportsTrustedDevices") { true }
     Events("onStatus")
 
     OnCreate {
@@ -38,6 +50,27 @@ class TestVideoModule : Module() {
     AsyncFunction("connect") { invitation: String, promise: Promise ->
       sender().submit(promise) { connect(invitation) }
     }
+
+    AsyncFunction("connectAndRemember") { invitation: String, name: String, promise: Promise ->
+      sender().connectAndRemember(invitation, name, promise)
+    }
+    AsyncFunction("trustedDesktops") { promise: Promise -> trustAction(promise) { trustStore().list() } }
+    AsyncFunction("trustedAddress") { fingerprint: String, address: String, promise: Promise ->
+      reconnect.close()
+      trustAction(promise) { trustStore().updateAddress(fingerprint, address); null }
+    }
+    AsyncFunction("trustedForget") { fingerprint: String, promise: Promise ->
+      reconnect.close()
+      trustAction(promise) { trustStore().forget(fingerprint); null }
+    }
+    AsyncFunction("trustedReconnect") { fingerprint: String, promise: Promise ->
+      val ticket = reconnect.ticket()
+      trustQueue.execute {
+        try { reconnect.connect(trustStore(), fingerprint, ticket, promise) }
+        catch (error: Exception) { promise.reject("ERR_TRUST_STORAGE", error.message, error) }
+      }
+    }
+    AsyncFunction("trustedCancel") { reconnect.close() }
 
     AsyncFunction("start") { bitrateMbps: Int, promise: Promise ->
       sender().submit(promise) { start(bitrateMbps) }
@@ -72,10 +105,14 @@ class TestVideoModule : Module() {
     }
 
     AsyncFunction("stop") { promise: Promise ->
+      pairing.close()
+      reconnect.close()
       VideoSenderManager.stop(promise)
     }
 
     AsyncFunction("background") { promise: Promise ->
+      pairing.close()
+      reconnect.close()
       VideoSenderManager.background()
       promise.resolve()
     }
@@ -92,11 +129,14 @@ class TestVideoModule : Module() {
 
     OnActivityEntersBackground {
       pairing.close()
+      reconnect.close()
       VideoSenderManager.background()
     }
 
     OnDestroy {
       pairing.close()
+      reconnect.destroy()
+      trustQueue.shutdownNow()
       pairingQueue.shutdownNow()
       VideoSenderManager.setStatusListener(null)
     }

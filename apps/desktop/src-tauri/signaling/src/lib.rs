@@ -1,8 +1,12 @@
 use futures_util::{SinkExt, StreamExt};
 use rand::RngCore;
+mod identity;
 mod pairing;
+pub mod trust;
+pub use identity::Identity;
 pub use pairing::{NetworkAddress, PairReply};
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use sha2::{Digest, Sha256};
 use std::{
     net::{IpAddr, Ipv4Addr},
@@ -14,7 +18,6 @@ use tokio::{
     sync::{mpsc, watch},
     time::{sleep, timeout},
 };
-use tokio_rustls::TlsAcceptor;
 use tokio_tungstenite::{
     accept_async_with_config,
     tungstenite::{Message, protocol::WebSocketConfig},
@@ -78,6 +81,18 @@ pub enum Event {
     },
     Signal {
         signal: Signal,
+    },
+    #[serde(rename = "trust_enrollment")]
+    TrustEnrollment {
+        request: trust::PendingTrust,
+    },
+    #[serde(rename = "trust_pending_changed")]
+    TrustPendingChanged,
+    #[serde(rename = "trust_reconnected")]
+    TrustReconnected {
+        #[serde(rename = "phoneId")]
+        phone_id: String,
+        invitation: Invitation,
     },
     State {
         #[serde(rename = "sessionId")]
@@ -229,14 +244,20 @@ pub async fn start(ip: String, emit: Arc<dyn Fn(Event) + Send + Sync>) -> Result
     if !interfaces().contains(&ip) || ip.parse::<Ipv4Addr>().is_err() {
         return Err("Select a local IPv4 interface".into());
     }
-    let cert = rcgen::generate_simple_self_signed(vec![ip.clone()]).map_err(|e| e.to_string())?;
-    let fingerprint = hex(&Sha256::digest(cert.cert.der().as_ref()));
-    let key = rustls::pki_types::PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
-    let tls = rustls::ServerConfig::builder()
-        .with_no_client_auth()
-        .with_single_cert(vec![cert.cert.der().clone()], key.into())
-        .map_err(|e| e.to_string())?;
-    let acceptor = TlsAcceptor::from(Arc::new(tls));
+    start_with_identity(ip, emit, Identity::generate()?, None).await
+}
+
+pub async fn start_with_identity(
+    ip: String,
+    emit: Arc<dyn Fn(Event) + Send + Sync>,
+    identity: Identity,
+    trust: Option<trust::Trust>,
+) -> Result<Session, String> {
+    if !interfaces().contains(&ip) || ip.parse::<Ipv4Addr>().is_err() {
+        return Err("Select a local IPv4 interface".into());
+    }
+    let fingerprint = identity.fingerprint()?;
+    let acceptor = identity.acceptor()?;
     let listener = TcpListener::bind((ip.as_str(), 0))
         .await
         .map_err(|e| e.to_string())?;
@@ -273,6 +294,7 @@ pub async fn start(ip: String, emit: Arc<dyn Fn(Event) + Send + Sync>) -> Result
         replies,
     );
     let info = invitation.clone();
+    let (trust_tx, mut trust_rx) = mpsc::channel::<String>(4);
     tokio::spawn(async move {
         let state = |s: &str| {
             emit(Event::State {
@@ -308,6 +330,7 @@ pub async fn start(ip: String, emit: Arc<dyn Fn(Event) + Send + Sync>) -> Result
             let _ = claimed.send(true);
             websocket.send(Message::text(serde_json::to_string(&Signal { v: 1, session_id: info.session_id.clone(), payload: Payload::Paired }).unwrap())).await.map_err(|e| e.to_string())?;
             state("ready");
+            let mut trust_tick = tokio::time::interval(Duration::from_secs(1));
             loop {
                 tokio::select! {
                     biased;
@@ -322,10 +345,20 @@ pub async fn start(ip: String, emit: Arc<dyn Fn(Event) + Send + Sync>) -> Result
                         timeout(Duration::from_secs(5), websocket.send(Message::text(serde_json::to_string(&message).unwrap()))).await.map_err(|_| "Send timeout")?.map_err(|e| e.to_string())?;
                         if stop { break; }
                     },
+                    _ = trust_tick.tick(), if trust.is_some() => {
+                        if let Some(trust) = &trust { trust.expire_pending(); }
+                    },
+                    reply = trust_rx.recv(), if trust.is_some() => {
+                        if let Some(reply) = reply {
+                            timeout(Duration::from_secs(5), websocket.send(Message::text(reply))).await.map_err(|_| "Send timeout")?.map_err(|e| e.to_string())?;
+                        }
+                    },
                     incoming = websocket.next() => {
                         let Some(incoming) = incoming else { break };
                         match incoming.map_err(|e| e.to_string())? {
                             Message::Text(text) => {
+                                if let Some(trust) = &trust
+                                    && trust.enroll(&text, &info.session_id, &trust_tx, &emit)? { continue; }
                                 let signal = parse(&text, &info.session_id)?;
                                 if !matches!(signal.payload, Payload::Offer { .. } | Payload::Candidate { .. } | Payload::Stop) { return Err("Unexpected sender message".into()); }
                                 let stop = matches!(signal.payload, Payload::Stop);
@@ -341,6 +374,9 @@ pub async fn start(ip: String, emit: Arc<dyn Fn(Event) + Send + Sync>) -> Result
             }
             Ok(())
         }.await;
+        if let Some(trust) = &trust {
+            trust.clear_session(&info.session_id);
+        }
         state(if result.is_ok() { "stopped" } else { "failed" });
     });
     Ok(Session {
@@ -350,7 +386,7 @@ pub async fn start(ip: String, emit: Arc<dyn Fn(Event) + Send + Sync>) -> Result
         outgoing,
         cancel,
         #[cfg(test)]
-        certificate: cert.cert.der().clone(),
+        certificate: identity.certificate()?,
     })
 }
 

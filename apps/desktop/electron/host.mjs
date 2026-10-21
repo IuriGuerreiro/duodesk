@@ -74,8 +74,38 @@ export class Host {
   }
 }
 export function validateCommand(method, args) {
-  if (method === "stream_interfaces" || method === "stream_stop") {
+  if (
+    method === "stream_interfaces" ||
+    method === "stream_stop" ||
+    method === "trust_status"
+  ) {
     if (args !== undefined) throw new Error("Unexpected arguments");
+  } else if (method === "trust_allow") {
+    if (
+      !args ||
+      Object.keys(args).sort().join() !== "allow,ip" ||
+      typeof args.allow !== "boolean" ||
+      typeof args.ip !== "string" ||
+      !/^\d{1,3}(\.\d{1,3}){3}$/.test(args.ip)
+    )
+      throw new Error("Invalid trust listener selection");
+  } else if (method === "trust_approve") {
+    if (
+      !args ||
+      Object.keys(args).sort().join() !== "approve,requestId" ||
+      typeof args.approve !== "boolean" ||
+      typeof args.requestId !== "string" ||
+      !/^[a-f0-9]{32}$/.test(args.requestId)
+    )
+      throw new Error("Invalid trust approval");
+  } else if (method === "trust_revoke") {
+    if (
+      !args ||
+      Object.keys(args).join() !== "phoneId" ||
+      typeof args.phoneId !== "string" ||
+      !/^[a-f0-9]{64}$/.test(args.phoneId)
+    )
+      throw new Error("Invalid trusted phone");
   } else if (method === "stream_start") {
     if (
       !args ||

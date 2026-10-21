@@ -29,3 +29,11 @@ export interface SenderStatus {
   /** Why audio is not active, when the user needs to know. */
   audioMessage?: string;
 }
+
+export type SavedDesktop = {
+  fingerprint: string;
+  phoneId: string;
+  address: string;
+  createdAt: number;
+  keyAvailable: boolean;
+};

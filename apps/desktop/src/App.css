@@ -542,3 +542,74 @@ select {
 .live-dot {
   background: #28a578;
 }
+
+.trusted-devices h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.trusted-devices p {
+  color: #65748a;
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 9px 0;
+}
+.trust-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.trust-toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: #2855d9;
+}
+.trust-address,
+.trust-key {
+  display: block;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.trust-key {
+  color: #65748a;
+  margin-top: 5px;
+}
+.trust-request {
+  border-left: 3px solid #2855d9;
+  padding: 8px 0 8px 12px;
+  margin: 14px 0;
+  font-size: 13px;
+}
+.trust-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.trust-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+}
+.trust-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid #dce3eb;
+  font-size: 13px;
+}
+.trusted-devices .trust-notice {
+  color: #235438;
+  background: #edf8f0;
+  padding: 10px;
+  border-radius: 6px;
+}
+.trusted-devices .trust-error {
+  color: #a32135;
+}

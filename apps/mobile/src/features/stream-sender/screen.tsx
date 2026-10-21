@@ -15,6 +15,7 @@ import { Input } from "@/shared/ui/input";
 import { Text } from "@/shared/ui/text";
 import { cn } from "@/shared/lib/utils";
 import { PairingDeviceLink, PairingPanel } from "@/features/pairing";
+import { SavedDesktopsPanel } from "@/features/trusted-desktops";
 import { useSenderSession } from "./use-sender-session";
 import { screenStreamingCopy, sessionCopy } from "./session-copy";
 
@@ -243,8 +244,8 @@ function Session({ connection }: { connection: SenderSession }) {
       </View>
       <Text className="text-xs leading-5 text-muted-foreground">
         {screenMode && status.state === "streaming"
-          ? "Sharing continues when you open other apps. Stop it here or from the DuoDesk notification. Reconnecting needs a new pairing code."
-          : "Keep DuoDesk open. Leaving the app ends this session. Reconnecting needs a new pairing code."}
+          ? "Sharing continues when you open other apps. Stop it here or from the DuoDesk notification. Use a saved desktop to reconnect, or pair with a new code."
+          : "Keep DuoDesk open. Leaving the app ends this session. Use a saved desktop to reconnect, or pair with a new code."}
       </Text>
     </View>
   );
@@ -474,26 +475,79 @@ export default function StreamSenderScreen() {
                 {error}
               </Notice>
             ) : null}
+            {connection.trustNotice ? (
+              <Notice
+                title={
+                  connection.operation === "connect"
+                    ? "Remember desktop"
+                    : "Saved access"
+                }
+              >
+                {connection.trustNotice}
+              </Notice>
+            ) : null}
+            {connection.canPair &&
+              connection.supportsTrustedDevices &&
+              connection.mode !== "scan" && (
+                <SavedDesktopsPanel
+                  desktops={connection.savedDesktops}
+                  state={connection.reconnectState}
+                  busy={connection.busy}
+                  error={connection.trustError}
+                  reconnect={connection.reconnectDesktop}
+                  forget={connection.forgetDesktop}
+                  cancel={connection.stop}
+                  reload={connection.retrySaved}
+                />
+              )}
             <View className="gap-5 rounded-3xl border border-white bg-white p-5">
               {connection.canPair ? (
-                <PairingPanel
-                  mode={connection.mode}
-                  setMode={connection.setMode}
-                  address={connection.address}
-                  setAddress={connection.setAddress}
-                  code={connection.code}
-                  setCode={connection.setCode}
-                  notice={connection.notice}
-                  available={connection.available}
-                  busy={connection.busy}
-                  canSubmit={connection.canSubmit}
-                  connecting={connection.operation === "connect"}
-                  connect={connection.connect}
-                  openScanner={connection.openScanner}
-                  closeScanner={connection.closeScanner}
-                  acceptScan={connection.acceptScan}
-                  guardPrompt={connection.guardPrompt}
-                />
+                <View className="gap-4">
+                  {connection.supportsTrustedDevices &&
+                    connection.mode !== "scan" && (
+                      <View className="gap-2 border-b border-border pb-4">
+                        <View className="flex-row items-center gap-3">
+                          <Text className="flex-1 font-semibold">
+                            Remember this desktop
+                          </Text>
+                          <Switch
+                            accessibilityLabel="Remember this desktop after approval on the PC"
+                            value={connection.remember}
+                            onValueChange={connection.setRemember}
+                            disabled={connection.busy}
+                          />
+                        </View>
+                        <Text className="text-xs leading-5 text-muted-foreground">
+                          Choose before scanning or entering a code. The PC must
+                          approve this phone. Access is saved only after
+                          confirmation.
+                        </Text>
+                      </View>
+                    )}
+                  <PairingPanel
+                    mode={connection.mode}
+                    setMode={connection.setMode}
+                    address={connection.address}
+                    setAddress={connection.setAddress}
+                    code={connection.code}
+                    setCode={connection.setCode}
+                    notice={connection.notice}
+                    available={connection.available}
+                    busy={connection.busy}
+                    canSubmit={connection.canSubmit}
+                    connecting={connection.operation === "connect"}
+                    connect={connection.connect}
+                    openScanner={connection.openScanner}
+                    closeScanner={connection.closeScanner}
+                    acceptScan={connection.acceptScan}
+                    guardPrompt={connection.guardPrompt}
+                  />
+                  {connection.operation === "connect" && (
+                    <Button variant="outline" onPress={connection.stop}>
+                      <Text>Cancel connection</Text>
+                    </Button>
+                  )}
+                </View>
               ) : (
                 <Session connection={connection} />
               )}

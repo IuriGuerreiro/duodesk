@@ -1,7 +1,10 @@
 import { NativeModule, requireOptionalNativeModule } from "expo";
-import type { SenderStatus } from "./types";
+import { Platform } from "react-native";
+import { hasTrustedDevices } from "./trust-capability";
+import type { SavedDesktop, SenderStatus } from "./types";
 
 export type {
+  SavedDesktop,
   AudioState,
   SenderStatus,
   SenderStats,
@@ -12,6 +15,13 @@ type Events = { onStatus: (status: SenderStatus) => void };
 
 declare class TestVideoNative extends NativeModule<Events> {
   readonly supportsScreenSharing?: boolean;
+  readonly supportsTrustedDevices?: boolean;
+  connectAndRemember?(invitation: string, name: string): Promise<void>;
+  trustedDesktops?(): Promise<SavedDesktop[]>;
+  trustedAddress?(fingerprint: string, address: string): Promise<void>;
+  trustedForget?(fingerprint: string): Promise<void>;
+  trustedReconnect?(fingerprint: string): Promise<string>;
+  trustedCancel?(): Promise<void>;
   readonly supportsPlaybackAudio?: boolean;
   pairRequest(
     address: string,
@@ -106,4 +116,42 @@ export const pairRequest = (address: string, message: string, fresh: boolean) =>
   module().pairRequest(address, message, fresh);
 export const pairClose = async () => {
   await native?.pairClose();
+};
+
+export const supportsTrustedDevices = hasTrustedDevices(Platform.OS, native);
+
+function trustedModule() {
+  if (
+    !supportsTrustedDevices ||
+    !native ||
+    !native.connectAndRemember ||
+    !native.trustedDesktops ||
+    !native.trustedAddress ||
+    !native.trustedForget ||
+    !native.trustedReconnect ||
+    !native.trustedCancel
+  ) {
+    throw new Error("Remembered desktops require an updated Android build.");
+  }
+  return {
+    remember: native.connectAndRemember.bind(native),
+    list: native.trustedDesktops.bind(native),
+    address: native.trustedAddress.bind(native),
+    forget: native.trustedForget.bind(native),
+    reconnect: native.trustedReconnect.bind(native),
+    cancel: native.trustedCancel.bind(native),
+  };
+}
+
+export const connectAndRemember = (invitation: string, name: string) =>
+  trustedModule().remember(invitation, name);
+export const listTrustedDesktops = () => trustedModule().list();
+export const updateTrustedAddress = (fingerprint: string, address: string) =>
+  trustedModule().address(fingerprint, address);
+export const forgetTrustedDesktop = (fingerprint: string) =>
+  trustedModule().forget(fingerprint);
+export const reconnectTrusted = (fingerprint: string) =>
+  trustedModule().reconnect(fingerprint);
+export const cancelTrusted = async () => {
+  if (supportsTrustedDevices) await trustedModule().cancel();
 };

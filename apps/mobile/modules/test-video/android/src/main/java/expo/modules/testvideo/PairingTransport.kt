@@ -1,7 +1,5 @@
 package expo.modules.testvideo
 
-import java.net.InetAddress
-import java.net.InetSocketAddress
 import java.net.Socket
 
 /** Only PAKE public messages and the encrypted invitation use this socket. */
@@ -22,21 +20,14 @@ internal class PairingTransport {
         socket.also { socket = null }
       }
       old?.close()
-      require(Regex("[0-9]{1,3}(\\.[0-9]{1,3}){3}:[0-9]{1,5}").matches(address)) { "Invalid desktop address" }
-      val parts = address.split(':')
-      require(parts.size == 2)
-      val octets = parts[0].split('.').map { it.toInt() }
-      require(octets.size == 4 && octets.all { it in 0..255 })
-      require(octets[0] == 10 || octets[0] == 172 && octets[1] in 16..31 || octets[0] == 192 && octets[1] == 168 || octets[0] == 169 && octets[1] == 254) { "Use a private LAN address" }
-      val port = parts[1].toInt()
-      require(port in 1..65535 && address == octets.joinToString(".") + ":" + port)
+      val endpoint = LanAddress.parse(address)
       val next = Socket()
       synchronized(lock) {
         if (ticket != generation) { next.close(); error("Pairing cancelled") }
         socket = next
       }
       next.soTimeout = 5000
-      next.connect(InetSocketAddress(InetAddress.getByAddress(octets.map { it.toByte() }.toByteArray()), port), 5000)
+      next.connect(endpoint, 5000)
     }
     val active = synchronized(lock) {
       require(ticket == generation) { "Pairing cancelled" }

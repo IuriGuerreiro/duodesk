@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { invoke, isDesktop, subscribe } from "@/shared/host";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { invoke, isDesktop, subscribe, type TrustStatus } from "@/shared/host";
 import type {
   NetworkAddress,
   ReceiverWorkspaceProps,
@@ -35,17 +35,66 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
   const peer = useRef<VideoReceiver | undefined>(undefined);
   const current = useRef<Invitation | undefined>(undefined);
   const mounted = useRef(false);
+  const [trustStatus, setTrustStatus] = useState<TrustStatus>({
+    available: false,
+    reason: window.duoDesk
+      ? "Checking secure storage…"
+      : "Trusted devices require the Electron desktop app.",
+    enabled: false,
+    address: null,
+    fingerprint: null,
+    devices: [],
+    pending: [],
+  });
+  const trustRef = useRef(trustStatus);
+  const [trustBusy, setTrustBusy] = useState(false);
+  const trustLocked = useRef(false);
+  const [trustNotice, setTrustNotice] = useState("");
+  const [trustError, setTrustError] = useState("");
 
-  function release() {
+  function updateTrust(next: TrustStatus) {
+    trustRef.current = next;
+    setTrustStatus(next);
+  }
+
+  async function changeTrust(
+    command: "trust_allow" | "trust_approve" | "trust_revoke",
+    args: Record<string, unknown>,
+  ) {
+    if (trustLocked.current) return;
+    trustLocked.current = true;
+    setTrustBusy(true);
+    setTrustError("");
+    try {
+      const next = await invoke<TrustStatus>(command, args);
+      if (mounted.current) updateTrust(next);
+    } catch (cause) {
+      if (mounted.current) {
+        setTrustError(
+          cause instanceof Error
+            ? cause.message
+            : "Could not update trusted devices.",
+        );
+        await invoke<TrustStatus>("trust_status")
+          .then(updateTrust)
+          .catch(() => {});
+      }
+    } finally {
+      trustLocked.current = false;
+      if (mounted.current) setTrustBusy(false);
+    }
+  }
+
+  const release = useCallback(() => {
     peer.current?.stop();
     peer.current = undefined;
     if (video.current) video.current.srcObject = null;
     setHasAudio(false);
     setAutoplayBlocked(false);
-  }
+  }, []);
 
   /** Starts playback with the user's sound settings; falls back to muted if the browser requires a gesture. */
-  async function play(element: HTMLVideoElement) {
+  const play = useCallback(async (element: HTMLVideoElement) => {
     element.volume = prefs.current.volume;
     element.muted = prefs.current.muted;
     try {
@@ -64,7 +113,7 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
       }
     }
     setError("Press play on the video to start playback.");
-  }
+  }, []);
 
   function changeMuted(next: boolean) {
     const element = video.current;
@@ -85,7 +134,7 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
     // Dragging the slider up is an explicit request to hear audio.
     if (next > 0 && element.muted) changeMuted(false);
   }
-  async function stop() {
+  const stop = useCallback(async () => {
     current.current = undefined;
     pairing.current = undefined;
     setCode("");
@@ -95,7 +144,43 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
     setStats(undefined);
     setState("stopped");
     await invoke("stream_stop").catch(() => {});
-  }
+  }, [release]);
+
+  const receiveInvitation = useCallback(
+    (next: Invitation) => {
+      release();
+      current.current = next;
+      peer.current = new VideoReceiver(
+        next.sessionId,
+        (signal) =>
+          current.current === next
+            ? invoke("stream_send", { signal })
+            : Promise.resolve(),
+        (stream) => {
+          if (current.current !== next) return;
+          const element = video.current;
+          if (!element) return;
+          if (element.srcObject !== stream) element.srcObject = stream;
+          setHasAudio(stream.getAudioTracks().length > 0);
+          void play(element);
+        },
+        (message) => {
+          if (current.current !== next) return;
+          setError(message);
+          void stop();
+          setState("failed");
+        },
+        (connection) => {
+          if (current.current !== next) return;
+          if (connection === "connected") setState("streaming");
+        },
+      );
+      setInvitation(next);
+      setStats(undefined);
+      setState("connecting");
+    },
+    [release, play, stop],
+  );
 
   useEffect(() => {
     const element = video.current;
@@ -113,6 +198,25 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
   useEffect(() => {
     mounted.current = true;
     if (!isDesktop()) return;
+    if (window.duoDesk) {
+      void invoke<TrustStatus>("trust_status")
+        .then((next) => {
+          if (mounted.current) updateTrust(next);
+        })
+        .catch(() => {
+          if (mounted.current)
+            updateTrust({
+              ...trustRef.current,
+              reason:
+                "Could not read trusted devices. Restart the desktop app.",
+            });
+        });
+    } else {
+      updateTrust({
+        ...trustRef.current,
+        reason: "Trusted devices require the Electron desktop app.",
+      });
+    }
     void invoke<NetworkAddress[]>("stream_interfaces")
       .then((addresses) => {
         if (mounted.current) {
@@ -122,6 +226,40 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
       })
       .catch(() => setError("Could not list local network addresses."));
     const subscription = subscribe((payload) => {
+      if (!mounted.current) return;
+      if (payload.kind === "trust_status") {
+        updateTrust(payload.status);
+        return;
+      }
+      if (payload.kind === "trust_enrollment") {
+        const previous = trustRef.current;
+        updateTrust({
+          ...previous,
+          pending: [
+            ...previous.pending.filter(
+              (item) => item.requestId !== payload.request.requestId,
+            ),
+            payload.request,
+          ],
+        });
+        return;
+      }
+      if (payload.kind === "trust_reconnected") {
+        pairing.current = undefined;
+        setCode("");
+        setAddress("");
+        setPairingStatus("");
+        setError("");
+        const name =
+          trustRef.current.devices.find(
+            (device) => device.phoneId === payload.phoneId,
+          )?.name ?? "Trusted phone";
+        setTrustNotice(
+          `${name} reconnected automatically. Waiting for the phone to start sharing.`,
+        );
+        receiveInvitation(payload.invitation);
+        return;
+      }
       const active = current.current;
       if (!active || !mounted.current) return;
       if (
@@ -192,7 +330,7 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
       void subscription.then((unlisten) => unlisten());
       void invoke("stream_stop").catch(() => {});
     };
-  }, []);
+  }, [receiveInvitation, release]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -249,27 +387,7 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
         await invoke("stream_stop");
         return;
       }
-      current.current = next;
-      peer.current = new VideoReceiver(
-        next.sessionId,
-        (signal) => invoke("stream_send", { signal }),
-        (stream) => {
-          const element = video.current;
-          if (!element) return;
-          if (element.srcObject !== stream) element.srcObject = stream;
-          setHasAudio(stream.getAudioTracks().length > 0);
-          void play(element);
-        },
-        (message) => {
-          setError(message);
-          void stop();
-          setState("failed");
-        },
-        (connection) => {
-          if (connection === "connected") setState("streaming");
-        },
-      );
-      setInvitation(next);
+      receiveInvitation(next);
       setRemaining(120);
       setState("connecting");
     } catch (cause) {
@@ -288,7 +406,25 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
     onIpChange: setIp,
     onRefresh: () => void refresh(),
     invitation,
-    pairing: invitation ? { address, code, status: pairingStatus } : undefined,
+    pairing:
+      invitation && address
+        ? { address, code, status: pairingStatus }
+        : undefined,
+    trust: {
+      status: trustStatus,
+      busy: trustBusy,
+      canEnable: !!ip && !busy,
+      notice: trustNotice,
+      error: trustError,
+      onAllow: (allow) =>
+        void changeTrust("trust_allow", {
+          ip: allow ? ip : (trustStatus.address?.split(":")[0] ?? ip),
+          allow,
+        }),
+      onApprove: (requestId, approve) =>
+        void changeTrust("trust_approve", { requestId, approve }),
+      onRevoke: (phoneId) => void changeTrust("trust_revoke", { phoneId }),
+    },
     state,
     error,
     stats,

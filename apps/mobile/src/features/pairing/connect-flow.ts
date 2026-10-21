@@ -9,6 +9,7 @@ export type ConnectFlow = {
   ) => Promise<string>;
   /** Hands the invitation to the native sender. */
   connect: (invitation: string) => Promise<void>;
+  connectRemembered?: (invitation: string) => Promise<void>;
 };
 
 /**
@@ -24,6 +25,7 @@ export async function connectToDesktop(
     code: string;
     cancelled: () => boolean;
     onPaired: () => void;
+    remember?: boolean;
   },
 ) {
   const { address, code, cancelled, onPaired } = request;
@@ -32,5 +34,8 @@ export async function connectToDesktop(
   const invitation = await flow.pair(address, code, cancelled);
   if (cancelled()) return;
   onPaired();
-  await flow.connect(invitation);
+  if (cancelled()) return;
+  if (request.remember && flow.connectRemembered)
+    await flow.connectRemembered(invitation);
+  else await flow.connect(invitation);
 }

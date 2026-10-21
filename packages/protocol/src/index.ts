@@ -12,3 +12,4 @@ export interface ProtocolHandshake {
   version: string;
   clientType: "desktop" | "mobile";
 }
+export * from "./trust.ts";

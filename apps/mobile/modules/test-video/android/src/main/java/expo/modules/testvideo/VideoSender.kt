@@ -52,6 +52,14 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
 
   @Volatile
   private var generation = 0L
+  private sealed class Enrollment(open val promise: Promise) {
+    data class AwaitPair(val name: String, override val promise: Promise) : Enrollment(promise)
+    data class AwaitApproval(val key: EnrollmentKey, override val promise: Promise) : Enrollment(promise)
+  }
+  private var enrollment: Enrollment? = null
+  private var enrollmentTimeout: ScheduledFuture<*>? = null
+  private fun trustStore() = TrustedDesktopStore.get(context)
+
   private var invitation: Invitation? = null
   private var socket: WebSocket? = null
   private var client: OkHttpClient? = null
@@ -185,6 +193,42 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     timeout?.cancel(false)
     val epoch = generation
     timeout = queue.schedule({ if (generation == epoch) fail(message) }, 20, TimeUnit.SECONDS)
+  }
+
+  fun connectAndRemember(text: String, name: String, promise: Promise) = dispatch {
+    try {
+      require(name.toByteArray(Charsets.UTF_8).size in 1..80) { "Phone name must be 1 to 80 UTF-8 bytes" }
+      trustStore()
+      connect(text)
+      enrollment = Enrollment.AwaitPair(name, promise)
+      val epoch = generation
+      enrollmentTimeout = queue.schedule({
+        if (generation == epoch) rejectEnrollment("Desktop approval timed out. This desktop was not remembered. Try pairing again.")
+      }, 125, TimeUnit.SECONDS)
+    } catch (error: Exception) {
+      fail(error.message ?: "Could not remember the desktop")
+      promise.reject("ERR_TRUST_ENROLL", error.message, error)
+    }
+  }
+
+  private fun rejectEnrollment(message: String) {
+    val pending = enrollment ?: return
+    enrollment = null
+    enrollmentTimeout?.cancel(false); enrollmentTimeout = null
+    if (pending is Enrollment.AwaitApproval) runCatching { trustStore().discard(pending.key) }
+    pending.promise.reject("ERR_TRUST_ENROLL", message, null)
+  }
+
+  private fun enrollAfterPair() {
+    val pending = enrollment as? Enrollment.AwaitPair ?: return
+    try {
+      val key = trustStore().prepare(checkNotNull(invitation).fingerprint)
+      enrollment = Enrollment.AwaitApproval(key, pending.promise)
+      send(JSONObject().put("type", "trust_enroll").put("phoneId", key.phoneId)
+        .put("name", pending.name).put("publicKey", key.publicKey))
+    } catch (error: Exception) {
+      rejectEnrollment(error.message ?: "Secure enrollment failed. This desktop was not remembered.")
+    }
   }
 
   fun connect(text: String) {
@@ -419,6 +463,8 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     val keys = setOf("v", "sessionId", "type")
     val expected = when (message.getString("type")) {
       "paired", "stop" -> keys
+      "trust_committed" -> keys + setOf("phoneId", "fingerprint", "address")
+      "trust_rejected" -> keys + setOf("phoneId", "reason")
       "answer" -> keys + "sdp"
       "candidate" -> keys + setOf("candidate", "sdpMid", "sdpMLineIndex")
       else -> error("Unexpected signaling message")
@@ -428,6 +474,26 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       "paired" -> {
         check(state == "connecting" && peer == null) { "Unexpected pairing response" }
         timeout?.cancel(false); status("ready")
+        enrollAfterPair()
+      }
+      "trust_committed" -> {
+        val pending = checkNotNull(enrollment as? Enrollment.AwaitApproval) { "Unexpected enrollment acknowledgement" }
+        require(message.getString("phoneId") == pending.key.phoneId && message.getString("fingerprint") == pending.key.fingerprint && invitation?.fingerprint == pending.key.fingerprint) { "Enrollment identity mismatch" }
+        try {
+          trustStore().commit(pending.key, message.getString("address"))
+          enrollment = null
+          enrollmentTimeout?.cancel(false); enrollmentTimeout = null
+          pending.promise.resolve()
+        } catch (error: Exception) {
+          rejectEnrollment("Desktop approval arrived, but secure saving failed. This desktop was not remembered. ${error.message ?: ""}")
+        }
+      }
+      "trust_rejected" -> {
+        val pending = checkNotNull(enrollment as? Enrollment.AwaitApproval) { "Unexpected enrollment rejection" }
+        require(message.getString("phoneId") == pending.key.phoneId)
+        val reason = message.getString("reason")
+        require(reason.toByteArray(Charsets.UTF_8).size <= 1024)
+        rejectEnrollment("The desktop did not approve remembering this phone. $reason")
       }
       "answer" -> {
         val pc = checkNotNull(peer)
@@ -543,6 +609,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
   }
 
   private fun close() {
+    rejectEnrollment("Connection ended before saving was confirmed. This desktop was not remembered. Pair again to retry.")
     generation++
     timeout?.cancel(false); timeout = null; stats?.cancel(false); stats = null
     clip?.stop(); clip = null

@@ -1,6 +1,6 @@
 # Local device pairing
 
-Implemented on Electron main `7c377e5`, adapting reviewed pairing code from `fb22c83`. The existing Android-to-Windows test-video stream was reported working by the user. This change keeps its native `connect(invitation)`, `start(bitrateMbps)`, `stop()` and status events, TLS pinning and WebRTC media path.
+DuoDesk pairs phones with the Electron receiver using a local six-digit code or QR. Android can also save an explicitly approved desktop for later reconnects.
 
 ## Run updated clients
 
@@ -13,7 +13,7 @@ Rebuild the phone development client after installing dependencies: `pnpm --filt
 1. Open the Electron receiver on Linux, macOS or Windows, or the retained Tauri host. Choose the Wi-Fi or Ethernet address connected to the same router as the phone. Nothing is selected automatically.
 2. Choose **Create pairing code**. The desktop shows its address including a port, such as `192.168.1.20:39871`, and six digits. Use the actual values shown.
 3. In the mobile **Stream test** tab, scan the desktop pairing QR. A valid QR verifies the code and connects at once, with no second tap. If it fails, the address and code stay filled in so you can retry or correct them, or scan a new QR. You can also enter both values manually and choose **Connect to PC**.
-4. Once ready, select the bitrate and start the video. Stop or leave the mobile screen to disconnect. Create a fresh code to reconnect.
+4. Once ready, select the bitrate and start the video. Stop or leave the mobile screen to disconnect. Use a fresh code for a one-time connection, or use a saved desktop as described below.
 
 Rebuild both the desktop and mobile development clients for this change. Expo Go and older mobile binaries lack the native pairing transport. iOS and Android use the same protocol.
 
@@ -22,6 +22,41 @@ The dropdown includes interface names supplied by the OS. Local/private IPv4 add
 The phone uses the desktop address, not its own address. A guest Wi-Fi network, client isolation or VPN may prevent access. Allow DuoDesk and its signaling sidecar through the desktop firewall on a private network. Both bootstrap and TLS signaling use temporary TCP ports; media uses WebRTC's dynamic ports. No internet, hosted signaling, STUN or TURN is needed. Connection refusal, an outdated port, firewall filtering and network isolation cannot always be distinguished reliably. Mobile separates failure to reach the address from failure during code verification and gives steps for both; it does not claim to detect the phone subnet. Do not expose either listener through port forwarding.
 
 The pairing QR contains only the desktop's local address and temporary six-digit code. Scanning fills the same fields as manual entry and starts the same connect step; both paths use the same authenticated pairing protocol. The QR carries no expiry, so an expired or used code is reported by the desktop as a failed code check. The QR does not contain the invitation, token, or certificate fingerprint. Anyone who can see an active QR can read the code, so protect it like the displayed digits and do not post screenshots.
+
+## Remember an Android phone
+
+Rebuild both the Android development client and Electron app. iOS, older mobile binaries, and the retained Tauri host continue to support code pairing. They do not support remembered devices in this delivery.
+
+1. On Android, turn on **Remember this desktop** before scanning the QR or entering the code. Remember is an explicit choice for that pairing.
+2. Complete ordinary code pairing. On the desktop, approve **Remember phone** for the phone that just paired.
+3. Wait for the phone to confirm that the desktop was saved. Closing the app, disconnecting, declining, or timing out during approval does not count as success.
+4. On the desktop, choose the network address and turn on **Allow reconnects**. This switch starts off each time the desktop host starts.
+5. On Android, open saved desktops and choose **Reconnect**. No QR or code is needed. The desktop shows a visible notice when the trusted phone connects.
+
+Remembering a phone grants permission to reconnect for streaming. It does not grant remote control or screen-capture permission. Start sharing separately on the phone. Android still presents its capture-consent dialog, and Stop still ends sharing.
+
+The saved address is a connection hint. If the desktop changes IP address, update the saved address on the phone using the reconnect address shown by the desktop. The reconnect port differs from the temporary code-pairing port. Discovery names and IP addresses never establish trust. This delivery has no stable discovery ID and does not reconnect automatically at app startup.
+
+A transient connection failure retries after 1, 2, and 4 seconds, then shows an offline state with Retry. Cancel stops the active request and further retries. Authentication failures stop immediately and show **Needs re-pairing**. A closed listener or an unreachable desktop can look like an offline network failure.
+
+## Revoke, forget, and recover
+
+- On the desktop, choose **Revoke** next to a trusted phone. Subsequent reconnect proofs are rejected immediately, including proofs for challenges issued before revocation. Revocation does not authorize or start any other action.
+- On the phone, choose **Forget** to remove the saved desktop metadata and its exclusively owned signing key. To revoke the phone's permission on the desktop too, use Revoke there.
+- Turn off **Allow reconnects** to reject new trusted reconnects. Turn it back on after choosing the intended local interface. An existing stream still has its separate Stop control.
+- If either app is reset or reinstalled, or if the desktop certificate or phone key changes, explicitly pair again with a fresh code. DuoDesk never silently replaces a saved certificate pin. Forget the old saved desktop first when needed.
+- If secure storage is unavailable, ordinary code pairing still works, but persistent trust is disabled. On Linux, configure a supported keyring and restart the app. DuoDesk refuses Electron's insecure `basic_text` fallback even when Electron reports encryption available.
+- If desktop identity storage is corrupt or cannot be decrypted, persistent trust stays unavailable. Recover the OS keyring or explicitly reset the application's stored data and pair again. Do not copy private keys into plaintext files.
+
+## Trusted reconnect security
+
+Electron encrypts the persistent desktop certificate and private key with OS-backed `safeStorage` before writing them. The private key exists in memory for TLS but is never persisted in plaintext or exposed to the renderer. Android creates a per-desktop P-256 signing key in Android Keystore. Saved desktop metadata is encrypted with a Keystore AES-GCM key and kept outside Android backup.
+
+Enrollment travels on the already authenticated, certificate-pinned streaming channel. Desktop approval first persists the trusted public key, then sends a commit acknowledgement on that same stream. The phone saves trust only after receiving the matching acknowledgement. Interrupted delivery can leave an approved desktop entry without a saved phone entry; revoke that entry and pair again.
+
+Before a reconnect proof is sent, Android verifies the saved SHA-256 certificate fingerprint. The proof signs a versioned fixed encoding containing a fresh 32-byte nonce, the desktop fingerprint, and the phone key identity. Rust checks the signature against the current trusted list. Challenges expire after 30 seconds, belong to one connection, and can be consumed only once. Disable and revoke invalidate pending authentication. A successful reconnect returns an ordinary v1 streaming invitation over the pinned TLS channel.
+
+See [the wire and IPC contract](trusted-devices-contract.md) for exact encodings, field limits, and message shapes. Platform references are [Electron safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage) and [Android Keystore](https://developer.android.com/privacy-and-security/keystore).
 
 ## Trust and protocol
 
@@ -46,7 +81,7 @@ The bootstrap socket is deliberately not TLS. SRP public values/proofs can trave
 - The code and invitation expire together after 120 seconds. Expiry and cancellation close listeners and active bootstrap sockets. The mobile transport bounds connect/read waits and response allocation; it closes on background, navigation, Stop, error and completion.
 - The first successful code proof consumes pairing. The bootstrap listener closes even if invitation delivery fails. The first authenticated TLS peer consumes the invitation and closes the TLS listener. A consumed code never starts a second stream.
 - QR and manual entry use the same eight-connection bootstrap budget and lockout. There is no alternate QR listener after the code is locked. With eight online guesses against the uniform six-digit code, success probability is at most 8 in 1,000,000 per displayed code. Anyone who can see the display or QR can read the code; an attacker can also exhaust attempts or occupy the LAN to deny service.
-- SRP protects against passive offline guessing of the code from a network transcript. The in-memory verifier is short-lived, but its compromise permits offline guessing of this low-entropy code. Nothing is persisted as a remembered pairing or trusted device.
+- SRP protects against passive offline guessing of the code from a network transcript. The in-memory verifier is short-lived, but its compromise permits offline guessing of this low-entropy code. One-time code pairing persists no secret code or verifier. Separately approved trusted-device enrollment persists the identities described above.
 - This is an established PAKE construction and library, not a claim of a product security audit. The SRP library uses JavaScript big-integer arithmetic and does not promise constant-time operation. This implementation does not address local-process/timing side channels or device compromise. A dedicated security review is still appropriate before broad release.
 
 The pinned pnpm patch only changes the SRP library's crypto-provider lookup to lazy `globalThis.crypto`, avoiding its Node `require("crypto")` in Metro. SRP arithmetic, groups, derivation and proofs are unchanged. Mobile supplies only the required SHA-256 digest and secure random API through Expo Crypto 58.0.7. No algorithm falls back to `Math.random`.
@@ -57,7 +92,30 @@ Capture sources, WebRTC setup, bitrate control and native sender signatures are 
 
 The invitation and signaling wire formats remain v1. The bootstrap has an independent v1 envelope. `stream_start` returns `{invitation,address}` to desktop UI; `stream_interfaces` returns interface metadata. Both Electron and Tauri use `src/host/index.ts`. Electron validates `stream_pair_reply` at its isolated IPC boundary and dispatches it to the Rust sidecar; its crash tracking uses the returned invitation session ID. Rust relays bounded bootstrap frames to the desktop SRP implementation through `pairing` events and receives `stream_pair_reply` commands. Request IDs prevent late replies from being used by another socket. `pairingstatus` reports consumption/lockout. The native sender still receives the authenticated invitation internally after SRP; the mobile UI no longer accepts old invitation QR or JSON.
 
-## Validation on this branch
+## Trusted-device verification on this branch
+
+Run the automated checks from the repository root:
+
+```sh
+pnpm --filter @duodesk/protocol test
+pnpm --filter @duodesk/desktop test
+pnpm --filter @duodesk/desktop build
+pnpm --filter @duodesk/desktop test:host
+pnpm --filter @duodesk/desktop test:ui
+pnpm --filter @duodesk/desktop test:trusted
+pnpm --filter @duodesk/mobile test
+cargo test --locked --manifest-path apps/desktop/src-tauri/signaling/Cargo.toml
+```
+
+`test:trusted` requires a GUI session and an available OS keyring. It uses temporary app data and a simulated phone key. It exercises production SRP, actual pinned TLS, desktop approval, encrypted storage, full Electron process restart, reconnect without code, the visible reconnect notice, and rejection after Revoke. On Linux it also starts Electron with the basic password store and checks that persistent trust is refused while ordinary pairing remains usable.
+
+The Rust TLS tests cover wrong keys, wrong desktop identity, replay, expired challenges, proofs moved between connections, current-list revocation, and disabled listeners. Protocol tests cover exact parsing and signed byte encoding. Mobile tests cover bounded retry delays, cancellation, late results, terminal failures, opt-in enrollment, interrupted enrollment, and old native binary capability handling. These checks preserve ordinary v1 pairing and do not claim that older clients support trust extensions.
+
+Desktop production build, Android production export, and the retained Tauri `cargo check --locked` passed. Android native Kotlin compilation and all 21 local native unit tests passed with JDK 21. The native tests use real TLS sockets and verify that a wrong certificate pin sends no phone identity or proof. They also cover signed payload bytes, rejected access, changed invitation hosts, duplicate or expired challenges, and cancellation. Protocol, desktop, and mobile lint and type checks passed.
+
+Physical Android checks remain pending: actual Keystore persistence, capture consent, Stop, app and desktop restart, IP changes, offline Retry and Cancel, revocation, and reinstall or identity-reset recovery. These checks did not use a physical Android device. No Windows or macOS acceptance check, iOS trust feature, or automatic app-start reconnect is included.
+
+## Earlier pairing validation
 
 - Frozen pnpm install; protocol, desktop and mobile lint/type checks passed. The lockfile preserves Electron dependencies and adds only the pairing libraries, their transitive `jsbn`, Expo Crypto and the pinned crypto-provider patch.
 - 23 automated tests passed: seven shared protocol tests, five desktop unit tests, eight Rust tests and three real-sidecar integration tests. Coverage includes wrong code, proof/ciphertext tampering, malformed input, one-use authentication, eight-attempt lockout, expiry, cancellation, process exit and port cleanup.

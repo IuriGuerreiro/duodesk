@@ -1,5 +1,8 @@
 //! Private bounded JSON-lines transport. stdout is protocol only; EOF drops the session.
-use duodesk_signaling::{Session, Signal};
+use duodesk_signaling::{
+    Event, Identity, Session, Signal,
+    trust::{Listener, Reconnect, Trust},
+};
 use serde_json::{Value, json};
 use std::{
     io::{self, BufRead, Write},
@@ -31,8 +34,33 @@ async fn main() {
             }
         }
     });
+    let emit: Arc<dyn Fn(Event) + Send + Sync> = Arc::new(|event| output(json!({"event": event})));
     let mut session: Option<Session> = None;
-    while let Some(bytes) = rx.recv().await {
+    let mut trust: Option<Trust> = None;
+    let mut listener: Option<Listener> = None;
+    let mut trusted_ip: Option<String> = None;
+    let (handoffs, mut reconnects) = tokio::sync::mpsc::channel::<Reconnect>(4);
+    loop {
+        let bytes = tokio::select! {
+            biased;
+            bytes = rx.recv() => match bytes { Some(bytes) => bytes, None => break },
+            Some(reconnect) = reconnects.recv() => {
+                let result = async {
+                    let trust = trust.as_ref().ok_or("Trust unavailable")?;
+                    if !trust.accepts(&reconnect) { return Err("Revoked or disabled".into()); }
+                    let next = duodesk_signaling::start_with_identity(
+                        trusted_ip.clone().ok_or("Listener disabled")?, emit.clone(), trust.identity.clone(), Some(trust.clone())
+                    ).await?;
+                    if !trust.accepts(&reconnect) { return Err("Revoked or disabled".into()); }
+                    let invitation = next.invitation.clone();
+                    session = Some(next);
+                    emit(Event::TrustReconnected { phone_id: reconnect.phone.phone_id.clone(), invitation: invitation.clone() });
+                    Ok(invitation)
+                }.await;
+                let _ = reconnect.reply.send(result);
+                continue;
+            }
+        };
         let Ok(request) = serde_json::from_slice::<Value>(&bytes) else {
             break;
         };
@@ -41,6 +69,75 @@ async fn main() {
         };
         let result: Result<Value, String> = async {
             match request["method"].as_str() {
+                Some("identity_generate") => Ok(json!(Identity::generate()?)),
+                Some("trust_configure") => {
+                    if trust.is_some() {
+                        return Err("Trust already configured".into());
+                    }
+                    let identity: Identity =
+                        serde_json::from_value(request["args"]["identity"].clone())
+                            .map_err(|_| "Invalid identity")?;
+                    let phones = serde_json::from_value(request["args"]["devices"].clone())
+                        .map_err(|_| "Invalid devices")?;
+                    let address = request["args"]["address"]
+                        .as_str()
+                        .ok_or("Missing address")?;
+                    trust = Some(Trust::new(identity, phones, address.into(), emit.clone())?);
+                    Ok(Value::Null)
+                }
+                Some("trust_pending") => {
+                    Ok(json!(trust.as_ref().ok_or("Trust unavailable")?.pending()))
+                }
+                Some("trust_pending_phone") => {
+                    let id = request["args"]["requestId"]
+                        .as_str()
+                        .ok_or("Missing request")?;
+                    Ok(json!(
+                        trust
+                            .as_ref()
+                            .ok_or("Trust unavailable")?
+                            .pending_phone(id)?
+                    ))
+                }
+                Some("trust_update") => {
+                    let phones = serde_json::from_value(request["args"]["devices"].clone())
+                        .map_err(|_| "Invalid devices")?;
+                    trust.as_ref().ok_or("Trust unavailable")?.update(phones)?;
+                    Ok(Value::Null)
+                }
+                Some("trust_decide") => {
+                    let id = request["args"]["requestId"]
+                        .as_str()
+                        .ok_or("Missing request")?;
+                    let approve = request["args"]["approve"]
+                        .as_bool()
+                        .ok_or("Missing decision")?;
+                    trust
+                        .as_ref()
+                        .ok_or("Trust unavailable")?
+                        .decide(id, approve)?;
+                    Ok(Value::Null)
+                }
+                Some("trust_allow") => {
+                    listener.take();
+                    trusted_ip.take();
+                    let trust = trust.as_ref().ok_or("Trust unavailable")?;
+                    trust.disable();
+                    if request["args"]["allow"].as_bool().ok_or("Missing allow")? {
+                        let ip = request["args"]["ip"].as_str().ok_or("Missing IP")?;
+                        let port = request["args"]["port"]
+                            .as_u64()
+                            .and_then(|p| u16::try_from(p).ok())
+                            .ok_or("Invalid port")?;
+                        let next = trust.listen(ip, port, handoffs.clone()).await?;
+                        let address = next.address.clone();
+                        trusted_ip = Some(ip.into());
+                        listener = Some(next);
+                        Ok(json!({"address":address}))
+                    } else {
+                        Ok(Value::Null)
+                    }
+                }
                 Some("stream_interfaces") => Ok(json!(duodesk_signaling::network_addresses()?)),
                 Some("stream_stop") => {
                     session.take();
@@ -49,11 +146,17 @@ async fn main() {
                 Some("stream_start") => {
                     session.take();
                     let ip = request["args"]["ip"].as_str().ok_or("Missing IP")?;
-                    let next = duodesk_signaling::start(
-                        ip.into(),
-                        Arc::new(|event| output(json!({"event": event}))),
-                    )
-                    .await?;
+                    let next = if let Some(trust) = &trust {
+                        duodesk_signaling::start_with_identity(
+                            ip.into(),
+                            emit.clone(),
+                            trust.identity.clone(),
+                            Some(trust.clone()),
+                        )
+                        .await?
+                    } else {
+                        duodesk_signaling::start(ip.into(), emit.clone()).await?
+                    };
                     let invitation =
                         json!({"invitation": next.invitation, "address": next.pairing_address});
                     session = Some(next);
@@ -80,5 +183,6 @@ async fn main() {
             Err(error) => output(json!({"id": id, "error": error})),
         }
     }
+    listener.take();
     session.take();
 }

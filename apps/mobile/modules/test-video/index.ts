@@ -1,6 +1,7 @@
-import type { SenderStatus } from "./types";
+import type { SavedDesktop, SenderStatus } from "./types";
 
 export type {
+  SavedDesktop,
   AudioState,
   SenderStatus,
   SenderStats,
@@ -43,3 +44,23 @@ export const pairRequest = async (
   return "";
 };
 export const pairClose = async (): Promise<void> => {};
+
+export const supportsTrustedDevices = false;
+export const connectAndRemember = (
+  _invitation: string,
+  _name: string,
+): Promise<void> => unsupported();
+export const listTrustedDesktops = async (): Promise<SavedDesktop[]> => [];
+export const updateTrustedAddress = (
+  _fingerprint: string,
+  _address: string,
+): Promise<void> => unsupported();
+export const forgetTrustedDesktop = (_fingerprint: string): Promise<void> =>
+  unsupported();
+export const reconnectTrusted = async (
+  _fingerprint: string,
+): Promise<string> => {
+  await unsupported();
+  return "";
+};
+export const cancelTrusted = async (): Promise<void> => {};
