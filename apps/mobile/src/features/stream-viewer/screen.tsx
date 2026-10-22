@@ -19,7 +19,7 @@ const copy = {
   },
   ready: {
     title: "Connected.",
-    detail: "Choose Start sharing on your PC to see its screen here.",
+    detail: "Your PC is starting screen sharing automatically.",
   },
   streaming: {
     title: "Your PC screen.",
@@ -69,6 +69,13 @@ export default function StreamViewerScreen() {
             className="aspect-video w-full overflow-hidden rounded-2xl bg-black"
           >
             <StreamViewerView style={{ flex: 1 }} />
+            {!live && (
+              <View className="absolute inset-0 items-center justify-center bg-black px-6">
+                <Text className="text-center text-base text-white">
+                  Waiting for your PC to start sharing…
+                </Text>
+              </View>
+            )}
           </View>
         )}
         {live && stats && (

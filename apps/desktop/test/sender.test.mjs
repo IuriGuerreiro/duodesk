@@ -12,6 +12,9 @@ const codecs = [
 class FakeTrack {
   stopped = false;
   onended = null;
+  getSettings() {
+    return { width: 1920, height: 1080, frameRate: 30 };
+  }
   stop() {
     this.stopped = true;
   }

@@ -31,14 +31,13 @@ test("capture is allowed only for the app window during a share session", () => 
   assert.equal(mayCapture(request, { ...context, window: undefined }), false);
 });
 
-test("capture rejects other frames, audio, no video and missing gestures", () => {
+test("capture rejects other frames, audio and no video", () => {
   for (const changed of [
     { frame: { url: entry } },
     { frame: { ...mainFrame, url: "https://example.com/" } },
     { frame: null },
     { audioRequested: true },
     { videoRequested: false },
-    { userGesture: false },
   ])
     assert.equal(mayCapture({ ...request, ...changed }, context), false);
   const moved = { url: "https://example.com/" };
@@ -134,6 +133,17 @@ test("camera, microphone and other permissions stay denied during a share", () =
       contents,
       { ...details, mediaTypes: [], requestingUrl: "https://example.com/" },
       shareContext,
+    ),
+    false,
+  );
+});
+
+test("a paired share session can capture without another desktop click", () => {
+  assert.equal(mayCapture({ ...request, userGesture: false }, context), true);
+  assert.equal(
+    mayCapture(
+      { ...request, userGesture: false },
+      { ...context, active: undefined },
     ),
     false,
   );

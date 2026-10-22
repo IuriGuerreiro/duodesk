@@ -164,6 +164,7 @@ void (async () => {
     const invitation = await pair(created.address, created.code);
     if (invitation.direction !== "desktop-to-phone")
       throw new Error("Wrong direction: " + invitation.direction);
+    await sleep(6000); // Let the Create connection click activation expire.
     phone = await connectSocket(invitation);
     phone.send({
       v: 1,
@@ -185,10 +186,7 @@ void (async () => {
     await viewer.webContents.executeJavaScript(viewerPage);
     const view = (source) => viewer.webContents.executeJavaScript(source);
 
-    // The pairing dialog closes itself once the phone is connected; sharing needs a click.
-    await ui(
-      `${helpers} await wait(() => button('Start sharing'), 'Start sharing never appeared'); button('Start sharing').click();`,
-    );
+    // No desktop click after pairing: the offer must arrive automatically.
     const offer = await phone.next("offer");
     const answer = await view(`window.accept(${JSON.stringify(offer.sdp)})`);
     phone.send({

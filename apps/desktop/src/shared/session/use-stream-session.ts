@@ -28,6 +28,8 @@ export interface StreamSessionOptions {
   onSignal: (signal: Signal) => void;
   /** A connection was created. Build the peer for it here. */
   onStarted: (invitation: Invitation, control: SessionControl) => void;
+  /** The paired phone is ready for media. */
+  onReady?: () => void;
   /** The session ended for any reason. Release the peer here. */
   onEnded: () => void;
 }
@@ -125,6 +127,7 @@ export function useStreamSession(options: StreamSessionOptions) {
         if (payload.state === "ready") {
           pairing.current = undefined;
           setCode("");
+          handlers.current.onReady?.();
         }
         if (payload.state === "stopped" || payload.state === "failed") {
           handlers.current.onEnded();

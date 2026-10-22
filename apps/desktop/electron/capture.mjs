@@ -35,7 +35,6 @@ export function mayCapture(request, { window, entry, active }) {
     frame === window?.webContents.mainFrame &&
     frame.url === entry &&
     request.videoRequested &&
-    !request.audioRequested &&
-    request.userGesture
+    !request.audioRequested
   );
 }

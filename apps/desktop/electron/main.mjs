@@ -9,6 +9,7 @@ import {
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
+import { appendFileSync, mkdirSync, renameSync, statSync } from "node:fs";
 import { mayCapture, mayCheckCapture, mayRequestCapture } from "./capture.mjs";
 import { Host, validateCommand } from "./host.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -24,6 +25,23 @@ protocol.registerSchemesAsPrivileged([
 let window;
 let host;
 let active;
+let diagnosticPath;
+function diagnostic(event, data = {}) {
+  const line = JSON.stringify({
+    time: new Date().toISOString(),
+    event,
+    ...data,
+  });
+  console.info(`[duodesk-debug] ${line}`);
+  if (!diagnosticPath) return;
+  try {
+    if (statSync(diagnosticPath, { throwIfNoEntry: false })?.size > 5_000_000)
+      renameSync(diagnosticPath, `${diagnosticPath}.previous`);
+    appendFileSync(diagnosticPath, `${line}\n`, { mode: 0o600 });
+  } catch (error) {
+    console.error("Could not write diagnostics", error.message);
+  }
+}
 app.commandLine.appendSwitch(
   "force-webrtc-ip-handling-policy",
   "default_public_and_private_interfaces",
@@ -45,6 +63,10 @@ async function open() {
       webSecurity: true,
     },
   });
+  window.webContents.on("console-message", (details) => {
+    if (details.message.startsWith("[screen-debug] "))
+      diagnostic("sender", { message: details.message.slice(15, 16015) });
+  });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
   window.webContents.on("will-attach-webview", (event) =>
@@ -61,6 +83,20 @@ async function open() {
 app
   .whenReady()
   .then(async () => {
+    app.setAppLogsPath();
+    mkdirSync(app.getPath("logs"), { recursive: true });
+    diagnosticPath = path.join(app.getPath("logs"), "screen-share.jsonl");
+    diagnostic("environment", {
+      logPath: diagnosticPath,
+      platform: process.platform,
+      arch: process.arch,
+      versions: process.versions,
+      sessionType: process.env.XDG_SESSION_TYPE,
+      desktop: process.env.XDG_CURRENT_DESKTOP,
+      display: process.env.DISPLAY,
+      waylandDisplay: process.env.WAYLAND_DISPLAY,
+      gpu: app.getGPUFeatureStatus(),
+    });
     session.defaultSession.setPermissionRequestHandler(
       (contents, permission, callback, details) =>
         callback(
@@ -92,12 +128,36 @@ app
     );
     session.defaultSession.setDisplayMediaRequestHandler(
       async (request, callback) => {
-        if (!mayCapture(request, { window, entry, active }))
-          return callback(null);
-        const [screen] = await desktopCapturer
-          .getSources({ types: ["screen"] })
-          .catch(() => []);
-        callback(screen ? { video: screen } : null);
+        const allowed = mayCapture(request, { window, entry, active });
+        diagnostic("capture-request", {
+          allowed,
+          direction: active?.direction,
+          video: request.videoRequested,
+          audio: request.audioRequested,
+          gesture: request.userGesture,
+          mainFrame: request.frame === window?.webContents.mainFrame,
+        });
+        if (!allowed) return callback(null);
+        try {
+          const sources = await desktopCapturer.getSources({
+            types: ["screen"],
+          });
+          diagnostic("capture-sources", {
+            count: sources.length,
+            sources: sources.map((source) => ({
+              id: source.id,
+              displayId: source.display_id,
+            })),
+          });
+          callback(sources[0] ? { video: sources[0] } : null);
+        } catch (error) {
+          diagnostic("capture-error", {
+            name: error.name,
+            message: error.message,
+            stack: error.stack,
+          });
+          callback(null);
+        }
       },
       { useSystemPicker: false },
     );

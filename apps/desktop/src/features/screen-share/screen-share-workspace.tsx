@@ -122,7 +122,7 @@ export function ScreenShareWorkspace({
                   {live
                     ? "Everything on this display, including this window, is visible on the phone."
                     : state === "ready"
-                      ? "Choose Start sharing to send this screen to your phone."
+                      ? "Starting screen sharing automatically…"
                       : waiting
                         ? "Scan the QR code or enter the address and code on your phone."
                         : "Create a connection, then open DuoDesk on your phone and choose to watch this screen."}
@@ -183,14 +183,14 @@ export function ScreenShareWorkspace({
                   <span>Network</span>
                   <code>{pairing?.address ?? ip}</code>
                 </div>
-                {state === "ready" && (
+                {state === "ready" && !!error && (
                   <Button
                     className="start-button"
                     onClick={onShare}
                     disabled={busy || sharing}
                   >
                     {sharing ? <LoaderCircle className="spin" /> : <Monitor />}
-                    {sharing ? "Starting…" : "Start sharing"}
+                    {sharing ? "Starting…" : "Retry sharing"}
                   </Button>
                 )}
                 {pairing && !connected && (

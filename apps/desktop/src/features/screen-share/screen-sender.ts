@@ -9,6 +9,10 @@ export interface ScreenStats {
   qualityLimit: string;
 }
 
+function diagnostic(event: string, data: object = {}) {
+  console.info("[screen-debug] " + JSON.stringify({ event, ...data }));
+}
+
 const MAX_BITRATE = 8_000_000;
 const PREFERRED_CODECS = ["video/h264", "video/vp8"];
 
@@ -62,7 +66,17 @@ export class ScreenSender {
         sdpMLineIndex: candidate.sdpMLineIndex ?? 0,
       });
     };
+    this.peer.oniceconnectionstatechange = () =>
+      diagnostic("ice-state", {
+        state: this.peer.iceConnectionState,
+        gathering: this.peer.iceGatheringState,
+      });
+    this.peer.onsignalingstatechange = () =>
+      diagnostic("signaling-state", { state: this.peer.signalingState });
+    this.peer.onicecandidateerror = (event) =>
+      diagnostic("ice-error", { code: event.errorCode, text: event.errorText });
     this.peer.onconnectionstatechange = () => {
+      diagnostic("connection-state", { state: this.peer.connectionState });
       if (this.closed) return;
       onConnection(this.peer.connectionState);
       if (
@@ -78,10 +92,14 @@ export class ScreenSender {
     };
   }
 
-  /** Must run from a user gesture: the browser only shows the capture grant to one. */
+  /** Starts capture for the paired desktop share session. */
   async start() {
     if (this.started) throw new Error("Screen sharing already started.");
     this.started = true;
+    diagnostic("capture-start", {
+      secureContext: globalThis.isSecureContext,
+      displayMediaAvailable: !!navigator.mediaDevices?.getDisplayMedia,
+    });
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
@@ -89,6 +107,10 @@ export class ScreenSender {
         audio: false,
       });
     } catch (error) {
+      diagnostic("capture-error", {
+        name: error instanceof Error ? error.name : "unknown",
+        message: error instanceof Error ? error.message : String(error),
+      });
       this.started = false;
       throw error;
     }
@@ -99,6 +121,13 @@ export class ScreenSender {
     this.stream = stream;
     const [track] = stream.getVideoTracks();
     if (!track) throw new Error("No screen video was captured.");
+    diagnostic("capture-track", {
+      settings: track.getSettings(),
+      state: track.readyState,
+      muted: track.muted,
+    });
+    track.onmute = () => diagnostic("track-muted");
+    track.onunmute = () => diagnostic("track-unmuted");
     track.contentHint = "detail";
     track.onended = () => this.fail(new Error("Screen sharing was stopped."));
     const transceiver = this.peer.addTransceiver(track, {
@@ -112,6 +141,7 @@ export class ScreenSender {
       encoding.maxFramerate = 30;
     });
     await transceiver.sender.setParameters(parameters);
+    diagnostic("encoder-configured");
     const offer = await this.peer.createOffer();
     await this.peer.setLocalDescription(offer);
     if (!this.closed)
@@ -140,6 +170,7 @@ export class ScreenSender {
           direction: "desktop-to-phone",
           from: "phone",
         });
+        diagnostic("signal-received", { type: message.type });
         if (message.type === "answer") {
           if (this.answered) throw new Error("Unexpected second video answer.");
           this.answered = true;
@@ -194,17 +225,49 @@ export class ScreenSender {
       };
       this.previous = { bytes: entry.bytesSent, timestamp: entry.timestamp };
     });
+    diagnostic("stats", {
+      ...stats,
+      connection: this.peer.connectionState,
+      ice: this.peer.iceConnectionState,
+    });
+    report.forEach((entry) => {
+      if (entry.type === "outbound-rtp" && entry.kind === "video")
+        diagnostic("encoder", {
+          framesEncoded: entry.framesEncoded,
+          framesSent: entry.framesSent,
+          bytesSent: entry.bytesSent,
+          encoder: entry.encoderImplementation,
+          qualityLimit: entry.qualityLimitationReason,
+        });
+      if (
+        entry.type === "candidate-pair" &&
+        entry.state === "succeeded" &&
+        entry.nominated
+      )
+        diagnostic("transport", {
+          nominated: entry.nominated,
+          bytesSent: entry.bytesSent,
+          bytesReceived: entry.bytesReceived,
+          rtt: entry.currentRoundTripTime,
+        });
+    });
     return stats;
   }
 
   stop() {
     if (this.closed) return;
+    diagnostic("stop");
     this.closed = true;
     this.pending = [];
+    this.peer.oniceconnectionstatechange = null;
+    this.peer.onsignalingstatechange = null;
+    this.peer.onicecandidateerror = null;
     this.peer.onicecandidate = null;
     this.peer.onconnectionstatechange = null;
     this.stream?.getTracks().forEach((track) => {
       track.onended = null;
+      track.onmute = null;
+      track.onunmute = null;
       track.stop();
     });
     this.peer.close();
@@ -212,6 +275,9 @@ export class ScreenSender {
 
   private fail(error: unknown) {
     if (this.closed) return;
+    diagnostic("failure", {
+      message: error instanceof Error ? error.message : String(error),
+    });
     this.stop();
     this.onError(
       error instanceof Error ? error.message : "Screen session failed.",

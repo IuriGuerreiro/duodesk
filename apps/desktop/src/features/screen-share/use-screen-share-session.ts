@@ -17,6 +17,7 @@ export function useScreenShareSession(): ScreenShareWorkspaceProps {
 
   const session = useStreamSession({
     direction: "desktop-to-phone",
+    onReady: () => void share(),
     onSignal: (signal) => peer.current?.receive(signal),
     onStarted: (invitation, next) => {
       control.current = next;
@@ -53,7 +54,7 @@ export function useScreenShareSession(): ScreenShareWorkspaceProps {
     return () => clearInterval(timer);
   }, []);
 
-  /** Runs from the Start sharing click, which is the user gesture capture needs. */
+  /** Pairing starts capture automatically; the button retries a failed capture. */
   async function share() {
     const active = peer.current;
     if (!active || sharing) return;
@@ -66,7 +67,7 @@ export function useScreenShareSession(): ScreenShareWorkspaceProps {
       if (RETRYABLE.includes(name)) {
         setSharing(false);
         session.setError(
-          "Screen capture was not allowed. Choose Start sharing to try again.",
+          `Screen capture failed (${name}): ${cause instanceof Error ? cause.message : "Unknown error"}. Choose Retry sharing to try again.`,
         );
       } else
         control.current?.fail(
