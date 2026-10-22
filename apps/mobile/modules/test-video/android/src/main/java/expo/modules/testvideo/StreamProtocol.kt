@@ -22,7 +22,7 @@ internal enum class Role { Desktop, Phone }
 internal object SignalRoutes {
   private val table: Map<Direction, Map<Role, Set<String>>> = mapOf(
     Direction.PhoneToDesktop to mapOf(
-      Role.Phone to setOf("offer", "candidate", "stop"),
+      Role.Phone to setOf("offer", "candidate", "stop", "pause"),
       Role.Desktop to setOf("answer", "candidate", "stop"),
     ),
     Direction.DesktopToPhone to mapOf(

@@ -3,6 +3,7 @@ import type { ViewProps } from "react-native";
 import type { SenderStatus, ViewerStatus } from "./types";
 
 export type {
+  AudioState,
   SenderStatus,
   SenderStats,
   StreamMode,
@@ -14,6 +15,7 @@ export const available = false;
 export const supportsScreenSharing = false;
 export const supportsViewing = false;
 export const StreamViewerView: ComponentType<ViewProps> = () => null;
+export const supportsPlaybackAudio = false;
 
 const unsupported = async (): Promise<void> => {
   throw new Error(
@@ -23,8 +25,11 @@ const unsupported = async (): Promise<void> => {
 
 export const connect = (_invitation: string): Promise<void> => unsupported();
 export const start = (_bitrateMbps: number): Promise<void> => unsupported();
-export const startScreen = (_bitrateMbps: number): Promise<void> =>
-  unsupported();
+export const startScreen = (
+  _bitrateMbps: number,
+  _shareAudio: boolean,
+): Promise<void> => unsupported();
+export const pause = async (): Promise<void> => {};
 export const stop = async (): Promise<void> => {};
 export const background = async (): Promise<void> => {};
 export const getStatus = async (): Promise<SenderStatus> => ({

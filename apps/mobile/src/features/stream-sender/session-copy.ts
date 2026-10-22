@@ -50,10 +50,15 @@ export const sessionCopy = {
   },
 } satisfies Record<SenderStatus["state"], SessionCopy>;
 
-export const screenStreamingCopy: SessionCopy = {
-  label: "Screen is live",
-  title: "Your screen.\nLive on your PC.",
-  detail:
-    "Your display is mirrored to your PC. Audio is not shared. You can stop from the DuoDesk notification or here.",
-  tone: "green",
-};
+export function screenStreamingCopy(audio: SenderStatus["audio"]): SessionCopy {
+  const sound =
+    audio === "active"
+      ? "Sound from other apps is sent too. Apps that block capture stay silent."
+      : "Sound is not shared.";
+  return {
+    label: "Screen is live",
+    title: "Your screen.\nLive on your PC.",
+    detail: `Your display is mirrored to your PC. ${sound} You can stop from the DuoDesk notification or here.`,
+    tone: "green",
+  };
+}

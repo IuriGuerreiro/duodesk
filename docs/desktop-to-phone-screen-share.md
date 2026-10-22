@@ -11,7 +11,7 @@ Background and measurements are in the [capture spike](linux-to-mobile-spike.md)
 
   | Direction          | Desktop sends                 | Phone sends                   |
   | ------------------ | ----------------------------- | ----------------------------- |
-  | `phone-to-desktop` | `answer`, `candidate`, `stop` | `offer`, `candidate`, `stop`  |
+  | `phone-to-desktop` | `answer`, `candidate`, `stop` | `offer`, `candidate`, `stop`, `pause` |
   | `desktop-to-phone` | `offer`, `candidate`, `stop`  | `answer`, `candidate`, `stop` |
 
   `pair` and `paired` are direction-independent handshake messages and are not in the table. A repeat of either after pairing is rejected.
@@ -21,7 +21,7 @@ Background and measurements are in the [capture spike](linux-to-mobile-spike.md)
 - Capture starts automatically when the phone pairs with a desktop-to-phone session. Nothing is captured while waiting for the phone. A failed capture shows **Retry sharing**.
 - The desktop offers H.264 first and VP8 second. The Android phone answers with what its decoders support. A phone without a hardware H.264 decoder should land on VP8.
 - Electron keeps every permission denied except one narrow grant. While a `desktop-to-phone` session is open, our own window may capture video only (no audio, no camera, no microphone). The rules are in `apps/desktop/electron/capture.mjs`.
-- On Android, `StreamViewer` answers the offer and renders into `StreamViewerView` (a `SurfaceViewRenderer`) in the existing native module. The viewer and the sender share `PinnedSignaling` and one `PeerConnectionFactory`. Frames never go through JavaScript.
+- On Android, `StreamViewer` answers the offer and renders into `StreamViewerView` (a `SurfaceViewRenderer`) in the existing native module. The viewer and sender share `PinnedSignaling`, process initialization, and an EGL context. The sender uses a separate `PeerConnectionFactory` for its playback-audio device module. Frames never go through JavaScript.
 - Scanning a pairing QR on the phone's home screen routes by the invitation's direction: sender for `phone-to-desktop`, the viewer at `/watch` for `desktop-to-phone`.
 
 ## What was verified
@@ -48,7 +48,7 @@ You need a development build of the mobile app and the Linux desktop on the same
 1. Build and install the app. From `apps/mobile`: `npx expo run:android --device`, with the phone on USB debugging. This includes the new native viewer. Start Metro if the build asks for it: `pnpm dev:mobile`.
 2. On the desktop run `pnpm dev:desktop`. Use an X11 session.
 3. Choose **Share this screen**. Pick the Wi-Fi or Ethernet address on your phone's network, not a Tailscale or Docker one. Choose **Create connection**.
-4. On the phone open DuoDesk, tap **Scan QR code**, and scan the QR in the desktop dialog. Or enter the address and six-digit code. Allow local network access if asked.
+4. On the phone open DuoDesk, tap **Scan QR code**, and scan the QR on the desktop pairing screen. Or enter the address and six-digit code. Allow local network access if asked.
 5. The phone should open a screen titled "Connected." The desktop should start sharing automatically.
 6. The phone should show the desktop screen, with codec, size and fps beneath it. The desktop toolbar shows the same from the sender side.
 7. Stop from either side. The other side should end within a few seconds.

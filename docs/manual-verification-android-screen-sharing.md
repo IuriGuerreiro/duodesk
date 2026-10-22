@@ -18,16 +18,20 @@ This guide provides procedures to verify Android live screen sharing against a l
 ## Step 1: Build and start the desktop receiver
 
 1. Build the desktop signaling host and receiver application.
+
    ```sh
    pnpm --filter @duodesk/desktop build
    ```
 
 2. Start the desktop receiver.
    On Linux or macOS with Electron:
+
    ```sh
    pnpm --filter @duodesk/desktop dev
    ```
+
    On Windows with Tauri:
+
    ```sh
    pnpm dev:desktop:tauri
    ```
@@ -39,15 +43,19 @@ This guide provides procedures to verify Android live screen sharing against a l
 ## Step 2: Install and launch the mobile application
 
 1. Build and install the Android debug development build.
+
    ```sh
    ./scripts/verify-android-screen-sharing.sh
    ```
+
    Alternatively, install the APK manually:
+
    ```sh
    adb install -r apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
    ```
 
 2. Start the Metro bundler if you are running in development mode.
+
    ```sh
    pnpm --filter @duodesk/mobile start
    ```
@@ -137,7 +145,20 @@ adb logcat -v time -s DuoDesk ScreenCaptureService ScreenSource WebRTC:D Android
 ```
 
 Look for these key milestones in the log:
+
 - `ScreenCaptureService` onCreate and startForeground with type `mediaProjection`.
 - `ScreenSource` computeCaptureDimensions and initialize.
 - `changeCaptureFormat` on display rotation.
 - Clean shutdown on `ACTION_STOP` or session close.
+
+## Audio
+
+Needs Android 10+ and an app that allows capture (YouTube and Spotify do; phone calls do not). Details: [android-playback-audio.md](android-playback-audio.md).
+
+1. Connect and keep **Share phone audio** on. Tap **Share screen**. Allow the microphone prompt (Android requires it for playback capture), then the screen-capture prompt.
+2. Confirm the badge reads `VIDEO + AUDIO` and stats show `Audio … kbps`. Confirm the microphone indicator is not shown for DuoDesk's own audio use.
+3. Play a video or music in another app, with DuoDesk in the background. On the desktop, confirm sound plays, the mute button and volume slider work, and mouth movement matches speech.
+4. Play a clip with a left-only tone and confirm it only plays on the left (stereo).
+5. Deny the microphone prompt, or turn the switch off. Confirm video still streams, the badge reads `NO AUDIO`, and the phone explains why. Microphone audio is never used instead.
+6. Stop from the notification, the app and the desktop. After each, confirm no capture indicator remains and `adb shell dumpsys media.audio_flinger | grep -i record` shows no DuoDesk record.
+7. Reconnect with a new pairing code and repeat step 3. Revoke the projection from the status bar chip or quick settings mid-stream and confirm everything stops.

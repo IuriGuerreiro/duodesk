@@ -2,7 +2,7 @@ export const DIRECTIONS = ["phone-to-desktop", "desktop-to-phone"] as const;
 export type Direction = (typeof DIRECTIONS)[number];
 export type Role = "desktop" | "phone";
 export type SignalType =
-  "pair" | "paired" | "offer" | "answer" | "candidate" | "stop";
+  "pair" | "paired" | "offer" | "answer" | "candidate" | "stop" | "pause";
 
 /**
  * Who may send which message once paired. The offerer is the device that shares
@@ -14,7 +14,7 @@ export const SIGNAL_ROUTES: Record<
   Record<Role, readonly SignalType[]>
 > = {
   "phone-to-desktop": {
-    phone: ["offer", "candidate", "stop"],
+    phone: ["offer", "candidate", "stop", "pause"],
     desktop: ["answer", "candidate", "stop"],
   },
   "desktop-to-phone": {

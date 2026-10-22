@@ -1,24 +1,18 @@
-import { useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import {
-  ArrowUpRight,
   CircleHelp,
   LoaderCircle,
-  Monitor,
-  QrCode,
-  Radio,
+  RefreshCw,
   ShieldCheck,
-  Smartphone,
   Square,
   Wifi,
 } from "lucide-react";
 import type { Invitation, StreamState } from "@duodesk/protocol";
+import { createPairingQrPayload } from "@duodesk/protocol/pairing";
 import type { ScreenStats } from "./screen-sender";
 import type { NetworkAddress } from "@/shared/host";
-import { NetworkPicker } from "@/shared/pairing/network-picker";
-import { PairingDialog } from "@/shared/pairing/pairing-dialog";
 import { Button } from "@/shared/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
-import { Separator } from "@/shared/ui/separator";
 
 export interface ScreenShareWorkspaceProps {
   desktopAvailable: boolean;
@@ -58,208 +52,217 @@ export function ScreenShareWorkspace({
   state,
   stats,
 }: ScreenShareWorkspaceProps) {
-  const [dismissedSessionId, setDismissedSessionId] = useState<string>();
   const live = state === "streaming";
-  const connected = state === "ready" || live;
-  const waiting = !!invitation && state === "connecting";
-  const modalOpen = Boolean(
-    pairing &&
-    !connected &&
-    invitation &&
-    dismissedSessionId !== invitation.sessionId,
-  );
-
-  const label = busy
-    ? "Preparing connection"
-    : live
-      ? "Sharing your screen"
-      : state === "ready"
-        ? "Phone connected"
-        : waiting
-          ? "Waiting for phone"
-          : state === "failed"
-            ? "Connection failed"
-            : state === "stopped"
-              ? "Session ended"
-              : "Ready to connect";
-
+  const phase = live
+    ? "live"
+    : state === "ready"
+      ? "connecting"
+      : invitation
+        ? "pair"
+        : "setup";
+  const label = live
+    ? "Sharing your screen"
+    : sharing
+      ? "Starting screen sharing"
+      : invitation
+        ? "Waiting for phone"
+        : state === "stopped"
+          ? "Session ended"
+          : "Ready to share";
+  const tone = live
+    ? "live"
+    : state === "failed"
+      ? "danger"
+      : invitation
+        ? "busy"
+        : "idle";
+  const expiry = `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}`;
   return (
-    <div className="workspace">
-      <main id="screen-share">
+    <main id="screen-share" className={`receiver-panel phase-${phase}`}>
+      <header className="topbar">
+        <div className="brand">
+          <span className="brand-mark" aria-hidden />
+          DuoDesk
+        </div>
+        <span className={`status-pill tone-${tone}`} role="status">
+          <span className="dot" />
+          {label}
+        </span>
+        <div className="topbar-actions">
+          <label className="network-select">
+            <Wifi size={14} />
+            <span className="sr-only">Desktop address</span>
+            <select
+              id="desktop-address"
+              value={ip}
+              onChange={(e) => onIpChange(e.target.value)}
+              disabled={busy || !!invitation || !interfaces.length}
+            >
+              {!ip && (
+                <option value="" disabled>
+                  {!desktopAvailable
+                    ? "Available in desktop app"
+                    : interfaces.length
+                      ? "Choose network"
+                      : "No network found"}
+                </option>
+              )}
+              {interfaces.map((address) => (
+                <option
+                  key={address.address}
+                  value={address.address}
+                  disabled={!address.selectable}
+                >
+                  {address.name} · {address.address}
+                  {address.kind === "lan" ? "" : ` (${address.kind})`}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onRefresh}
+            disabled={!desktopAvailable || busy || !!invitation}
+            aria-label="Refresh addresses"
+            title="Refresh addresses"
+          >
+            <RefreshCw />
+          </Button>
+        </div>
+      </header>
+
+      <div className="video-stage">
         {error && (
           <Alert variant="destructive" className="error-notice">
             <CircleHelp />
-            <AlertTitle>Unable to continue the session</AlertTitle>
+            <AlertTitle>Screen sharing could not start</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
-        <div className="receiver-layout">
-          <section className="receiver-panel" aria-labelledby="share-title">
-            <div className="panel-heading">
-              <h2 id="share-title">
-                <Radio size={16} /> Screen share
-              </h2>
-              <span role="status">{label}</span>
-            </div>
-            <div className="video-stage" aria-busy={busy}>
-              <div className="stage-empty">
-                <div className="device-illustration">
-                  <Monitor size={56} strokeWidth={1} />
-                  <Smartphone size={29} strokeWidth={1.4} />
-                </div>
-                <h3>
-                  {live
-                    ? "Your phone is showing this screen"
-                    : state === "ready"
-                      ? "Your phone is connected"
-                      : waiting
-                        ? "Ready when your phone is"
-                        : state === "failed"
-                          ? "Let's reconnect"
-                          : "Show this screen on your phone"}
-                </h3>
-                <p>
-                  {live
-                    ? "Everything on this display, including this window, is visible on the phone."
-                    : state === "ready"
-                      ? "Starting screen sharing automatically…"
-                      : waiting
-                        ? "Scan the QR code or enter the address and code on your phone."
-                        : "Create a connection, then open DuoDesk on your phone and choose to watch this screen."}
-                </p>
-                <span className="stage-hint">
-                  <ShieldCheck size={13} /> Direct device-to-device video
-                </span>
-              </div>
-            </div>
-            <div className="video-toolbar">
-              <span>
-                <span className={`status-dot ${live ? "live-dot" : ""}`} />
-                {live && stats
-                  ? `${stats.width} × ${stats.height} · ${stats.fps.toFixed(0)} fps · ${stats.codec.replace("video/", "")} · ${stats.mbps.toFixed(1)} Mbps`
-                  : "Not sharing"}
-              </span>
-            </div>
+        {phase === "setup" && (
+          <section className="stage-card" aria-labelledby="share-title">
+            <p className="eyebrow">Step 1 of 2</p>
+            <h1 id="share-title">Show this screen on your phone</h1>
+            <p className="lead">
+              Create a connection and scan its code with DuoDesk on your phone.
+              Sharing starts automatically when it connects.
+            </p>
+            <Button
+              size="lg"
+              className="primary-action"
+              onClick={onStart}
+              disabled={!desktopAvailable || !ip || busy}
+            >
+              {busy ? <LoaderCircle className="spin" /> : <Wifi />}
+              {busy ? "Creating connection…" : "Create connection"}
+            </Button>
           </section>
-          <aside
-            className="connection-panel"
-            aria-labelledby="connection-title"
+        )}
+        {phase === "pair" && pairing && (
+          <section
+            className="stage-card pair-card"
+            aria-labelledby="pair-title"
           >
-            <div className="connection-heading">
-              <span className="connection-icon">
-                <Wifi size={20} />
-              </span>
-              <div>
-                <h2 id="connection-title">Connect a phone</h2>
-                <p>Use the same Wi-Fi or local network.</p>
-              </div>
-            </div>
-            {!invitation ? (
-              <>
-                <NetworkPicker
-                  desktopAvailable={desktopAvailable}
-                  busy={busy}
-                  interfaces={interfaces}
-                  ip={ip}
-                  onIpChange={onIpChange}
-                  onRefresh={onRefresh}
+            <p className="eyebrow">Step 2 of 2</p>
+            <h1 id="pair-title">Scan with your phone</h1>
+            <p className="lead">
+              Open DuoDesk on your phone and scan this code to watch your PC
+              screen.
+            </p>
+            {pairing.code && remaining > 0 && (
+              <div className="qr-frame">
+                <QRCodeSVG
+                  value={createPairingQrPayload(pairing.address, pairing.code)}
+                  size={196}
+                  level="M"
+                  bgColor="#ffffff"
+                  fgColor="#0a0a0b"
+                  title="DuoDesk address and six-digit pairing code"
                 />
-                <Button
-                  className="start-button"
-                  onClick={() => {
-                    setDismissedSessionId(undefined);
-                    onStart();
-                  }}
-                  disabled={!desktopAvailable || !ip || busy}
-                >
-                  {busy ? <LoaderCircle className="spin" /> : <Wifi />}
-                  {busy ? "Creating connection…" : "Create connection"}
-                  {!busy && <ArrowUpRight />}
-                </Button>
-              </>
-            ) : (
-              <div className="active-session-controls">
-                <div className="session-network-badge">
-                  <span>Network</span>
-                  <code>{pairing?.address ?? ip}</code>
-                </div>
-                {state === "ready" && !!error && (
-                  <Button
-                    className="start-button"
-                    onClick={onShare}
-                    disabled={busy || sharing}
-                  >
-                    {sharing ? <LoaderCircle className="spin" /> : <Monitor />}
-                    {sharing ? "Starting…" : "Retry sharing"}
-                  </Button>
-                )}
-                {pairing && !connected && (
-                  <Button
-                    className="start-button"
-                    onClick={() => setDismissedSessionId(undefined)}
-                    disabled={busy}
-                  >
-                    <QrCode /> Show pairing QR & code
-                  </Button>
-                )}
-                <Button
-                  variant="outline"
-                  className="stop-button"
-                  onClick={() => {
-                    setDismissedSessionId(undefined);
-                    onStop();
-                  }}
-                  disabled={busy}
-                >
-                  <Square /> Stop session
-                </Button>
               </div>
             )}
-            <Separator className="connection-separator" />
-            <div className="setup-guide">
-              <p className="eyebrow">{live ? "SHARING" : "GET STARTED"}</p>
-              {live ? (
-                <p>
-                  Your phone is showing this screen. Choose Stop session to end
-                  it.
-                </p>
-              ) : (
-                <ol>
-                  <li>
-                    <span>1</span>Choose your network address and create a
-                    connection.
-                  </li>
-                  <li>
-                    <span>2</span>On your phone, open DuoDesk and choose to
-                    watch this screen.
-                  </li>
-                  <li>
-                    <span>3</span>Scan the QR code, then choose Start sharing
-                    here.
-                  </li>
-                </ol>
+            <div className="code-pairing">
+              <code aria-label="Desktop address and port">
+                {pairing.address}
+              </code>
+              {pairing.code && remaining > 0 && (
+                <strong aria-label="Six-digit verification code">
+                  {pairing.code}
+                </strong>
               )}
+              {pairing.status && <p role="status">{pairing.status}</p>}
             </div>
-          </aside>
-        </div>
-        {modalOpen && pairing && invitation && (
-          <PairingDialog
-            pairing={pairing}
-            waiting={waiting}
-            remaining={remaining}
-            busy={busy}
-            onClose={() => setDismissedSessionId(invitation.sessionId)}
-            onNewCode={() => {
-              setDismissedSessionId(undefined);
-              onStart();
-            }}
-            onStop={() => {
-              setDismissedSessionId(undefined);
-              onStop();
-            }}
-          />
+            <p className="expiry">
+              {remaining > 0
+                ? `Code expires in ${expiry}`
+                : "Code expired. Stop and create a new connection."}
+            </p>
+            <Button
+              variant="ghost"
+              className="secondary-action"
+              onClick={onStop}
+              disabled={busy}
+            >
+              <Square /> Stop session
+            </Button>
+          </section>
         )}
-      </main>
-    </div>
+        {phase === "connecting" && (
+          <section className="stage-card" aria-labelledby="starting-title">
+            <h1 id="starting-title">
+              {error ? "Try sharing again" : "Starting screen sharing"}
+            </h1>
+            <p className="lead">
+              {error
+                ? "Your phone is still connected."
+                : "Your phone is connected. Its picture will appear automatically."}
+            </p>
+            {error && (
+              <Button
+                className="primary-action"
+                onClick={onShare}
+                disabled={sharing || busy}
+              >
+                {sharing ? "Starting…" : "Retry sharing"}
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              className="secondary-action"
+              onClick={onStop}
+            >
+              <Square /> Stop session
+            </Button>
+          </section>
+        )}
+        {live && (
+          <>
+            <section className="stage-card" aria-labelledby="sharing-title">
+              <ShieldCheck size={32} />
+              <h1 id="sharing-title">Your phone is showing this screen</h1>
+              <p className="lead">
+                Everything on this display is visible on your phone. Audio is
+                not shared.
+              </p>
+              <Button
+                variant="destructive"
+                className="primary-action"
+                onClick={onStop}
+              >
+                <Square /> Stop session
+              </Button>
+            </section>
+            <div className="live-bar">
+              <span className="live-stats">
+                {stats
+                  ? `${stats.width} × ${stats.height} · ${stats.fps.toFixed(0)} fps · ${stats.codec.replace("video/", "")} · ${stats.mbps.toFixed(1)} Mbps`
+                  : "Sharing your screen"}
+              </span>
+            </div>
+          </>
+        )}
+      </div>
+    </main>
   );
 }

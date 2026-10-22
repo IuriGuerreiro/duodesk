@@ -5,23 +5,46 @@ import { parseInvitation } from "@duodesk/protocol";
 import { parsePairingQrPayload } from "@duodesk/protocol/pairing";
 import {
   holdInvitation,
+  connectToDesktop,
+  createScanGate,
   pairWithCode,
   type PairingMode,
 } from "@/features/pairing";
 import * as sender from "../../../modules/test-video";
 import type { SenderStatus } from "../../../modules/test-video";
 
-type Operation = "connect" | "start" | "screen" | "stop" | null;
+type Operation = "connect" | "start" | "screen" | "pause" | "stop" | null;
 
 async function localNetworkPermission() {
   if (Platform.OS === "android" && Number(Platform.Version) >= 37) {
     const result = await PermissionsAndroid.request(
       PermissionsAndroid.PERMISSIONS.ACCESS_LOCAL_NETWORK,
     );
+    if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
+      throw new Error(
+        "Local network access is blocked. Allow it for DuoDesk in your phone’s app settings, then connect again.",
+      );
+    }
     if (result !== PermissionsAndroid.RESULTS.GRANTED) {
       throw new Error("Allow local network access to connect to your PC.");
     }
   }
+}
+
+/** Android requires RECORD_AUDIO for any audio capture, including other apps' playback. Denial means video only. */
+async function playbackAudioPermission(): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  const result = await PermissionsAndroid.request(
+    PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+    {
+      title: "Share phone audio",
+      message:
+        "Android needs this permission to capture sound from other apps. DuoDesk does not record your microphone.",
+      buttonPositive: "Continue",
+      buttonNegative: "Not now",
+    },
+  );
+  return result === PermissionsAndroid.RESULTS.GRANTED;
 }
 
 function parseBitrate(raw: string): number {
@@ -42,6 +65,8 @@ export function useSenderSession() {
   const [notice, setNotice] = useState("");
   const [receiver, setReceiver] = useState<string | null>(null);
   const [bitrate, setBitrate] = useState("12");
+  const [shareAudio, setShareAudio] = useState(true);
+  const [audioNotice, setAudioNotice] = useState("");
   const [error, setError] = useState("");
   const [intent, setIntent] = useState<"connect" | "start" | "screen">(
     "connect",
@@ -50,7 +75,10 @@ export function useSenderSession() {
   const requestId = useRef(0);
   const active = useRef(true);
   const generation = useRef(0);
-  const scanning = useRef(false);
+  const [gate] = useState(() => createScanGate(parsePairingQrPayload));
+  // Android can report a system permission dialog as the app going to the
+  // background; that must not cancel the attempt waiting on the answer.
+  const prompts = useRef(0);
   const statusRef = useRef<SenderStatus>(status);
   const eventSeq = useRef(0);
 
@@ -59,8 +87,17 @@ export function useSenderSession() {
   }, [status]);
 
   const closeScanner = useCallback(() => {
-    scanning.current = false;
+    gate.close();
     setMode("closed");
+  }, [gate]);
+
+  const guardPrompt = useCallback(async <T>(request: () => Promise<T>) => {
+    prompts.current += 1;
+    try {
+      return await request();
+    } finally {
+      prompts.current -= 1;
+    }
   }, []);
 
   const syncStatus = useCallback(async () => {
@@ -102,7 +139,7 @@ export function useSenderSession() {
     const appState = AppState.addEventListener("change", (next) => {
       if (next === "active") {
         void syncStatus();
-      } else if (next === "background") {
+      } else if (next === "background" && prompts.current === 0) {
         generation.current += 1;
         closeScanner();
         void sender.pairClose();
@@ -170,53 +207,62 @@ export function useSenderSession() {
     setNotice("");
   }
 
-  function connect() {
-    if (!canPair || !sender.available || !canSubmit) return;
+  function pair(target: string, pairingCode: string) {
     Keyboard.dismiss();
     void run("connect", async (epoch) => {
-      const target = address.trim();
-      const cancelled = () => !active.current || generation.current !== epoch;
-      await localNetworkPermission();
-      if (cancelled()) return;
-      closeScanner();
-      const invitation = await pairWithCode(target, code, cancelled);
-      if (cancelled()) return;
-      setCodeValue("");
-      // The desktop chose the direction when it made the code, so route by it.
-      if (parseInvitation(invitation).direction === "desktop-to-phone") {
-        if (!sender.supportsViewing)
-          throw new Error(
-            "Watching your PC screen needs the Android app with the latest build.",
-          );
-        holdInvitation(invitation);
-        router.push("/watch");
-        return;
-      }
-      setIntent("connect");
-      setReceiver(target);
-      await sender.connect(invitation);
+      await connectToDesktop(
+        {
+          requestLocalNetwork: () => guardPrompt(localNetworkPermission),
+          pair: pairWithCode,
+          connect: async (invitation) => {
+            if (parseInvitation(invitation).direction === "desktop-to-phone") {
+              if (!sender.supportsViewing)
+                throw new Error(
+                  "Watching your PC screen needs the Android app with the latest build.",
+                );
+              holdInvitation(invitation);
+              router.push("/watch");
+            } else await sender.connect(invitation);
+          },
+        },
+        {
+          address: target,
+          code: pairingCode,
+          cancelled: () => !active.current || generation.current !== epoch,
+          onPaired: () => {
+            closeScanner();
+            setIntent("connect");
+            setReceiver(target);
+            setCodeValue("");
+          },
+        },
+      );
     });
   }
 
+  function connect() {
+    if (!canPair || !sender.available || !canSubmit) return;
+    pair(address.trim(), code);
+  }
+
+  // A valid QR is a complete request: connect without a second tap. Fields stay
+  // filled and visible so a failed attempt can be retried or corrected.
   function acceptScan(text: string) {
-    if (!scanning.current) return;
-    try {
-      const pairing = parsePairingQrPayload(text);
-      scanning.current = false;
-      setAddressValue(pairing.address);
-      setCodeValue(pairing.code);
-      setError("");
-      setNotice("Address and code filled in. Tap Connect to continue.");
+    if (locked.current || !canPair || !sender.available) return;
+    const scan = gate.accept(text);
+    if (scan.kind === "invalid") {
+      setError(scan.message);
+    } else if (scan.kind === "pairing") {
+      setAddressValue(scan.address);
+      setCodeValue(scan.code);
+      setNotice("");
       setMode("manual");
-    } catch {
-      setError(
-        "That QR code is not a current DuoDesk code. Scan a new one from your PC.",
-      );
+      pair(scan.address, scan.code);
     }
   }
 
   function openScanner() {
-    scanning.current = true;
+    gate.open();
     setError("");
     setNotice("");
     setMode("scan");
@@ -242,9 +288,22 @@ export function useSenderSession() {
           PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
         );
       }
+      let audio = shareAudio && sender.supportsPlaybackAudio;
+      setAudioNotice("");
+      if (audio && !(await playbackAudioPermission())) {
+        audio = false;
+        setAudioNotice(
+          "Audio permission was denied, so only video is shared. You can allow it in Android settings.",
+        );
+      }
       setIntent("screen");
-      await sender.startScreen(value);
+      await sender.startScreen(value, audio);
     });
+  }
+
+  /** Ends the video only; the phone stays paired so the next share needs no new code. */
+  function pause() {
+    void run("pause", () => sender.pause());
   }
 
   function stop() {
@@ -271,6 +330,10 @@ export function useSenderSession() {
     receiver,
     bitrate,
     setBitrate,
+    shareAudio,
+    setShareAudio,
+    audioNotice,
+    supportsPlaybackAudio: sender.supportsPlaybackAudio,
     error,
     setError,
     canPair,
@@ -282,8 +345,10 @@ export function useSenderSession() {
     connect,
     start,
     startScreen,
+    pause,
     stop,
     acceptScan,
+    guardPrompt,
     openScanner,
     closeScanner,
   };

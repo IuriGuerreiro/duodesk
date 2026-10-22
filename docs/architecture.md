@@ -78,13 +78,13 @@ apps/mobile/src/
   features/
     stream-sender/           # screen, use-sender-session, session copy
     stream-viewer/           # watch the desktop screen (/watch), native view
-    pairing/                 # QR scanner, manual invitation entry, pairing client, invitation handoff
+    pairing/                 # QR scanner and scan gate, manual entry, connect flow, invitation handoff
   shared/                    # NativeWind tokens, UI primitives, utilities, shared types
   (native module: apps/mobile/modules/test-video, outside src)
 apps/desktop/src/
   features/receiver/         # workspace UI, use-receiver-session, video-receiver (WebRTC)
   features/screen-share/     # Share this screen: workspace UI, session hook, screen-sender (WebRTC)
-  shared/                    # host adapter (Electron/Tauri), session/ (pairing + host events), pairing/ (dialog, address picker), shadcn ui/, lib/
+  shared/                    # host adapter (Electron/Tauri), session/ (pairing + host events), shadcn ui/, lib/
 packages/protocol/src/
   stream/                    # invitation.ts, signal.ts, direction.ts (route table), state.ts, internal guards.ts
 ```
@@ -118,6 +118,7 @@ First release acceptance: works without internet on a normal non-isolated LAN; u
 - [Tauri frontend configuration](https://v2.tauri.app/start/frontend/) recommends Vite for SPA frontends.
 - [Apple ReplayKit security](https://support.apple.com/en-gb/guide/security/seca5fc039dd/web) describes broadcast capture and upload extensions. Recheck current capture APIs and deployment availability against the selected minimum iOS version before implementation; newer ScreenCaptureKit documentation also needs evaluation.
 - [Android MediaProjection](https://developer.android.com/media/grow/media-projection) documents capture consent and foreground execution requirements.
+- [Android audio playback capture](https://developer.android.com/media/platform/av-capture) documents capturing other apps' audio; see [android-playback-audio.md](android-playback-audio.md) for the DuoDesk design.
 - [Android AccessibilityService](https://developer.android.com/reference/android/accessibilityservice/AccessibilityService) documents gesture dispatch capabilities. This does not establish app-store eligibility or universal device support.
 - [Windows capture](https://learn.microsoft.com/en-us/windows/uwp/audio-video-camera/screen-capture) provides native frame capture.
 - [Windows SendInput](https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-sendinput) documents input injection and UIPI restrictions.

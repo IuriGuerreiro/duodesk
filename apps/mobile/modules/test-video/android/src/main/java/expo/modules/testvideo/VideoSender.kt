@@ -2,9 +2,18 @@ package expo.modules.testvideo
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
+import android.Manifest
+import android.media.AudioFormat
+import android.os.Build
+import android.util.Log
+import androidx.core.content.ContextCompat
 import expo.modules.kotlin.Promise
 import org.json.JSONObject
 import org.webrtc.*
+import org.webrtc.audio.JavaAudioDeviceModule
+import java.nio.ByteBuffer
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.ThreadFactory
@@ -19,11 +28,18 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
 
   @Volatile
   private var generation = 0L
+  /** Bumped only when the desktop link closes, so pausing video keeps the socket's callbacks alive. */
+  @Volatile
+  private var link = 0L
   private var invitation: Invitation? = null
   private var signaling: PinnedSignaling? = null
   private var peer: PeerConnection? = null
   private var source: VideoSource? = null
   private var track: VideoTrack? = null
+  private var audioSource: AudioSource? = null
+  private var audioTrack: AudioTrack? = null
+  private var audioDevice: JavaAudioDeviceModule? = null
+  private var factory: PeerConnectionFactory? = null
   private var clip: ClipSource? = null
   private var screen: ScreenSource? = null
   private var timeout: ScheduledFuture<*>? = null
@@ -41,9 +57,19 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
   private var lastError: String? = null
   @Volatile
   private var serviceSessionId: Long = 0L
+  @Volatile
+  private var audioState = AudioStatus.OFF
+  @Volatile
+  private var audioMessage: String? = null
+  /** Read on the WebRTC audio thread, written on the sender queue. */
+  @Volatile
+  private var playbackAudio: PlaybackAudioCapture? = null
+  private val silence = SilencePacer()
 
   private var previousBytes = 0.0
   private var previousTime = 0.0
+  private var previousAudioBytes = 0.0
+  private var previousAudioTime = 0.0
 
   fun isReady(): Boolean = (state == "ready")
   fun currentGeneration(): Long = generation
@@ -54,7 +80,14 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     mode?.let { map["mode"] = it }
     lastStats?.let { map["stats"] = it }
     lastError?.let { map["message"] = it }
+    addAudio(map)
     return map
+  }
+
+  private fun addAudio(map: MutableMap<String, Any>) {
+    if (mode != "screen") return
+    map["audio"] = audioState
+    audioMessage?.let { map["audioMessage"] = it }
   }
 
   private fun dispatch(action: () -> Unit) {
@@ -78,13 +111,16 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
   }
 
   fun destroy() = dispatch {
-    close(); queue.shutdown()
+    close(); factory?.dispose(); factory = null
+    audioDevice?.release(); audioDevice = null
+    queue.shutdown()
   }
 
   private fun status(next: String) {
     state = next
     val map = mutableMapOf<String, Any>("state" to next)
     mode?.let { map["mode"] = it }
+    addAudio(map)
     emit(map)
   }
 
@@ -97,11 +133,27 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     emit(map)
   }
 
+  private fun setAudio(next: String, message: String? = null) {
+    audioState = next
+    audioMessage = message
+    val map = mutableMapOf<String, Any>("state" to state)
+    mode?.let { map["mode"] = it }
+    addAudio(map)
+    emit(map)
+  }
+
+  /** Playback capture broke after negotiation. The track stays in the SDP, so the PC hears silence; video continues. */
+  private fun audioFailed(message: String) {
+    playbackAudio?.stop(); playbackAudio = null
+    setAudio(AudioStatus.FAILED, message)
+  }
+
   fun onPermissionDenied(message: String) {
     dispatch {
       lastError = message
       val map = mutableMapOf<String, Any>("state" to state, "message" to message)
       mode?.let { map["mode"] = it }
+      addAudio(map)
       emit(map)
     }
   }
@@ -117,26 +169,75 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     val info = Invitation.parse(text)
     require(info.direction == Direction.PhoneToDesktop) { "This invitation is for viewing the desktop screen. Use the viewer instead." }
     invitation = info
-    val epoch = generation
+    val linkEpoch = link
     status("connecting")
     armTimeout("Connection timed out. Check Wi-Fi and the desktop firewall.")
     signaling = PinnedSignaling(info, object : PinnedSignaling.Listener {
       override fun onMessage(text: String) = dispatch {
-        if (generation == epoch) runCatching { receive(text) }.onFailure { fail(it.message ?: "Invalid signaling message") }
+        if (link == linkEpoch) runCatching { receive(text) }.onFailure { fail(it.message ?: "Invalid signaling message") }
       }
       override fun onFailure(message: String) = dispatch {
-        if (generation == epoch) fail(message)
+        if (link == linkEpoch) fail(message)
       }
       override fun onClosed() = dispatch {
-        if (generation == epoch) stop()
+        if (link == linkEpoch) stop()
       }
     }).also { it.open() }
   }
 
-  private fun initPeerConnection(bitrateMbps: Int): Pair<PeerConnection, Long> {
+  private fun nativeFactory(): PeerConnectionFactory {
+    factory?.let { return it }
+    val egl = WebRtcFactory.get(context).egl
+    // Recordingless mode: the module never creates a microphone AudioRecord. It asks onAudioBuffer for
+    // every 10 ms buffer, and that callback supplies captured playback audio or paced silence.
+    val adm = JavaAudioDeviceModule.builder(context)
+      .setInputSampleRate(PLAYBACK_SAMPLE_RATE)
+      .setUseStereoInput(true)
+      .setUseHardwareAcousticEchoCanceler(false)
+      .setUseHardwareNoiseSuppressor(false)
+      .setAudioBufferCallback { buffer, format, channels, rate, _, _ -> onAudioBuffer(buffer, format, channels, rate) }
+      .createAudioDeviceModule()
+    adm.setAudioRecordEnabled(false)
+    audioDevice = adm
+    return PeerConnectionFactory.builder()
+      .setAudioDeviceModule(adm)
+      .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl.eglBaseContext, true, true))
+      .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl.eglBaseContext)).createPeerConnectionFactory().also { factory = it }
+  }
+
+  private fun onAudioBuffer(buffer: ByteBuffer, format: Int, channels: Int, rate: Int): Long {
+    val capture = playbackAudio
+    if (capture != null && format == AudioFormat.ENCODING_PCM_16BIT && channels == PLAYBACK_CHANNELS && rate == PLAYBACK_SAMPLE_RATE) {
+      val capturedAt = capture.readInto(buffer, buffer.capacity())
+      if (capturedAt >= 0) { silence.reset(); return capturedAt }
+    }
+    return silence.fill(buffer, buffer.capacity(), rate, channels * 2)
+  }
+
+  /** Adds a send-only Opus track in the same stream as the video so the PC keeps them lip-synced. */
+  private fun addAudioTrack(factory: PeerConnectionFactory, pc: PeerConnection) {
+    // Captured app audio is already final: echo cancellation, noise suppression and gain control would damage it.
+    val constraints = MediaConstraints().apply {
+      listOf("googEchoCancellation", "googNoiseSuppression", "googAutoGainControl", "googHighpassFilter")
+        .forEach { mandatory.add(MediaConstraints.KeyValuePair(it, "false")) }
+    }
+    val source = factory.createAudioSource(constraints)
+    audioSource = source
+    val track = factory.createAudioTrack("duodesk-playback-audio", source)
+    audioTrack = track
+    val transceiver = checkNotNull(pc.addTransceiver(track, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_ONLY, listOf("duodesk"))))
+    val opus = factory.getRtpSenderCapabilities(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO).codecs.filter { it.name.equals("opus", true) }
+    check(opus.isNotEmpty()) { "This device's WebRTC build has no Opus encoder" }
+    transceiver.setCodecPreferences(opus).throwError()
+    val parameters = transceiver.sender.parameters
+    parameters.encodings.forEach { it.maxBitrateBps = 128_000 }
+    check(transceiver.sender.setParameters(parameters)) { "Could not configure audio bitrate" }
+  }
+
+  private fun initPeerConnection(bitrateMbps: Int, withAudio: Boolean = false): Pair<PeerConnection, Long> {
     check(state == "ready") { "Connect to the desktop before starting" }
     require(bitrateMbps in 2..30) { "Choose a bitrate between 2 and 30 Mbps" }
-    val factory = WebRtcFactory.get(context).factory
+    val factory = nativeFactory()
     val epoch = generation
     val config = PeerConnection.RTCConfiguration(emptyList()).apply {
       sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
@@ -151,14 +252,21 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     val transceiver = checkNotNull(pc.addTransceiver(track, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_ONLY, listOf("duodesk"))))
     val codecs = factory.getRtpSenderCapabilities(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO).codecs
     val h264 = codecs.filter { it.name.equals("H264", true) }
-    check(h264.isNotEmpty()) { "This Android device has no supported H.264 encoder" }
-    transceiver.setCodecPreferences(h264 + codecs.filter { it.name.equals("rtx", true) }).throwError()
+    // Emulators have no H.264 encoder; debug builds there fall back to software VP8 for UI testing.
+    val video = h264.ifEmpty { if (debugEmulator()) codecs.filter { it.name.equals("VP8", true) } else h264 }
+    check(video.isNotEmpty()) { "This Android device has no supported H.264 encoder" }
+    transceiver.setCodecPreferences(video + codecs.filter { it.name.equals("rtx", true) }).throwError()
     val parameters = transceiver.sender.parameters
     parameters.encodings.forEach { it.maxBitrateBps = bitrateMbps * 1_000_000; it.maxFramerate = 30 }
     parameters.degradationPreference = RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
     check(transceiver.sender.setParameters(parameters)) { "Could not configure video bitrate" }
+    if (withAudio) addAudioTrack(factory, pc)
     return Pair(pc, epoch)
   }
+
+  private fun debugEmulator(): Boolean =
+    (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 &&
+      (Build.HARDWARE in setOf("ranchu", "goldfish") || Build.FINGERPRINT.startsWith("generic"))
 
   private fun sendOffer(pc: PeerConnection, epoch: Long) {
     status("connecting")
@@ -188,6 +296,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
 
   fun submitScreen(
     bitrateMbps: Int,
+    shareAudio: Boolean,
     resultData: Intent,
     serviceSession: Long,
     onStarted: () -> Unit,
@@ -201,7 +310,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
           onError(IllegalStateException("Session changed before screen capture started"))
           return@dispatch
         }
-        startScreen(bitrateMbps, resultData, serviceSession)
+        startScreen(bitrateMbps, shareAudio, resultData, serviceSession)
         onStarted()
       } catch (error: Exception) {
         fail(error.message ?: "Streaming failed")
@@ -210,10 +319,18 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     }
   }
 
-  fun startScreen(bitrateMbps: Int, resultData: Intent, serviceSession: Long = 0L) {
+  fun startScreen(bitrateMbps: Int, shareAudio: Boolean, resultData: Intent, serviceSession: Long = 0L) {
     mode = "screen"
     this.serviceSessionId = serviceSession
-    val (pc, epoch) = initPeerConnection(bitrateMbps)
+    val permitted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+    val blocked = audioBlockedStatus(shareAudio, Build.VERSION.SDK_INT, permitted)
+    audioMessage = when (blocked) {
+      AudioStatus.DENIED -> "Audio permission is off, so only video is shared. Allow it in Android settings to share sound."
+      AudioStatus.UNSUPPORTED -> "Sharing sound needs Android 10 or newer. Only video is shared."
+      else -> null
+    }
+    audioState = blocked ?: AudioStatus.STARTING
+    val (pc, epoch) = initPeerConnection(bitrateMbps, withAudio = blocked == null)
     val src = checkNotNull(source)
     screen = ScreenSource(
       context = context,
@@ -237,6 +354,20 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       }
     )
     sendOffer(pc, epoch)
+  }
+
+  /** Called right after screen capture starts, because the audio capture reuses the screen projection. */
+  private fun startPlaybackAudio() {
+    if (audioTrack == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+    val epoch = generation
+    try {
+      val projection = checkNotNull(screen?.projection) { "Screen capture is not ready for audio" }
+      playbackAudio = PlaybackAudioCapture(projection) { message -> dispatch { if (generation == epoch) audioFailed(message) } }
+      setAudio(AudioStatus.ACTIVE)
+    } catch (error: Exception) {
+      Log.w("DuoDesk", "Playback audio capture unavailable", error)
+      audioFailed("Couldn't capture phone audio (${error.message ?: "unknown error"}). Video continues without sound.")
+    }
   }
 
   private fun receive(text: String) {
@@ -264,6 +395,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
             candidates.forEach { addCandidate(pc, it, epoch) }; candidates.clear()
             if (mode == "screen") {
               screen?.start()
+              startPlaybackAudio()
             } else {
               clip?.start()
             }
@@ -302,6 +434,14 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     stats = queue.scheduleAtFixedRate({
       if (peer === pc) pc.getStats { report -> dispatch {
         if (peer !== pc) return@dispatch
+        val audioEntry = report.statsMap.values.firstOrNull { it.type == "outbound-rtp" && it.members["kind"] == "audio" }
+        val audioKbps = audioEntry?.let { entry ->
+          val bytes = (entry.members["bytesSent"] as? Number)?.toDouble() ?: 0.0
+          val elapsed = report.timestampUs - previousAudioTime
+          val kbps = if (previousAudioTime > 0 && elapsed > 0) maxOf(0.0, (bytes - previousAudioBytes) * 8 * 1000 / elapsed) else 0.0
+          previousAudioBytes = bytes; previousAudioTime = report.timestampUs
+          kbps
+        }
         for (entry in report.statsMap.values.filter { it.type == "outbound-rtp" && it.members["kind"] == "video" }) {
           val values = entry.members
           val bytes = (values["bytesSent"] as? Number)?.toDouble() ?: 0.0
@@ -309,7 +449,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
           val mbps = if (previousTime > 0 && elapsed > 0) maxOf(0.0, (bytes - previousBytes) * 8 / elapsed) else 0.0
           previousBytes = bytes; previousTime = report.timestampUs
           val codec = report.statsMap[values["codecId"]]?.members?.get("mimeType") ?: "H264"
-          val currentStats = mapOf(
+          val currentStats = mutableMapOf<String, Any>(
             "codec" to codec,
             "mbps" to mbps,
             "fps" to (values["framesPerSecond"] ?: 0),
@@ -317,12 +457,14 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
             "height" to (values["frameHeight"] ?: 0),
             "qualityLimit" to (values["qualityLimitationReason"] ?: "unknown")
           )
+          audioKbps?.let { currentStats["audioKbps"] = it }
           lastStats = currentStats
           val map = mutableMapOf<String, Any>(
             "state" to state,
             "stats" to currentStats
           )
           mode?.let { map["mode"] = it }
+          addAudio(map)
           emit(map)
         }
       } }
@@ -352,10 +494,13 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     override fun onRenegotiationNeeded() {}
   }
 
-  private fun close() {
+  /** Tears down capture and the peer but keeps the desktop link open. */
+  private fun closeVideo() {
     generation++
     timeout?.cancel(false); timeout = null; stats?.cancel(false); stats = null
     clip?.stop(); clip = null
+    // Audio goes first: it borrows the screen projection, and the ADM thread may be blocked reading it.
+    playbackAudio?.stop(); playbackAudio = null
     val wasScreen = (mode == "screen" || screen != null)
     screen?.stop(); screen = null
     if (wasScreen) {
@@ -363,10 +508,28 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     }
     peer?.close(); peer?.dispose(); peer = null
     track?.dispose(); track = null; source?.dispose(); source = null
-    signaling?.close(); signaling = null
-    invitation = null; candidates.clear(); acceptingAnswer = false; previousBytes = 0.0; previousTime = 0.0
+    audioTrack?.dispose(); audioTrack = null; audioSource?.dispose(); audioSource = null
+    audioState = AudioStatus.OFF; audioMessage = null; silence.reset()
+    previousAudioBytes = 0.0; previousAudioTime = 0.0
+    candidates.clear(); acceptingAnswer = false; previousBytes = 0.0; previousTime = 0.0
     mode = null
+  }
+
+  private fun close() {
+    closeVideo()
+    link++
+    signaling?.close(); signaling = null
+    invitation = null
     state = "stopped"
+  }
+
+  /** Ends the video only; the desktop stays paired and a new start needs no new invitation. */
+  fun pause() {
+    if (peer == null) return
+    closeVideo()
+    runCatching { send(JSONObject().put("type", "pause")) }.onFailure { return fail("Desktop connection lost") }
+    lastStats = null
+    status("ready")
   }
 
   fun stop(promise: Promise? = null) {

@@ -8,6 +8,7 @@ import {
 import type { SenderStatus, ViewerStatus } from "./types";
 
 export type {
+  AudioState,
   SenderStatus,
   SenderStats,
   StreamMode,
@@ -23,6 +24,7 @@ type Events = {
 declare class TestVideoNative extends NativeModule<Events> {
   readonly supportsScreenSharing?: boolean;
   readonly supportsViewing?: boolean;
+  readonly supportsPlaybackAudio?: boolean;
   pairRequest(
     address: string,
     message: string,
@@ -31,7 +33,8 @@ declare class TestVideoNative extends NativeModule<Events> {
   pairClose(): Promise<void>;
   connect(invitation: string): Promise<void>;
   start(bitrateMbps: number): Promise<void>;
-  startScreen?(bitrateMbps: number): Promise<void>;
+  startScreen?(bitrateMbps: number, shareAudio: boolean): Promise<void>;
+  pause?(): Promise<void>;
   stop(): Promise<void>;
   background?(): Promise<void>;
   getStatus?(): Promise<SenderStatus>;
@@ -53,6 +56,10 @@ export const supportsViewing: boolean = Boolean(native?.supportsViewing);
 export const StreamViewerView: ComponentType<ViewProps> = supportsViewing
   ? requireNativeView<ViewProps>("DuoDeskTestVideo")
   : () => null;
+/** True on Android 10+ where the app can capture other apps' playback with the screen-share permission. */
+export const supportsPlaybackAudio: boolean = Boolean(
+  native?.supportsPlaybackAudio,
+);
 
 let cachedStatus: SenderStatus = { state: "idle" };
 
@@ -71,14 +78,22 @@ export const connect = (invitation: string): Promise<void> =>
 export const start = (bitrateMbps: number): Promise<void> =>
   module().start(bitrateMbps);
 
-export const startScreen = async (bitrateMbps: number): Promise<void> => {
+export const startScreen = async (
+  bitrateMbps: number,
+  shareAudio: boolean,
+): Promise<void> => {
   const mod = module();
   if (!supportsScreenSharing || typeof mod.startScreen !== "function") {
     throw new Error(
       "Screen sharing requires an updated Android development build. Rebuild and install the app.",
     );
   }
-  return mod.startScreen(bitrateMbps);
+  return mod.startScreen(bitrateMbps, shareAudio && supportsPlaybackAudio);
+};
+
+/** Ends the video but keeps the desktop paired. */
+export const pause = async (): Promise<void> => {
+  await native?.pause?.();
 };
 
 export const stop = async (): Promise<void> => {

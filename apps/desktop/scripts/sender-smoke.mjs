@@ -151,6 +151,7 @@ void (async () => {
       const button = text => [...document.querySelectorAll('button')].find(b => b.textContent.includes(text));`;
     const created = await ui(`${helpers}
       button('Share this screen').click();
+      await wait(() => document.querySelector('#screen-share'), 'Share workspace did not open');
       const select = await wait(() => [...(document.querySelector('select')?.options ?? [])].some(o => o.value && !o.disabled) && document.querySelector('select'), 'No LAN address');
       await wait(() => {
         select.value = [...select.options].find(o => o.value && !o.disabled).value;
@@ -158,8 +159,8 @@ void (async () => {
         return !button('Create connection').disabled;
       }, 'Address not accepted');
       button('Create connection').click();
-      const code = await wait(() => document.querySelector('.pairing-modal .code-pairing strong'), 'No pairing code');
-      const address = document.querySelector('.pairing-modal .pairing-field code').textContent;
+      const code = await wait(() => document.querySelector('.code-pairing strong'), 'No pairing code');
+      const address = document.querySelector('.code-pairing code').textContent;
       return { code: code.textContent, address };`);
     const invitation = await pair(created.address, created.code);
     if (invitation.direction !== "desktop-to-phone")
@@ -222,7 +223,7 @@ void (async () => {
       throw new Error("No decoded frames: " + JSON.stringify(last));
     const fps = ((last.frames - first.frames) / (Date.now() - first.at)) * 1000;
     const label = await ui(
-      `${helpers} await wait(() => document.querySelector('[role=status]')?.textContent === 'Sharing your screen', 'UI never showed sharing'); return document.querySelector('.video-toolbar').textContent;`,
+      `${helpers} await wait(() => document.querySelector('[role=status]')?.textContent === 'Sharing your screen', 'UI never showed sharing'); return document.querySelector('.live-stats').textContent;`,
     );
 
     await ui(

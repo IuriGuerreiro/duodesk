@@ -50,6 +50,7 @@ pub enum Payload {
         sdp_m_line_index: u16,
     },
     Stop,
+    Pause,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -70,6 +71,7 @@ enum Kind {
     Answer,
     Candidate,
     Stop,
+    Pause,
 }
 impl Payload {
     fn kind(&self) -> Kind {
@@ -80,6 +82,7 @@ impl Payload {
             Payload::Answer { .. } => Kind::Answer,
             Payload::Candidate { .. } => Kind::Candidate,
             Payload::Stop => Kind::Stop,
+            Payload::Pause => Kind::Pause,
         }
     }
 }
@@ -89,7 +92,8 @@ impl Payload {
 fn routes(direction: Direction, from: Role) -> &'static [Kind] {
     use {Direction::*, Kind::*, Role::*};
     match (direction, from) {
-        (PhoneToDesktop, Phone) | (DesktopToPhone, Desktop) => &[Offer, Candidate, Stop],
+        (PhoneToDesktop, Phone) => &[Offer, Candidate, Stop, Pause],
+        (DesktopToPhone, Desktop) => &[Offer, Candidate, Stop],
         (PhoneToDesktop, Desktop) | (DesktopToPhone, Phone) => &[Answer, Candidate, Stop],
     }
 }
@@ -250,7 +254,7 @@ fn parse(text: &str, session_id: &str) -> Result<Signal, String> {
             "sdpMid",
             "sdpMLineIndex",
         ],
-        Some("paired" | "stop") => vec!["v", "sessionId", "type"],
+        Some("paired" | "stop" | "pause") => vec!["v", "sessionId", "type"],
         _ => return Err("Invalid message type".into()),
     };
     let object = value.as_object().ok_or("Invalid object")?;
@@ -416,6 +420,7 @@ mod tests {
             .is_err()
         );
         assert!(parse(r#"{"v":1,"sessionId":"a","type":"stop"}"#, "a").is_ok());
+        assert!(parse(r#"{"v":1,"sessionId":"a","type":"pause"}"#, "a").is_ok());
     }
     #[tokio::test]
     async fn rejects_nonlocal_binding() {
@@ -488,7 +493,7 @@ mod tests {
             .0
     }
 
-    fn payloads() -> [Payload; 6] {
+    fn payloads() -> [Payload; 7] {
         [
             Payload::Pair { token: "t".into() },
             Payload::Paired,
@@ -500,6 +505,7 @@ mod tests {
                 sdp_m_line_index: 0,
             },
             Payload::Stop,
+            Payload::Pause,
         ]
     }
     fn allowed(direction: Direction, from: Role) -> Vec<Kind> {
@@ -513,7 +519,10 @@ mod tests {
     #[test]
     fn routes_let_only_the_offerer_send_an_offer() {
         use {Direction::*, Kind::*, Role::*};
-        assert_eq!(allowed(PhoneToDesktop, Phone), [Offer, Candidate, Stop]);
+        assert_eq!(
+            allowed(PhoneToDesktop, Phone),
+            [Offer, Candidate, Stop, Pause]
+        );
         assert_eq!(allowed(PhoneToDesktop, Desktop), [Answer, Candidate, Stop]);
         assert_eq!(allowed(DesktopToPhone, Desktop), [Offer, Candidate, Stop]);
         assert_eq!(allowed(DesktopToPhone, Phone), [Answer, Candidate, Stop]);

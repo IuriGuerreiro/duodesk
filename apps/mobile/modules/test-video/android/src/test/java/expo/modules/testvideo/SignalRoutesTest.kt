@@ -15,6 +15,13 @@ class SignalRoutesTest {
   }
 
   @Test
+  fun onlyThePhoneSenderCanPause() {
+    for (direction in Direction.values()) for (role in Role.values()) {
+      assertEquals(direction == Direction.PhoneToDesktop && role == Role.Phone, SignalRoutes.canSend(direction, role, "pause"))
+    }
+  }
+
+  @Test
   fun handshakeIsOutsideTheTable() {
     for (direction in Direction.values()) for (role in Role.values()) {
       assertFalse(SignalRoutes.canSend(direction, role, "pair"))

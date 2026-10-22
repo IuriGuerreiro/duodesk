@@ -46,6 +46,11 @@ app.commandLine.appendSwitch(
   "force-webrtc-ip-handling-policy",
   "default_public_and_private_interfaces",
 );
+// Send real LAN addresses instead of .local names, which Android senders behind NAT (emulators) cannot resolve.
+app.commandLine.appendSwitch(
+  "disable-features",
+  "WebRtcHideLocalIpsWithMdns",
+);
 function closeHost() {
   host?.close();
   host = undefined;

@@ -8,7 +8,8 @@ import org.webrtc.PeerConnectionFactory
 
 internal class WebRtc(val factory: PeerConnectionFactory, val egl: EglBase)
 
-/** One factory and EGL context for the process, shared by the sender, the viewer and their renderers. */
+/** Process initialization and EGL context shared by capture, the viewer and renderers.
+ * The sender owns a separate factory for its playback-audio device module. */
 internal object WebRtcFactory {
   private var instance: WebRtc? = null
 

@@ -117,3 +117,14 @@ test("validate session identity, message shape and candidate bounds", () => {
     parseSignal(JSON.stringify({ ...offer, sdp: "x".repeat(70_000) }), route),
   );
 });
+
+test("only the phone sender can pause without disconnecting", () => {
+  const text = JSON.stringify({ v: 1, sessionId, type: "pause" });
+  for (const direction of DIRECTIONS)
+    for (const from of ["phone", "desktop"]) {
+      const route = { sessionId, direction, from };
+      if (direction === "phone-to-desktop" && from === "phone")
+        assert.equal(parseSignal(text, route).type, "pause");
+      else assert.throws(() => parseSignal(text, route));
+    }
+});

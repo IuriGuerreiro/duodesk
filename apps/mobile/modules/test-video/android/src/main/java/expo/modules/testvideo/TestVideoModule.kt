@@ -1,6 +1,7 @@
 package expo.modules.testvideo
 
 import android.content.Context
+import android.os.Build
 import android.media.projection.MediaProjectionManager
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
@@ -19,6 +20,7 @@ class TestVideoModule : Module() {
     Name("DuoDeskTestVideo")
     Constant("supportsScreenSharing") { true }
     Constant("supportsViewing") { true }
+    Constant("supportsPlaybackAudio") { Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q }
     Events("onStatus", "onViewerStatus")
 
     OnCreate {
@@ -60,7 +62,7 @@ class TestVideoModule : Module() {
       sender().submit(promise) { start(bitrateMbps) }
     }
 
-    AsyncFunction("startScreen") { bitrateMbps: Int, promise: Promise ->
+    AsyncFunction("startScreen") { bitrateMbps: Int, shareAudio: Boolean, promise: Promise ->
       val s = sender()
       if (!s.isReady()) {
         promise.reject("ERR_STREAM", "Connect to the desktop before starting", null)
@@ -79,13 +81,17 @@ class TestVideoModule : Module() {
         return@AsyncFunction
       }
 
-      val request = VideoSenderManager.prepareScreenConsent(bitrateMbps, promise) ?: return@AsyncFunction
+      val request = VideoSenderManager.prepareScreenConsent(bitrateMbps, shareAudio, promise) ?: return@AsyncFunction
       try {
         val captureIntent = mediaProjectionManager.createScreenCaptureIntent()
         activity.startActivityForResult(captureIntent, request.requestCode)
       } catch (error: Exception) {
         VideoSenderManager.abortConsent(request.id, "ERR_PROJECTION", "Failed to launch screen capture dialog: ${error.message}", error)
       }
+    }
+
+    AsyncFunction("pause") { promise: Promise ->
+      VideoSenderManager.getActiveSender()?.submit(promise) { pause() } ?: promise.resolve()
     }
 
     AsyncFunction("stop") { promise: Promise ->

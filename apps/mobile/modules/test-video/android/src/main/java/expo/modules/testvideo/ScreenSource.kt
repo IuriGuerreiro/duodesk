@@ -57,6 +57,13 @@ internal class ScreenSource(
   private var running = false
   private var capturer: ScreenCapturerAndroid? = null
   private var surfaceTextureHelper: SurfaceTextureHelper? = null
+  /**
+   * The projection WebRTC created from the consent result. Android 14+ allows one projection per consent
+   * result, so playback audio capture borrows this instance instead of creating its own.
+   */
+  val projection: MediaProjection?
+    get() = capturer?.mediaProjection
+
   private var currentWidth = 0
   private var currentHeight = 0
 
