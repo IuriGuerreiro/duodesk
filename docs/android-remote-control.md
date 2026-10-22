@@ -70,3 +70,9 @@ The accessibility service is declared in the module's own manifest and resources
 | **Real-device tap and swipe, rotation, fullscreen, audio and video continuing, lock screen**           | **not run** (see below) |
 
 No physical phone was connected when the feature was finished (the Samsung SM-A266B had been on the machine earlier) and the machine has no emulator image, so injection through Android's `dispatchGesture` has not been exercised on hardware. Manual steps are in [manual-verification-android-screen-sharing.md](manual-verification-android-screen-sharing.md#remote-control).
+
+### Desktop overlay regression check
+
+Start Vite on port 1422 from `apps/desktop`, then run `pnpm test:control-surface` there. This renders the production control layer over moving video, enables control, and checks picture alignment, letterbox exclusion, resizing, and continued playback as native player controls disappear. The alignment check failed before the coordinate fix because viewport offsets were applied twice.
+
+The phone owner subsequently confirmed taps and swipes work on the Samsung, but reported that enabling control freezes the stream and shows a blue box. The misplaced desktop outline is fixed. The stream freeze has not been reproduced in the desktop checks; continued streaming with control enabled still needs verification on the phone.

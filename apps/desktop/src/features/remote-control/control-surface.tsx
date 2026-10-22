@@ -73,8 +73,8 @@ function usePicture(
       const stage = video.parentElement?.getBoundingClientRect();
       if (!picture || !stage) return setPicture(undefined);
       setPicture({
-        left: picture.left,
-        top: picture.top,
+        left: picture.left - stage.left,
+        top: picture.top - stage.top,
         width: picture.width,
         height: picture.height,
         videoWidth: video.videoWidth,
