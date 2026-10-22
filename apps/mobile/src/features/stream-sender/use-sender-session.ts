@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Keyboard, PermissionsAndroid, Platform } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
+import { parseInvitation } from "@duodesk/protocol";
 import { parsePairingQrPayload } from "@duodesk/protocol/pairing";
 import {
+  holdInvitation,
   connectToDesktop,
   createScanGate,
   pairWithCode,
@@ -54,6 +56,7 @@ function parseBitrate(raw: string): number {
 }
 
 export function useSenderSession() {
+  const router = useRouter();
   const [status, setStatus] = useState<SenderStatus>({ state: "idle" });
   const [operation, setOperation] = useState<Operation>(null);
   const [mode, setMode] = useState<PairingMode>("closed");
@@ -211,7 +214,16 @@ export function useSenderSession() {
         {
           requestLocalNetwork: () => guardPrompt(localNetworkPermission),
           pair: pairWithCode,
-          connect: sender.connect,
+          connect: async (invitation) => {
+            if (parseInvitation(invitation).direction === "desktop-to-phone") {
+              if (!sender.supportsViewing)
+                throw new Error(
+                  "Watching your PC screen needs the Android app with the latest build.",
+                );
+              holdInvitation(invitation);
+              router.push("/watch");
+            } else await sender.connect(invitation);
+          },
         },
         {
           address: target,

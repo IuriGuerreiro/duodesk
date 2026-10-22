@@ -17,6 +17,12 @@ Select the Wi-Fi/Ethernet LAN IPv4 address matching your phone network and creat
 
 Linux needs a graphical X11 or Wayland session and Electron's GTK/NSS/audio/graphics runtime libraries. Ubuntu packages commonly include libgtk-3-0, libnss3, libasound2t64, libgbm1 and libxss1. AppImage may require FUSE 2, or use the deb package. Native Linux binaries inherit the build host's glibc requirements; build on the oldest supported distribution and test on your target distributions. Keep Chromium's sandbox enabled. Hosts that disable unprivileged user namespaces need an administrator-supported Chromium sandbox setup; do not ship `--no-sandbox` as a workaround.
 
+## Share this screen
+
+The **Share this screen** tab shows the desktop on an Android phone. It uses the same pairing as receiving. The phone scans the QR and sharing starts automatically after pairing, using Chromium `getDisplayMedia`. The phone sees the whole display, including this window.
+
+Electron grants capture only to its own window, video only, and only while a share session is open (`electron/capture.mjs`). Every other permission stays denied. Linux Wayland needs PipeWire and Chromium's portal capture and is untested. Tauri's WebKitGTK has no screen capture, so this feature is Electron only. Setup, route table and phone test steps are in [desktop-to-phone screen sharing](../../docs/desktop-to-phone-screen-share.md).
+
 ## Build and check
 
 ```sh
@@ -24,10 +30,13 @@ pnpm build:desktop
 pnpm --filter @duodesk/desktop test
 pnpm --filter @duodesk/desktop test:host
 pnpm --filter @duodesk/desktop test:electron
+pnpm --filter @duodesk/desktop test:sender
 pnpm --filter @duodesk/desktop package:dir
 pnpm --filter @duodesk/desktop package
 cargo test --locked --manifest-path apps/desktop/src-tauri/signaling/Cargo.toml
 ```
+
+`test:sender` needs a graphical session, a LAN interface and a prior `pnpm build`. It shares the real screen through the shipped app to a stand-in phone and checks decoded frames. It does not run any Android code.
 
 For another isolated preview port, set `DUODESK_RECEIVER_TEST_URL=http://127.0.0.1:PORT/test/loopback.html` when running `test:receiver`.
 
@@ -66,6 +75,8 @@ The desktop receiver uses local shadcn/ui Button, Alert, and Separator component
 `src/features/receiver/receiver-workspace.tsx` owns the responsive receiver layout and status/error/empty presentations. `use-receiver-session.ts` retains host invocation, subscription, receiver ownership, video refs, metrics, and cleanup. Native video controls remain available. Fullscreen expands the receiver panel in every session state, with an exit control and Escape support. The app header, introductory heading, browser notice, footer, and diagnostics disclosure were removed following UI feedback. Connection status remains in the receiver toolbar; resolution and frame rate appear during streaming. The expandable QR contains only the LAN address and temporary six-digit code; the mobile scanner fills both fields. No invitation JSON is displayed or copied.
 
 `pnpm --filter @duodesk/desktop test:ui` runs the actual renderer controls against Electron's native host. It requires a graphical session, like `test:electron`. Browser preview has no host and clearly explains that limitation. Visual state fixtures used during development are browser-memory-only and are not shipped in the app.
+
+Screen sharing on Linux x64 (X11): sender unit tests, capture permission tests, and the `test:sender` end-to-end run passed. A second Chromium decoded 1920 × 1080 H.264. No phone, Wayland, Windows or macOS run was done.
 
 Redesign validation on Linux x64: desktop lint/type checks, production UI/native-host build, four receiver/IPC unit tests, two host integration tests, actual Electron UI create/stop checks, and sandboxed Electron loopback decoding passed. The H.264 receiver fixture decoded 11 frames at 640 × 360 using this worktree's Vite server on port 18464. It emitted one decoder warning before succeeding and reported three dropped frames. T3 browser preview was inspected at desktop and narrow widths, including browser-only, pairing/code, error, loading, and streaming presentation states; fixtures do not establish native connectivity. No Windows/macOS runtime, packaging, physical phone stream, or cross-machine network validation was performed for this redesign.
 

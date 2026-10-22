@@ -29,3 +29,17 @@ export interface SenderStatus {
   /** Why audio is not active, when the user needs to know. */
   audioMessage?: string;
 }
+
+export interface ViewerStats {
+  codec: string;
+  mbps: number;
+  fps: number;
+  width: number;
+  height: number;
+}
+
+export interface ViewerStatus {
+  state: StreamState;
+  message?: string;
+  stats?: ViewerStats;
+}

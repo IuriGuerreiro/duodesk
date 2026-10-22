@@ -418,6 +418,10 @@ export default function StreamSenderScreen() {
                   Screen sharing mirrors your display without audio, where the
                   build supports it. The test video is a bundled clip.
                 </Text>
+                <Text className="text-sm leading-6 text-muted-foreground">
+                  To watch your PC screen, choose Share this screen in DuoDesk
+                  on your PC first. Scanning its code opens the viewer.
+                </Text>
               </View>
             )}
             <View className="gap-4 pt-1">

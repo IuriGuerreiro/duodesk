@@ -16,16 +16,10 @@ import {
 } from "lucide-react";
 import type { Invitation, StreamState } from "@duodesk/protocol";
 import { createPairingQrPayload } from "@duodesk/protocol/pairing";
+import type { NetworkAddress } from "@/shared/host";
 import type { VideoStats } from "./video-receiver";
 import { Button } from "@/shared/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
-
-export type NetworkAddress = {
-  name: string;
-  address: string;
-  kind: string;
-  selectable: boolean;
-};
 
 export interface ReceiverAudio {
   /** The phone negotiated an audio track. False means the phone is sharing video only. */

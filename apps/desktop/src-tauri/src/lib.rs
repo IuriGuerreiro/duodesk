@@ -1,4 +1,4 @@
-use duodesk_signaling::{Invitation, Session, Signal};
+use duodesk_signaling::{Direction, Invitation, Session, Signal};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager, State};
 
@@ -13,6 +13,7 @@ fn stream_interfaces() -> Result<Vec<duodesk_signaling::NetworkAddress>, String>
 #[tauri::command]
 async fn stream_start(
     ip: String,
+    direction: Direction,
     app: tauri::AppHandle,
     receiver: State<'_, Receiver>,
 ) -> Result<Connection, String> {
@@ -23,6 +24,7 @@ async fn stream_start(
         .take();
     let session = duodesk_signaling::start(
         ip,
+        direction,
         Arc::new(move |event| {
             let _ = app.emit("stream-event", event);
         }),

@@ -164,6 +164,7 @@ mod tests {
     fn info(expires_at: u64) -> Invitation {
         Invitation {
             v: 1,
+            direction: Direction::PhoneToDesktop,
             session_id: "a".repeat(32),
             token: "b".repeat(64),
             fingerprint: "c".repeat(64),

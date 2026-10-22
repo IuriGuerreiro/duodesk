@@ -456,3 +456,31 @@ details summary:hover {
     transition: none !important;
   }
 }
+
+.mode-switch {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  height: 52px;
+  padding: 8px;
+  background: var(--dd-surface-1);
+  border-bottom: 1px solid var(--dd-border);
+}
+.mode-switch button {
+  border: 0;
+  border-radius: var(--dd-radius-control);
+  padding: 6px 16px;
+  background: transparent;
+  color: var(--dd-text-2);
+  font: inherit;
+}
+.mode-switch button[aria-pressed="true"] {
+  background: var(--dd-surface-3);
+  color: var(--dd-text);
+}
+.receiver-panel {
+  height: calc(100dvh - 52px);
+}
+.receiver-panel:fullscreen {
+  height: 100dvh;
+}

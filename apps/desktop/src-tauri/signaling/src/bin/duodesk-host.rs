@@ -1,5 +1,5 @@
 //! Private bounded JSON-lines transport. stdout is protocol only; EOF drops the session.
-use duodesk_signaling::{Session, Signal};
+use duodesk_signaling::{Direction, Session, Signal};
 use serde_json::{Value, json};
 use std::{
     io::{self, BufRead, Write},
@@ -49,8 +49,12 @@ async fn main() {
                 Some("stream_start") => {
                     session.take();
                     let ip = request["args"]["ip"].as_str().ok_or("Missing IP")?;
+                    let direction: Direction =
+                        serde_json::from_value(request["args"]["direction"].clone())
+                            .map_err(|_| "Invalid direction")?;
                     let next = duodesk_signaling::start(
                         ip.into(),
+                        direction,
                         Arc::new(|event| output(json!({"event": event}))),
                     )
                     .await?;

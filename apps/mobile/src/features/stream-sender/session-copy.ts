@@ -12,7 +12,7 @@ export const sessionCopy = {
     label: "Not connected",
     title: "Your phone.\nMeet your PC.",
     detail:
-      "Pair with DuoDesk on your PC to send your screen or video over your local network.",
+      "Pair with DuoDesk on your PC to send your screen or video, or to watch your PC screen, over your local network.",
     tone: "neutral",
   },
   connecting: {

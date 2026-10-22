@@ -1,7 +1,9 @@
+import { isDirection, type Direction } from "./direction.ts";
 import { exact, hex, id, record } from "./guards.ts";
 
 export interface Invitation {
   v: 1;
+  direction: Direction;
   sessionId: string;
   url: string;
   token: string;
@@ -16,6 +18,7 @@ export function parseInvitation(text: string, now = Date.now()): Invitation {
     !record(value) ||
     !exact(value, [
       "v",
+      "direction",
       "sessionId",
       "url",
       "token",
@@ -23,6 +26,7 @@ export function parseInvitation(text: string, now = Date.now()): Invitation {
       "expiresAt",
     ]) ||
     value.v !== 1 ||
+    !isDirection(value.direction) ||
     !id(value.sessionId) ||
     !hex(value.token) ||
     !hex(value.fingerprint) ||
