@@ -76,15 +76,17 @@ Current code is split by feature. A feature exposes a public `index.ts`; everyth
 apps/mobile/src/
   app/                       # thin routes; index loads the sender, stream-test redirects to it
   features/
-    stream-sender/           # screen, use-sender-session, session copy
+    stream-sender/           # screen, use-sender-session, session copy; remote control Allow/Stop UI
     pairing/                 # QR scanner and scan gate, manual entry, pairing client, connect flow
   shared/                    # NativeWind tokens, UI primitives, utilities, shared types
   (native module: apps/mobile/modules/test-video, outside src)
 apps/desktop/src/
   features/receiver/         # workspace UI, use-receiver-session, video-receiver (WebRTC)
+  features/remote-control/   # ControlLink (data channels), gesture recorder, click layer
   shared/                    # host adapter (Electron/Tauri), shadcn ui/, lib/
 packages/protocol/src/
   stream/                    # invitation.ts, signal.ts, state.ts, internal guards.ts
+  control/                   # remote control messages, validators, coordinate mapping
 ```
 
 The protocol package keeps its existing public stream exports in `src/index.ts`.
@@ -117,7 +119,9 @@ First release acceptance: works without internet on a normal non-isolated LAN; u
 - [Apple ReplayKit security](https://support.apple.com/en-gb/guide/security/seca5fc039dd/web) describes broadcast capture and upload extensions. Recheck current capture APIs and deployment availability against the selected minimum iOS version before implementation; newer ScreenCaptureKit documentation also needs evaluation.
 - [Android MediaProjection](https://developer.android.com/media/grow/media-projection) documents capture consent and foreground execution requirements.
 - [Android audio playback capture](https://developer.android.com/media/platform/av-capture) documents capturing other apps' audio; see [android-playback-audio.md](android-playback-audio.md) for the DuoDesk design.
-- [Android AccessibilityService](https://developer.android.com/reference/android/accessibilityservice/AccessibilityService) documents gesture dispatch capabilities. This does not establish app-store eligibility or universal device support.
+- [Android AccessibilityService](https://developer.android.com/reference/android/accessibilityservice/AccessibilityService) documents gesture dispatch capabilities. See [android-remote-control.md](android-remote-control.md) for the DuoDesk tap and swipe design. This does not establish app-store eligibility or universal device support.
 - [Windows capture](https://learn.microsoft.com/en-us/windows/uwp/audio-video-camera/screen-capture) provides native frame capture.
 - [Windows SendInput](https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-sendinput) documents input injection and UIPI restrictions.
 - [WebRTC peer connections](https://webrtc.org/getting-started/peer-connections) describes signaling and ICE negotiation.
+
+The mobile sender session is owned by `SenderSessionProvider` above the Expo Router stack. Home, Scan and manual entry share that connection, so navigating back from the scanner does not tear it down. The session hook handles native status, application backgrounding and teardown. Route views own navigation and camera presentation.

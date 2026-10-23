@@ -17,6 +17,7 @@ class ScreenCaptureService : Service() {
   companion object {
     const val ACTION_START = "expo.modules.testvideo.action.START"
     const val ACTION_STOP = "expo.modules.testvideo.action.STOP"
+    const val ACTION_STOP_CONTROL = "expo.modules.testvideo.action.STOP_CONTROL"
     const val EXTRA_SESSION_ID = "expo.modules.testvideo.extra.SESSION_ID"
     private const val CHANNEL_ID = "duodesk_screen_capture"
     private const val NOTIFICATION_ID = 4040
@@ -38,6 +39,19 @@ class ScreenCaptureService : Service() {
     private var onForegroundedCallback: (() -> Unit)? = null
 
     private val lock = Any()
+
+    @Volatile
+    private var controlActive: Boolean = false
+
+    @Volatile
+    private var instance: ScreenCaptureService? = null
+
+    /** The phone owner must always be able to see, and end, a PC controlling the phone from the notification. */
+    fun setControlActive(active: Boolean) {
+      if (controlActive == active) return
+      controlActive = active
+      instance?.refreshNotification()
+    }
 
     fun start(context: Context, sessionId: Long, onForegrounded: () -> Unit) {
       synchronized(lock) {
@@ -83,10 +97,24 @@ class ScreenCaptureService : Service() {
   override fun onCreate() {
     super.onCreate()
     createNotificationChannel()
+    instance = this
+  }
+
+  private fun refreshNotification() {
+    if (!isRunning) return
+    getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, buildNotification(instanceSessionId))
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     val intentSessionId = intent?.getLongExtra(EXTRA_SESSION_ID, 0L) ?: 0L
+
+    if (intent?.action == ACTION_STOP_CONTROL) {
+      synchronized(lock) {
+        if (intentSessionId != 0L && intentSessionId != activeSessionId) return START_NOT_STICKY
+      }
+      VideoSenderManager.revokeControl()
+      return START_NOT_STICKY
+    }
 
     if (intent?.action == ACTION_STOP) {
       synchronized(lock) {
@@ -137,6 +165,8 @@ class ScreenCaptureService : Service() {
   }
 
   override fun onDestroy() {
+    if (instance === this) instance = null
+    controlActive = false
     val notifyManager: Boolean
     synchronized(lock) {
       if (instanceSessionId != 0L && instanceSessionId != activeSessionId) {
@@ -205,7 +235,9 @@ class ScreenCaptureService : Service() {
     val iconRes = if (applicationInfo.icon != 0) applicationInfo.icon else android.R.drawable.ic_menu_share
     builder
       .setContentTitle("DuoDesk")
-      .setContentText("Sharing screen with Windows receiver")
+      .setContentText(
+        if (controlActive) "Your PC can tap and swipe on this phone" else "Sharing screen with Windows receiver"
+      )
       .setSmallIcon(iconRes)
       .setOngoing(true)
 
@@ -219,6 +251,20 @@ class ScreenCaptureService : Service() {
     } else {
       @Suppress("DEPRECATION")
       builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopPendingIntent)
+    }
+
+    if (controlActive) {
+      val stopControl = Intent(this, ScreenCaptureService::class.java).apply {
+        action = ACTION_STOP_CONTROL
+        if (sessionId != 0L) putExtra(EXTRA_SESSION_ID, sessionId)
+      }
+      builder.addAction(
+        Notification.Action.Builder(
+          Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
+          "Stop control",
+          PendingIntent.getService(this, 1, stopControl, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        ).build()
+      )
     }
 
     val launchIntent = packageManager.getLaunchIntentForPackage(packageName)

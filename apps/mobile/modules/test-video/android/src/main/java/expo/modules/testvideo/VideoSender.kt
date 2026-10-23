@@ -92,6 +92,11 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
   @Volatile
   private var playbackAudio: PlaybackAudioCapture? = null
   private val silence = SilencePacer()
+  private var control: RemoteControl? = null
+  private var controlChannel: DataChannel? = null
+  private var inputChannel: DataChannel? = null
+  private var heartbeat: ScheduledFuture<*>? = null
+  private val serviceListener: () -> Unit = { dispatch { control?.serviceChanged() } }
 
   private var previousBytes = 0.0
   private var previousTime = 0.0
@@ -107,14 +112,20 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     mode?.let { map["mode"] = it }
     lastStats?.let { map["stats"] = it }
     lastError?.let { map["message"] = it }
-    addAudio(map)
+    addSession(map)
     return map
   }
 
-  private fun addAudio(map: MutableMap<String, Any>) {
+  /** Adds what the phone UI needs about the screen session: audio, and the remote control grant. */
+  private fun addSession(map: MutableMap<String, Any>) {
     if (mode != "screen") return
     map["audio"] = audioState
     audioMessage?.let { map["audioMessage"] = it }
+    control?.snapshot()?.let { snap ->
+      val entry = mutableMapOf<String, Any>("state" to if (snap.on) "on" else "off", "serviceEnabled" to snap.serviceEnabled)
+      snap.reason?.let { entry["reason"] = it.wire }
+      map["control"] = entry
+    }
   }
 
   private fun dispatch(action: () -> Unit) {
@@ -137,21 +148,28 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     stop()
   }
 
+  init {
+    ControlAccessibilityService.addListener(serviceListener)
+  }
+
   fun destroy() = dispatch {
+    ControlAccessibilityService.removeListener(serviceListener)
     close(); factory?.dispose(); factory = null
     audioDevice?.release(); audioDevice = null
     egl?.release(); egl = null; queue.shutdown()
   }
 
   private fun status(next: String) {
+    if (state != next) Log.i("DuoDesk", "Sender state $state -> $next, mode=$mode, generation=$generation")
     state = next
     val map = mutableMapOf<String, Any>("state" to next)
     mode?.let { map["mode"] = it }
-    addAudio(map)
+    addSession(map)
     emit(map)
   }
 
   private fun fail(message: String) {
+    Log.w("DuoDesk", "Sender failed: $message, state=$state, mode=$mode, generation=$generation")
     lastError = message
     close()
     state = "failed"
@@ -165,7 +183,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     audioMessage = message
     val map = mutableMapOf<String, Any>("state" to state)
     mode?.let { map["mode"] = it }
-    addAudio(map)
+    addSession(map)
     emit(map)
   }
 
@@ -180,7 +198,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       lastError = message
       val map = mutableMapOf<String, Any>("state" to state, "message" to message)
       mode?.let { map["mode"] = it }
-      addAudio(map)
+      addSession(map)
       emit(map)
     }
   }
@@ -298,6 +316,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     }
     val pc = checkNotNull(factory.createPeerConnection(config, observer(epoch))) { "Could not create WebRTC sender" }
     peer = pc
+    openControlChannels(pc, epoch, supported = mode == "screen")
     val source = factory.createVideoSource(true)
     this.source = source
     val track = factory.createVideoTrack("duodesk-test-video", source)
@@ -317,6 +336,82 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     return Pair(pc, epoch)
   }
 
+  /**
+   * Remote control channels exist in every session so the desktop can always tell the phone's state. The phone
+   * owns the grant: control stays off until the owner allows it, and only a screen session can ever allow it.
+   */
+  private fun openControlChannels(pc: PeerConnection, epoch: Long, supported: Boolean) {
+    val sessionId = checkNotNull(invitation).sessionId
+    control = RemoteControl(
+      sessionId = sessionId,
+      supported = supported,
+      injector = { ControlAccessibilityService.injector() },
+      send = { text -> sendControl(text) },
+      post = { block -> dispatch { if (generation == epoch) block() } },
+      changed = {
+        val on = control?.snapshot()?.on == true
+        ScreenCaptureService.setControlActive(on)
+        status(state)
+      }
+    )
+    val reliable = DataChannel.Init().apply { ordered = true; negotiated = true; id = ControlWire.CONTROL_ID }
+    val shortLived = DataChannel.Init().apply {
+      ordered = true; negotiated = true; id = ControlWire.INPUT_ID
+      maxRetransmitTimeMs = ControlWire.INPUT_PACKET_LIFETIME_MS
+    }
+    val controlLine = checkNotNull(pc.createDataChannel(ControlWire.CONTROL_LABEL, reliable)) { "Could not open the control channel" }
+    val inputLine = checkNotNull(pc.createDataChannel(ControlWire.INPUT_LABEL, shortLived)) { "Could not open the input channel" }
+    controlChannel = controlLine
+    inputChannel = inputLine
+    controlLine.registerObserver(object : DataChannel.Observer {
+      override fun onBufferedAmountChange(previousAmount: Long) {}
+      override fun onMessage(buffer: DataChannel.Buffer) {}
+      override fun onStateChange() = dispatch {
+        if (generation != epoch) return@dispatch
+        when (controlLine.state()) {
+          DataChannel.State.OPEN -> { control?.publish(); startHeartbeat(epoch) }
+          DataChannel.State.CLOSING, DataChannel.State.CLOSED -> control?.revoke()
+          else -> Unit
+        }
+      }
+    })
+    inputLine.registerObserver(object : DataChannel.Observer {
+      override fun onBufferedAmountChange(previousAmount: Long) {}
+      override fun onMessage(buffer: DataChannel.Buffer) {
+        if (buffer.binary || buffer.data.remaining() > ControlWire.MAX_BYTES) return
+        val bytes = ByteArray(buffer.data.remaining()).also { buffer.data.get(it) }
+        dispatch { if (generation == epoch) control?.onCommand(String(bytes, Charsets.UTF_8)) }
+      }
+      override fun onStateChange() = dispatch {
+        if (generation != epoch) return@dispatch
+        if (inputLine.state() == DataChannel.State.CLOSING || inputLine.state() == DataChannel.State.CLOSED) control?.revoke()
+      }
+    })
+  }
+
+  private fun startHeartbeat(epoch: Long) {
+    heartbeat?.cancel(false)
+    heartbeat = queue.scheduleAtFixedRate({
+      if (generation == epoch) runCatching { control?.publish() }
+    }, ControlWire.HEARTBEAT_MS, ControlWire.HEARTBEAT_MS, TimeUnit.MILLISECONDS)
+  }
+
+  private fun sendControl(text: String): Boolean {
+    val channel = controlChannel ?: return false
+    if (channel.state() != DataChannel.State.OPEN || channel.bufferedAmount() > 65_536) return false
+    return channel.send(DataChannel.Buffer(ByteBuffer.wrap(text.toByteArray(Charsets.UTF_8)), false))
+  }
+
+  /** Runs a control action from the phone UI. A refusal rejects the promise but never ends the session. */
+  fun controlAction(promise: Promise, action: RemoteControl.() -> String?) {
+    dispatch {
+      val current = control
+      val problem = if (current == null || mode != "screen" || state != "streaming") "Start sharing your screen first." else current.action()
+      if (problem == null) promise.resolve() else promise.reject("ERR_CONTROL", problem, null)
+    }
+  }
+
+  fun revokeControl() = dispatch { control?.revoke() }
   private fun debugEmulator(): Boolean =
     (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 &&
       (Build.HARDWARE in setOf("ranchu", "goldfish") || Build.FINGERPRINT.startsWith("generic"))
@@ -398,6 +493,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
           }
         }
       },
+      onGeometry = { geometry -> dispatch { if (epoch == generation) control?.setGeometry(geometry) } },
       onFailure = { message ->
         dispatch {
           if (epoch == generation) {
@@ -523,7 +619,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
             "stats" to currentStats
           )
           mode?.let { map["mode"] = it }
-          addAudio(map)
+          addSession(map)
           emit(map)
         }
       } }
@@ -557,6 +653,14 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
   private fun closeVideo() {
     generation++
     timeout?.cancel(false); timeout = null; stats?.cancel(false); stats = null
+    // Remote control ends first, before capture or the connection go away.
+    heartbeat?.cancel(false); heartbeat = null
+    control?.close(); control = null
+    ScreenCaptureService.setControlActive(false)
+    for (channel in listOf(controlChannel, inputChannel)) {
+      channel?.unregisterObserver(); channel?.close(); channel?.dispose()
+    }
+    controlChannel = null; inputChannel = null
     clip?.stop(); clip = null
     // Audio goes first: it borrows the screen projection, and the ADM thread may be blocked reading it.
     playbackAudio?.stop(); playbackAudio = null
@@ -586,6 +690,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
 
   /** Ends the video only; the desktop stays paired and a new start needs no new invitation. */
   fun pause() {
+    Log.i("DuoDesk", "Owner paused streaming, state=$state, mode=$mode")
     if (peer == null) return
     closeVideo()
     runCatching { send(JSONObject().put("type", "pause")) }.onFailure { return fail("Desktop connection lost") }
