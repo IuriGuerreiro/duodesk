@@ -27,6 +27,7 @@ declare class TestVideoNative extends NativeModule<Events> {
   allowControl?(): Promise<void>;
   revokeControl?(): Promise<void>;
   openAccessibilitySettings?(): Promise<void>;
+  pause?(): Promise<void>;
   stop(): Promise<void>;
   background?(): Promise<void>;
   getStatus?(): Promise<SenderStatus>;
@@ -100,6 +101,11 @@ export const revokeControl = (): Promise<void> =>
 /** Opens Android's Accessibility settings, where the owner turns the DuoDesk service on. */
 export const openAccessibilitySettings = (): Promise<void> =>
   controlModule().openAccessibilitySettings!();
+
+/** Ends the video but keeps the desktop paired. */
+export const pause = async (): Promise<void> => {
+  await native?.pause?.();
+};
 
 export const stop = async (): Promise<void> => {
   await native?.stop();

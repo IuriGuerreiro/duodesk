@@ -50,6 +50,7 @@ pub enum Payload {
         sdp_m_line_index: u16,
     },
     Stop,
+    Pause,
 }
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -207,7 +208,7 @@ fn parse(text: &str, session_id: &str) -> Result<Signal, String> {
             "sdpMid",
             "sdpMLineIndex",
         ],
-        Some("paired" | "stop") => vec!["v", "sessionId", "type"],
+        Some("paired" | "stop" | "pause") => vec!["v", "sessionId", "type"],
         _ => return Err("Invalid message type".into()),
     };
     let object = value.as_object().ok_or("Invalid object")?;
@@ -327,7 +328,7 @@ pub async fn start(ip: String, emit: Arc<dyn Fn(Event) + Send + Sync>) -> Result
                         match incoming.map_err(|e| e.to_string())? {
                             Message::Text(text) => {
                                 let signal = parse(&text, &info.session_id)?;
-                                if !matches!(signal.payload, Payload::Offer { .. } | Payload::Candidate { .. } | Payload::Stop) { return Err("Unexpected sender message".into()); }
+                                if !matches!(signal.payload, Payload::Offer { .. } | Payload::Candidate { .. } | Payload::Stop | Payload::Pause) { return Err("Unexpected sender message".into()); }
                                 let stop = matches!(signal.payload, Payload::Stop);
                                 emit(Event::Signal { signal });
                                 if stop { break; }
@@ -368,6 +369,7 @@ mod tests {
             .is_err()
         );
         assert!(parse(r#"{"v":1,"sessionId":"a","type":"stop"}"#, "a").is_ok());
+        assert!(parse(r#"{"v":1,"sessionId":"a","type":"pause"}"#, "a").is_ok());
     }
     #[tokio::test]
     async fn rejects_nonlocal_binding() {

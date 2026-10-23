@@ -92,6 +92,10 @@ class TestVideoModule : Module() {
       context.startActivity(ControlAccessibilityService.settingsIntent())
     }
 
+    AsyncFunction("pause") { promise: Promise ->
+      VideoSenderManager.getActiveSender()?.submit(promise) { pause() } ?: promise.resolve()
+    }
+
     AsyncFunction("stop") { promise: Promise ->
       VideoSenderManager.stop(promise)
     }

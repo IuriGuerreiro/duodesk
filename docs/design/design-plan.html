@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DuoDesk — Design palette & implementation plan</title>
+<style>
+  :root {
+    --bg: #0A0A0B;
+    --surface-1: #111113;
+    --surface-2: #18181B;
+    --surface-3: #232327;
+    --border: #2A2A2F;
+    --border-strong: #3A3A40;
+    --text: #FAFAFA;
+    --text-2: #A1A1AA;
+    --text-3: #71717A;
+    --blue: #3B82F6;
+    --blue-hover: #2563EB;
+    --blue-soft: rgba(59,130,246,0.14);
+    --success: #22C55E;
+    --warning: #F59E0B;
+    --danger: #EF4444;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Geist", "Inter", ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 1040px; margin: 0 auto; padding: 64px 28px 96px; }
+  h1 { font-size: 40px; letter-spacing: -0.03em; margin: 0 0 8px; font-weight: 600; }
+  h2 { font-size: 22px; letter-spacing: -0.02em; margin: 72px 0 6px; font-weight: 600; }
+  h3 { font-size: 15px; margin: 0 0 6px; font-weight: 600; }
+  p.lead { color: var(--text-2); font-size: 17px; margin: 0; max-width: 620px; }
+  .sub { color: var(--text-3); margin: 0 0 24px; }
+  .eyebrow { color: var(--blue); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; margin-bottom: 14px; }
+  code, .mono { font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+
+  /* palette */
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .sw { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--surface-1); }
+  .sw .chip { height: 84px; border-bottom: 1px solid var(--border); }
+  .sw .meta { padding: 10px 12px 12px; }
+  .sw .name { font-weight: 600; font-size: 13.5px; }
+  .sw .hex { color: var(--text-2); }
+  .sw .use { color: var(--text-3); font-size: 12.5px; margin-top: 2px; }
+  .group-label { color: var(--text-2); font-size: 13px; margin: 28px 0 10px; }
+
+  /* type + components */
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+  .type-row { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .type-row:last-child { border-bottom: 0; }
+  .type-row span.mono { color: var(--text-3); }
+  .btn { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 10px; font: inherit; font-weight: 550; border: 1px solid transparent; cursor: pointer; }
+  .btn-primary { background: var(--blue); color: white; }
+  .btn-primary:hover { background: var(--blue-hover); }
+  .btn-secondary { background: var(--surface-3); color: var(--text); border-color: var(--border-strong); }
+  .btn-ghost { background: transparent; color: var(--text-2); }
+  .btn-danger { background: transparent; color: var(--danger); border-color: rgba(239,68,68,.35); }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .pill { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 11px; border-radius: 999px; font-size: 12.5px; font-weight: 550; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .pill.live { color: #BFDBFE; background: var(--blue-soft); border-color: rgba(59,130,246,.35); }
+  .pill.live .dot { background: var(--blue); box-shadow: 0 0 0 3px rgba(59,130,246,.25); animation: pulse 1.8s infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 6px rgba(59,130,246,0); } }
+  .code6 { display: flex; gap: 6px; }
+  .code6 span { width: 38px; height: 46px; display: grid; place-items: center; background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: 10px; font: 600 20px "Geist Mono", ui-monospace, monospace; }
+
+  /* flow */
+  .flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  @media (max-width: 860px) { .flow { grid-template-columns: 1fr 1fr; } }
+  .step { background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+  .step .n { color: var(--blue); font: 600 12px "Geist Mono", ui-monospace, monospace; }
+  .step p { color: var(--text-2); font-size: 13px; margin: 4px 0 0; }
+
+  /* plan */
+  .phase { display: grid; grid-template-columns: 120px 1fr; gap: 20px; padding: 22px 0; border-top: 1px solid var(--border); }
+  .phase:last-child { border-bottom: 1px solid var(--border); }
+  .phase .tag { color: var(--text-3); font-size: 13px; }
+  .phase .tag strong { display: block; color: var(--text); font-size: 15px; }
+  .phase ul { margin: 6px 0 0; padding-left: 18px; color: var(--text-2); }
+  .phase li { margin: 3px 0; }
+  .phase .done { color: var(--text-3); font-size: 13px; margin-top: 8px; }
+  .phase .done b { color: var(--success); font-weight: 600; }
+  @media (max-width: 640px) { .phase { grid-template-columns: 1fr; gap: 6px; } }
+  .rules li { color: var(--text-2); margin: 6px 0; }
+  .rules b { color: var(--text); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">DuoDesk · Design system v1</div>
+  <h1>Premium mono, one blue.</h1>
+  <p class="lead">Near-black surfaces, white type, grey for everything secondary, and one blue reserved for “live” and the main action. Calm, quiet, and easy to follow.</p>
+
+  <!-- PALETTE -->
+  <h2>Color palette</h2>
+  <p class="sub">Dark mode only for v1. Each color has one job.</p>
+
+  <div class="group-label">Surfaces</div>
+  <div class="swatches">
+    <div class="sw"><div class="chip" style="background:#0A0A0B"></div><div class="meta"><div class="name">Background</div><div class="hex mono">#0A0A0B</div><div class="use">App canvas</div></div></div>
+    <div class="sw"><div class="chip" style="background:#111113"></div><div class="meta"><div class="name">Surface 1</div><div class="hex mono">#111113</div><div class="use">Cards, panels</div></div></div>
+    <div class="sw"><div class="chip" style="background:#18181B"></div><div class="meta"><div class="name">Surface 2</div><div class="hex mono">#18181B</div><div class="use">Inputs, sheets</div></div></div>
+    <div class="sw"><div class="chip" style="background:#232327"></div><div class="meta"><div class="name">Surface 3</div><div class="hex mono">#232327</div><div class="use">Hover, secondary btn</div></div></div>
+    <div class="sw"><div class="chip" style="background:#2A2A2F"></div><div class="meta"><div class="name">Border</div><div class="hex mono">#2A2A2F</div><div class="use">1px dividers</div></div></div>
+    <div class="sw"><div class="chip" style="background:#3A3A40"></div><div class="meta"><div class="name">Border strong</div><div class="hex mono">#3A3A40</div><div class="use">Focus-adjacent, inputs</div></div></div>
+  </div>
+
+  <div class="group-label">Text</div>
+  <div class="swatches">
+    <div class="sw"><div class="chip" style="background:#FAFAFA"></div><div class="meta"><div class="name">Text</div><div class="hex mono">#FAFAFA</div><div class="use">Headings, body</div></div></div>
+    <div class="sw"><div class="chip" style="background:#A1A1AA"></div><div class="meta"><div class="name">Text 2</div><div class="hex mono">#A1A1AA</div><div class="use">Descriptions</div></div></div>
+    <div class="sw"><div class="chip" style="background:#71717A"></div><div class="meta"><div class="name">Text 3</div><div class="hex mono">#71717A</div><div class="use">Hints, labels</div></div></div>
+  </div>
+
+  <div class="group-label">Accent & status</div>
+  <div class="swatches">
+    <div class="sw"><div class="chip" style="background:#3B82F6"></div><div class="meta"><div class="name">Blue</div><div class="hex mono">#3B82F6</div><div class="use">Primary, live</div></div></div>
+    <div class="sw"><div class="chip" style="background:#2563EB"></div><div class="meta"><div class="name">Blue hover</div><div class="hex mono">#2563EB</div><div class="use">Pressed / hover</div></div></div>
+    <div class="sw"><div class="chip" style="background:rgba(59,130,246,.14)"></div><div class="meta"><div class="name">Blue soft</div><div class="hex mono">#3B82F6 · 14%</div><div class="use">Live pill, selection</div></div></div>
+    <div class="sw"><div class="chip" style="background:#22C55E"></div><div class="meta"><div class="name">Success</div><div class="hex mono">#22C55E</div><div class="use">Step done</div></div></div>
+    <div class="sw"><div class="chip" style="background:#F59E0B"></div><div class="meta"><div class="name">Warning</div><div class="hex mono">#F59E0B</div><div class="use">Reconnecting</div></div></div>
+    <div class="sw"><div class="chip" style="background:#EF4444"></div><div class="meta"><div class="name">Danger</div><div class="hex mono">#EF4444</div><div class="use">Stop, errors</div></div></div>
+  </div>
+
+  <!-- TYPE + COMPONENTS -->
+  <h2>Type & components</h2>
+  <p class="sub">Geist (or Inter) for UI, Geist Mono for codes and numbers. Radius 10 for controls, 14 for cards.</p>
+  <div class="grid2">
+    <div class="card">
+      <div class="type-row"><span style="font-size:32px;font-weight:600;letter-spacing:-.03em">Display</span><span class="mono">32 / 600</span></div>
+      <div class="type-row"><span style="font-size:22px;font-weight:600;letter-spacing:-.02em">Title</span><span class="mono">22 / 600</span></div>
+      <div class="type-row"><span style="font-size:15px">Body text</span><span class="mono">15 / 400</span></div>
+      <div class="type-row"><span style="font-size:13px;color:var(--text-2)">Secondary</span><span class="mono">13 / 400</span></div>
+      <div class="type-row"><span class="mono" style="font-size:20px;font-weight:600">482 913</span><span class="mono">Mono 20</span></div>
+    </div>
+    <div class="card" style="display:flex;flex-direction:column;gap:18px">
+      <div class="row">
+        <button class="btn btn-primary">Connect</button>
+        <button class="btn btn-secondary">Enter code</button>
+        <button class="btn btn-ghost">Cancel</button>
+        <button class="btn btn-danger">Stop</button>
+      </div>
+      <div class="row">
+        <span class="pill live"><span class="dot"></span>Live</span>
+        <span class="pill"><span class="dot" style="background:var(--warning)"></span>Reconnecting…</span>
+        <span class="pill"><span class="dot" style="background:var(--text-3)"></span>Waiting for phone</span>
+      </div>
+      <div class="code6"><span>4</span><span>8</span><span>2</span><span>9</span><span>1</span><span>3</span></div>
+    </div>
+  </div>
+
+  <!-- FLOW -->
+  <h2>The flow</h2>
+  <p class="sub">Desktop and phone move through the same states together.</p>
+  <div class="flow">
+    <div class="step"><div class="n">01</div><h3>Pair</h3><p>Desktop: QR + code card. Phone: camera opens straight away.</p></div>
+    <div class="step"><div class="n">02</div><h3>Connecting</h3><p>Found → Securing → Starting. Shows the PC name.</p></div>
+    <div class="step"><div class="n">03</div><h3>Live</h3><p>Desktop: full video, auto-hide bar. Phone: Live dot + big Stop.</p></div>
+    <div class="step"><div class="n">04</div><h3>Reconnecting</h3><p>Amber pill, auto-retry. Pair again only if it fails.</p></div>
+    <div class="step"><div class="n">05</div><h3>Return</h3><p>“Tap to connect” to the last device. QR is the fallback.</p></div>
+  </div>
+
+  <!-- PLAN -->
+  <h2>Implementation plan</h2>
+  <p class="sub">Small phases. Each one is shippable and testable on its own (Android first).</p>
+
+  <div class="phase">
+    <div class="tag"><strong>Phase 1</strong>Tokens</div>
+    <div>
+      <h3>Shared design tokens</h3>
+      <ul>
+        <li>Create <code>packages/design-tokens</code> with the colors, radius, spacing and type above.</li>
+        <li>Export as CSS variables (desktop) and a TS object (mobile).</li>
+      </ul>
+      <div class="done"><b>Done when</b> both apps import the same tokens.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="tag"><strong>Phase 2</strong>Showcase</div>
+    <div>
+      <h3>Clickable prototype — <code>apps/design</code></h3>
+      <ul>
+        <li>Vite + React. Desktop and phone frames side by side.</li>
+        <li>A state switcher: Pair → Connecting → Live → Reconnecting → Return.</li>
+        <li>Fake video, no real connection. Run with <code>pnpm dev:design</code>.</li>
+      </ul>
+      <div class="done"><b>Done when</b> you approve the look and flow.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="tag"><strong>Phase 3</strong>Desktop</div>
+    <div>
+      <h3>Desktop receiver redesign</h3>
+      <ul>
+        <li>Add a single <code>connectionState</code> that drives which screen shows.</li>
+        <li>Split <code>receiver-workspace.tsx</code> into Pair, Connecting, Live, Reconnecting views.</li>
+        <li>Live: video fills window, floating bar auto-hides after 2s.</li>
+        <li>Map raw statuses to plain-language messages.</li>
+      </ul>
+      <div class="done"><b>Done when</b> pairing UI disappears once live, and returns on disconnect.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="tag"><strong>Phase 4</strong>Mobile</div>
+    <div>
+      <h3>Phone app redesign</h3>
+      <ul>
+        <li>Replace tabs and <code>stream-test</code> with one stack: Home → Pair → Connecting → Live.</li>
+        <li>Scanner-first Pair screen; “Enter code” as a fallback sheet.</li>
+        <li>Live screen with big Stop and a Details bottom sheet for stats.</li>
+        <li>Keep screen awake + stop-stream notification.</li>
+      </ul>
+      <div class="done"><b>Done when</b> a first-time user pairs without reading instructions.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="tag"><strong>Phase 5</strong>Polish</div>
+    <div>
+      <h3>Reconnect & memory</h3>
+      <ul>
+        <li>Remember the last paired PC; “Tap to connect” on both sides.</li>
+        <li>Auto-retry for ~15s before asking to pair again.</li>
+        <li>Motion pass: fades between states, scan haptic.</li>
+      </ul>
+      <div class="done"><b>Done when</b> a second session takes one tap.</div>
+    </div>
+  </div>
+
+  <h2>Rules to keep it premium</h2>
+  <ul class="rules">
+    <li><b>Blue is rare.</b> Only for the main action and “live”. Never decoration.</li>
+    <li><b>One task per screen.</b> If it’s not needed now, hide it.</li>
+    <li><b>Plain words.</b> “Reconnecting…”, not “ICE state: disconnected”.</li>
+    <li><b>No gradients, no glow.</b> Depth comes from surface steps and 1px borders.</li>
+    <li><b>Motion is short.</b> 150–250ms fades. Nothing bounces.</li>
+  </ul>
+</main>
+</body>
+</html>

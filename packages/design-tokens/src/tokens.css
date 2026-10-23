@@ -1,0 +1,24 @@
+/* DuoDesk design tokens. Keep in sync with index.ts. */
+:root {
+  --dd-bg: #0a0a0b;
+  --dd-surface-1: #111113;
+  --dd-surface-2: #18181b;
+  --dd-surface-3: #232327;
+  --dd-border: #2a2a2f;
+  --dd-border-strong: #3a3a40;
+  --dd-text: #fafafa;
+  --dd-text-2: #a1a1aa;
+  --dd-text-3: #71717a;
+  --dd-blue: #3b82f6;
+  --dd-blue-hover: #2563eb;
+  --dd-blue-soft: rgba(59, 130, 246, 0.14);
+  --dd-success: #22c55e;
+  --dd-warning: #f59e0b;
+  --dd-danger: #ef4444;
+  --dd-radius-control: 10px;
+  --dd-radius-card: 14px;
+  --dd-font: "Geist", "Inter", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --dd-mono: "Geist Mono", ui-monospace, "Cascadia Mono", Menlo, monospace;
+  --dd-fast: 150ms;
+  --dd-base: 220ms;
+}

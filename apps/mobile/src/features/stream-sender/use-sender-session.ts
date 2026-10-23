@@ -11,7 +11,7 @@ import {
 import * as sender from "../../../modules/test-video";
 import type { SenderStatus } from "../../../modules/test-video";
 
-type Operation = "connect" | "start" | "screen" | "stop" | null;
+type Operation = "connect" | "start" | "screen" | "pause" | "stop" | null;
 
 async function localNetworkPermission() {
   if (Platform.OS === "android" && Number(Platform.Version) >= 37) {
@@ -314,6 +314,11 @@ export function useSenderSession() {
   const openAccessibilitySettings = () =>
     controlAction(sender.openAccessibilitySettings);
 
+  /** Ends the video only; the phone stays paired so the next share needs no new code. */
+  function pause() {
+    void run("pause", () => sender.pause());
+  }
+
   function stop() {
     if (locked.current === "stop") return;
     generation.current += 1;
@@ -353,6 +358,7 @@ export function useSenderSession() {
     connect,
     start,
     startScreen,
+    pause,
     stop,
     controlBusy,
     supportsRemoteControl: sender.supportsRemoteControl,
