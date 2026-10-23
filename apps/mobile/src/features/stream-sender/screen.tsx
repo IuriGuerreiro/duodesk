@@ -1,579 +1,393 @@
-import { useState } from "react";
-import { colors, space, type } from "@duodesk/design-tokens";
+import { useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   Switch,
+  Text,
   View,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { useKeepAwake } from "expo-keep-awake";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Button } from "@/shared/ui/button";
-import { Input } from "@/shared/ui/input";
-import { Text } from "@/shared/ui/text";
-import { cn } from "@/shared/lib/utils";
-import { PairingPanel } from "@/features/pairing";
-import { useSenderSession } from "./use-sender-session";
-import { screenStreamingCopy, sessionCopy } from "./session-copy";
+import { colors, space } from "@duodesk/design-tokens";
+import { Action, styles } from "@/shared/ui/duo-ui";
+import { useSenderConnection } from "./session-context";
 
-type SenderSession = ReturnType<typeof useSenderSession>;
-type IconName = React.ComponentProps<typeof Ionicons>["name"];
-
-function Icon({
-  name,
-  color = colors.text2,
-  size = 22,
-}: {
-  name: IconName;
-  color?: string;
-  size?: number;
-}) {
-  return (
-    <Ionicons
-      name={name}
-      size={size}
-      color={color}
-      accessible={false}
-      aria-hidden
-    />
-  );
-}
+const QUALITY = [
+  { label: "Saver", mbps: 6 },
+  { label: "Balanced", mbps: 12 },
+  { label: "Sharp", mbps: 20 },
+] as const;
 
 function PreventSleep() {
-  useKeepAwake("duodesk-test-stream", { suppressDeactivateWarnings: true });
+  useKeepAwake("duodesk-stream");
   return null;
 }
 
-function Notice({
-  title,
-  children,
-  error = false,
-}: {
-  title: string;
-  children: string;
-  error?: boolean;
-}) {
-  return (
-    <View
-      accessibilityRole={error ? "alert" : undefined}
-      accessibilityLiveRegion="polite"
-      className={cn(
-        "flex-row gap-3 rounded-card border p-4",
-        error
-          ? "border-destructive/30 bg-destructive/10"
-          : "border-border bg-surface",
-      )}
-    >
-      <Icon
-        name={error ? "alert-circle-outline" : "information-circle-outline"}
-        color={error ? colors.danger : colors.text2}
-      />
-      <View className="flex-1 gap-1">
-        <Text
-          className={cn("text-sm font-semibold", error && "text-destructive")}
-        >
-          {title}
-        </Text>
-        <Text
-          className={cn(
-            "text-sm leading-5 text-muted-foreground",
-            error && "text-destructive",
-          )}
-        >
-          {children}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-function Session({ connection }: { connection: SenderSession }) {
-  const { status } = connection;
+export default function SenderScreen() {
+  const connection = useSenderConnection();
+  const status = connection.status;
   const [details, setDetails] = useState(false);
-  const stats = status.stats;
-  const screenMode = status.mode === "screen" || connection.screenIntent;
+  const idle = connection.canPair;
+  const working = connection.busy;
+  const busy =
+    connection.busy || connection.remoteAccessBusy || connection.controlBusy;
+  const bitrate = Number(connection.bitrate);
+  const receiver = connection.receiver || "your PC";
   const starting =
-    connection.negotiatingVideo ||
+    connection.operation === "screen" ||
     connection.operation === "start" ||
-    connection.operation === "screen";
+    connection.negotiatingVideo;
+  const message =
+    connection.error || (status.state === "failed" ? status.message : "");
+  const screen = status.mode === "screen";
+  const controlling = status.control?.state === "on";
+
+  function openScanner() {
+    connection.openScanner();
+    router.push("/scan");
+  }
+  function openManual() {
+    connection.setError("");
+    connection.setMode("manual");
+    router.push("/paste");
+  }
+
   return (
-    <View className="gap-5">
-      <View className="flex-row items-center gap-3">
-        <View className="h-12 w-12 items-center justify-center rounded-xl bg-secondary">
-          <Icon name="desktop-outline" size={26} />
-        </View>
-        <View className="flex-1 gap-1">
-          <Text className="text-lg font-semibold">
-            {status.state === "connecting" && !starting
-              ? "Connecting to PC"
-              : "Your PC"}
-          </Text>
-          <Text selectable className="text-sm text-muted-foreground">
-            {connection.receiver || "Local receiver"}
-          </Text>
-        </View>
-        {status.state === "connecting" && (
-          <ActivityIndicator
-            accessibilityLabel={
-              starting
-                ? screenMode
-                  ? "Starting screen sharing"
-                  : "Starting test video"
-                : "Connecting to PC"
-            }
-            color={colors.blue}
-          />
-        )}
-      </View>
-      <View className="gap-4 border-t border-border pt-5">
-        <View className="flex-row items-center justify-between gap-3">
-          <View className="flex-1 gap-1">
-            <Text className="font-semibold">
-              {screenMode ? "Screen sharing" : "Test video"}
-            </Text>
-            <Text className="text-sm text-muted-foreground">
-              {screenMode
-                ? "Live display mirror"
-                : "Bundled clip · 1080p target"}
-            </Text>
+    <SafeAreaView style={styles.safe}>
+      {!idle && connection.available && status.mode !== "screen" && (
+        <PreventSleep />
+      )}
+      <ScrollView
+        contentContainerStyle={[styles.content, { flexGrow: 1 }]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.header}>
+          <View style={styles.brand}>
+            <View style={styles.brandMark} />
+            <Text style={styles.brandText}>DuoDesk</Text>
           </View>
-          <View className="rounded-lg bg-secondary px-2.5 py-1.5">
-            <Text className="text-xs font-semibold text-secondary-foreground">
-              {screenMode
-                ? status.audio === "active"
-                  ? "VIDEO + AUDIO"
-                  : "NO AUDIO"
-                : "VIDEO ONLY"}
-            </Text>
-          </View>
+          <StatusPill state={status.state} busy={working} />
         </View>
-        <Button
-          variant="ghost"
-          size="sm"
-          accessibilityState={{ expanded: details }}
-          onPress={() => setDetails(!details)}
-        >
-          <Text>
-            {status.state === "ready" ? "Stream options" : "Stream details"}
-          </Text>
-          <Icon name={details ? "chevron-up" : "chevron-down"} size={16} />
-        </Button>
-        {details && status.state === "ready" && (
-          <View className="gap-2">
-            <View className="flex-row items-center gap-3">
-              <Text className="flex-1 text-sm text-muted-foreground">
-                Maximum bitrate
+
+        {idle && !working && (
+          <>
+            <View style={styles.hero}>
+              <Text style={styles.display}>
+                {status.state === "failed"
+                  ? "Let's reconnect"
+                  : "Your phone, on your big screen."}
               </Text>
-              <Input
-                className="w-20 text-center"
-                accessibilityLabel="Maximum bitrate in Mbps"
-                value={connection.bitrate}
-                onChangeText={connection.setBitrate}
-                keyboardType="number-pad"
-                maxLength={2}
-                editable={!connection.busy}
-                selectTextOnFocus
-              />
-              <Text className="text-sm text-muted-foreground">Mbps</Text>
-            </View>
-            <Text className="text-xs leading-5 text-muted-foreground">
-              2–30 Mbps. Actual quality adapts to your connection.
-            </Text>
-          </View>
-        )}
-        {details &&
-          status.state === "ready" &&
-          connection.supportsPlaybackAudio && (
-            <View className="gap-2">
-              <View className="flex-row items-center gap-3">
-                <Text className="flex-1 text-sm font-semibold">
-                  Share phone audio
+              <Text style={styles.lead}>
+                Open DuoDesk on your computer, press Create connection, then
+                scan the code.
+              </Text>
+              {!connection.available && (
+                <Text style={styles.error}>
+                  {Platform.OS === "ios" || Platform.OS === "android"
+                    ? "Rebuild and install the DuoDesk development client to enable streaming."
+                    : "Streaming works in the Android and iOS apps only."}
                 </Text>
+              )}
+              {message ? <Text style={styles.error}>{message}</Text> : null}
+            </View>
+            <Action
+              label="Scan code"
+              disabled={!connection.available}
+              onPress={openScanner}
+            />
+            <Action
+              variant="ghost"
+              label="Enter address and code"
+              disabled={!connection.available}
+              onPress={openManual}
+            />
+          </>
+        )}
+
+        {(working || status.state === "connecting") &&
+          status.state !== "streaming" && (
+            <View style={styles.hero}>
+              <Text style={styles.title}>
+                {starting ? "Starting your stream" : "Connecting"}
+              </Text>
+              <Text style={styles.lead}>to {receiver}</Text>
+              <Steps
+                items={[
+                  { label: "Computer found", done: true },
+                  {
+                    label: "Securing the link",
+                    done: starting,
+                    active: !starting,
+                  },
+                  { label: "Ready to stream", done: false, active: starting },
+                ]}
+              />
+            </View>
+          )}
+
+        {status.state === "ready" && !working && (
+          <>
+            <View style={styles.hero}>
+              <Text style={styles.title}>Connected</Text>
+              <Text style={styles.lead}>to {receiver}</Text>
+              <Text style={styles.label}>Quality</Text>
+              <View style={styles.segment}>
+                {QUALITY.map((option) => (
+                  <Pressable
+                    key={option.mbps}
+                    onPress={() => connection.setBitrate(String(option.mbps))}
+                    style={[
+                      styles.segmentItem,
+                      bitrate === option.mbps && styles.segmentActive,
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: bitrate === option.mbps }}
+                  >
+                    <Text
+                      style={[
+                        styles.segmentText,
+                        bitrate === option.mbps && styles.segmentTextActive,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              {connection.remoteAccessStep === "settings" && (
+                <Text style={[styles.lead, { marginTop: space.md }]}>
+                  Enable DuoDesk in Accessibility settings, then return here.
+                </Text>
+              )}
+              {message ? <Text style={styles.error}>{message}</Text> : null}
+            </View>
+            {connection.supportsPlaybackAudio && (
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  paddingVertical: space.sm,
+                }}
+              >
+                <Text style={styles.lead}>Share phone audio</Text>
                 <Switch
-                  accessibilityLabel="Share phone audio when sharing the screen"
+                  accessibilityLabel="Share phone audio"
+                  value={connection.shareAudio}
+                  onValueChange={connection.setShareAudio}
                   trackColor={{ false: colors.surface3, true: colors.blue }}
                   thumbColor={colors.text}
                   ios_backgroundColor={colors.surface3}
-                  value={connection.shareAudio}
-                  onValueChange={connection.setShareAudio}
-                  disabled={connection.busy}
                 />
               </View>
-              <Text className="text-xs leading-5 text-muted-foreground">
-                Sends sound from other apps, not your microphone. Android asks
-                for the microphone permission because it requires it for any
-                audio capture. Calls and apps that block capture stay silent.
+            )}
+            {connection.supportsScreenSharing && (
+              <Action
+                label="Share screen"
+                disabled={busy}
+                onPress={connection.startScreen}
+              />
+            )}
+            {connection.supportsRemoteControl && (
+              <Action
+                variant="secondary"
+                label={
+                  connection.remoteAccessBusy
+                    ? "Starting remote access…"
+                    : "Remote access"
+                }
+                disabled={busy}
+                onPress={connection.requestRemoteAccess}
+              />
+            )}
+            <Action
+              variant="ghost"
+              label="Start test video"
+              disabled={busy}
+              onPress={connection.start}
+            />
+            <Action
+              variant="ghost"
+              label="Disconnect"
+              onPress={connection.stop}
+            />
+          </>
+        )}
+
+        {status.state === "streaming" && (
+          <>
+            <View style={[styles.hero, styles.center]}>
+              <View style={styles.liveRing}>
+                <View style={styles.liveDot} />
+              </View>
+              <Text style={styles.title}>
+                {controlling ? "Remote access is on" : "You’re live"}
               </Text>
+              <Text style={styles.lead}>Streaming to {receiver}</Text>
+              {screen && (
+                <Text
+                  style={[
+                    styles.lead,
+                    { textAlign: "center", marginTop: space.sm },
+                  ]}
+                >
+                  {controlling
+                    ? "Your PC can tap and swipe."
+                    : "Your screen is being shared."}
+                </Text>
+              )}
+              {screen && (connection.audioNotice || status.audioMessage) ? (
+                <Text
+                  style={[
+                    styles.lead,
+                    { textAlign: "center", marginTop: space.sm },
+                  ]}
+                >
+                  {connection.audioNotice || status.audioMessage}
+                </Text>
+              ) : null}
+              <Pressable
+                onPress={() => setDetails((value) => !value)}
+                style={styles.chip}
+                accessibilityRole="button"
+              >
+                <Text style={styles.chipText}>
+                  {details ? "Hide details" : "Details"}
+                </Text>
+              </Pressable>
+              {details && status.stats && (
+                <View style={styles.stats}>
+                  <Stat
+                    label="Resolution"
+                    value={`${status.stats.width} × ${status.stats.height}`}
+                  />
+                  <Stat
+                    label="Frame rate"
+                    value={`${Number(status.stats.fps).toFixed(0)} fps`}
+                  />
+                  <Stat
+                    label="Bitrate"
+                    value={`${Number(status.stats.mbps).toFixed(1)} Mbps`}
+                  />
+                  <Stat label="Codec" value={status.stats.codec} />
+                  <Stat label="Limited by" value={status.stats.qualityLimit} />
+                </View>
+              )}
             </View>
-          )}
-        {screenMode && connection.audioNotice ? (
-          <Text className="text-xs leading-5 text-muted-foreground">
-            {connection.audioNotice}
-          </Text>
-        ) : null}
-        {screenMode && status.audioMessage ? (
-          <Text className="text-xs leading-5 text-muted-foreground">
-            {status.audioMessage}
-          </Text>
-        ) : null}
-        {status.state === "streaming" && !stats && (
-          <Text className="text-sm text-muted-foreground">
-            Waiting for stream statistics…
-          </Text>
-        )}
-        {details && stats && status.state === "streaming" && (
-          <View className="gap-3 rounded-xl bg-muted p-4">
-            <View className="flex-row flex-wrap gap-x-6 gap-y-3">
-              <Metric
-                value={`${stats.width} × ${stats.height}`}
-                label={stats.codec}
+            {screen && connection.supportsRemoteControl && (
+              <Action
+                variant="secondary"
+                label={
+                  controlling
+                    ? "Stop remote access"
+                    : connection.remoteAccessBusy
+                      ? "Starting remote access…"
+                      : "Remote access"
+                }
+                disabled={busy}
+                onPress={
+                  controlling
+                    ? connection.stopControl
+                    : connection.requestRemoteAccess
+                }
               />
-              <Metric
-                value={`${Number(stats.fps).toFixed(0)} fps`}
-                label="Frame rate"
-              />
-              <Metric
-                value={`${Number(stats.mbps).toFixed(2)}`}
-                label="Mbps sent"
-              />
-            </View>
-            <Text className="text-xs text-muted-foreground">
-              Quality limit: {stats.qualityLimit}
-              {stats.audioKbps !== undefined
-                ? ` · Audio ${Number(stats.audioKbps).toFixed(0)} kbps`
-                : ""}
-            </Text>
-          </View>
+            )}
+            {message ? <Text style={styles.error}>{message}</Text> : null}
+            <Action
+              variant="danger"
+              label="Stop streaming"
+              disabled={busy}
+              onPress={connection.pause}
+            />
+            <Action
+              variant="ghost"
+              label="Disconnect"
+              disabled={busy}
+              onPress={connection.stop}
+            />
+          </>
         )}
-        {status.state === "connecting" && (
-          <Text
-            accessibilityLiveRegion="polite"
-            className="text-sm leading-6 text-muted-foreground"
-          >
-            {starting
-              ? screenMode
-                ? "Starting screen sharing. Waiting for your PC…"
-                : "Starting the test video. Waiting for your PC…"
-              : "Verifying the code. Waiting for your PC…"}
-          </Text>
-        )}
-      </View>
-      <Text className="text-xs leading-5 text-muted-foreground">
-        {screenMode && status.state === "streaming"
-          ? "Sharing continues when you open other apps. Stop it here or from the DuoDesk notification. Stopping the stream keeps your PC connected."
-          : "Keep DuoDesk open. Leaving the app ends this session. Stopping the stream keeps your PC connected."}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function StatusPill({ state, busy }: { state: string; busy: boolean }) {
+  const live = state === "streaming";
+  const label = live
+    ? "Live"
+    : busy || state === "connecting"
+      ? "Connecting"
+      : state === "ready"
+        ? "Connected"
+        : state === "failed"
+          ? "Failed"
+          : "Not connected";
+  const dot = live
+    ? colors.blue
+    : state === "failed"
+      ? colors.danger
+      : state === "ready"
+        ? colors.success
+        : busy || state === "connecting"
+          ? colors.warning
+          : colors.text3;
+  return (
+    <View
+      style={[styles.pill, live && styles.pillLive]}
+      accessibilityLiveRegion="polite"
+    >
+      <View style={[styles.pillDot, { backgroundColor: dot }]} />
+      <Text style={[styles.pillText, live && { color: "#BFDBFE" }]}>
+        {label}
       </Text>
     </View>
   );
 }
 
-function SessionControls({ connection }: { connection: SenderSession }) {
-  const { status } = connection;
-  const stopping = connection.operation === "stop";
-  const canRemoteAccess =
-    connection.supportsRemoteControl &&
-    (status.state === "ready" ||
-      (status.state === "streaming" && status.mode === "screen"));
+function Steps({
+  items,
+}: {
+  items: { label: string; done: boolean; active?: boolean }[];
+}) {
   return (
-    <View className="border-t border-border bg-background px-6 pb-2 pt-3">
-      <View className="mx-auto w-full max-w-xl gap-2">
-        {connection.error ? (
-          <Text
-            accessibilityRole="alert"
-            accessibilityLiveRegion="polite"
-            className="text-sm leading-5 text-destructive"
-          >
-            {connection.error}
-          </Text>
-        ) : null}
-        {status.state === "ready" && connection.supportsScreenSharing && (
-          <Button disabled={connection.busy} onPress={connection.startScreen}>
-            <Icon name="phone-portrait-outline" color={colors.text} size={19} />
-            <Text>Share screen</Text>
-          </Button>
-        )}
-        {canRemoteAccess && (
-          <Button
-            variant="outline"
-            disabled={
-              connection.busy ||
-              connection.controlBusy ||
-              connection.remoteAccessBusy
-            }
-            onPress={
-              status.control?.state === "on"
-                ? connection.stopControl
-                : connection.requestRemoteAccess
-            }
-          >
-            <Icon name="hand-left-outline" color={colors.text} size={19} />
-            <Text>
-              {connection.remoteAccessBusy
-                ? "Starting remote access…"
-                : status.control?.state === "on"
-                  ? "Stop remote access"
-                  : "Remote access"}
-            </Text>
-          </Button>
-        )}
-        {canRemoteAccess && (
-          <Text
-            accessibilityLiveRegion="polite"
-            className="text-xs leading-5 text-muted-foreground"
-          >
-            {connection.remoteAccessStep === "settings"
-              ? "Enable DuoDesk in Accessibility settings, then return here. If Android blocks the switch, open App info and allow restricted settings."
-              : connection.remoteAccessBusy
-                ? "Starting remote access for this session…"
-                : status.control?.state === "on"
-                  ? "Your PC can tap and swipe. Stop remote access to keep sharing without control."
-                  : "Remote access shares your screen and lets this PC tap and swipe. Accessibility permission is required."}
-          </Text>
-        )}
-        {status.state === "ready" && (
-          <Button
-            variant={connection.supportsScreenSharing ? "outline" : "default"}
-            disabled={connection.busy}
-            onPress={connection.start}
-          >
-            <Icon name="play" color={colors.text} size={19} />
-            <Text>Start test video</Text>
-          </Button>
-        )}
-        {status.state === "ready" &&
-          !connection.supportsScreenSharing &&
-          Platform.OS === "android" &&
-          connection.available && (
-            <Text className="text-xs leading-5 text-muted-foreground">
-              Screen sharing needs an updated Android development build. Rebuild
-              and install the app to enable it.
-            </Text>
-          )}
-        {status.state === "streaming" && (
-          <Button
-            variant="destructive"
-            disabled={connection.busy}
-            onPress={connection.pause}
-          >
-            <Icon name="stop" color={colors.danger} size={18} />
-            <Text>Stop streaming</Text>
-          </Button>
-        )}
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={stopping}
-          onPress={connection.stop}
-        >
-          {stopping ? (
-            <ActivityIndicator color={colors.blue} />
+    <View style={styles.steps}>
+      {items.map((item) => (
+        <View key={item.label} style={styles.step}>
+          {item.active ? (
+            <ActivityIndicator size="small" color={colors.blue} />
           ) : (
-            <Icon name="close" color={colors.text} size={18} />
+            <Text
+              style={[
+                styles.stepIcon,
+                { color: item.done ? colors.success : colors.text3 },
+              ]}
+            >
+              {item.done ? "✓" : "○"}
+            </Text>
           )}
-          <Text>
-            {stopping
-              ? "Ending session…"
-              : status.state === "connecting"
-                ? "Cancel connection"
-                : "Disconnect"}
+          <Text
+            style={[
+              styles.stepText,
+              { color: item.done ? colors.text : colors.text2 },
+            ]}
+          >
+            {item.label}
           </Text>
-        </Button>
-      </View>
+        </View>
+      ))}
     </View>
   );
 }
 
-function Metric({ value, label }: { value: string; label: string }) {
+function Stat({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <View className="gap-1">
-      <Text className="text-lg font-semibold tabular-nums">{value}</Text>
-      <Text className="text-xs text-muted-foreground">{label}</Text>
+    <View style={styles.stat}>
+      <Text style={styles.statLabel}>{label}</Text>
+      <Text style={styles.statValue}>{value}</Text>
     </View>
-  );
-}
-
-export default function StreamSenderScreen() {
-  const connection = useSenderSession();
-  const [help, setHelp] = useState(false);
-  const sharingScreen =
-    connection.status.mode === "screen" &&
-    connection.status.state === "streaming";
-  const copy = sharingScreen
-    ? screenStreamingCopy(connection.status.audio)
-    : sessionCopy[connection.status.state];
-  const error =
-    connection.error ||
-    (connection.status.state === "failed" ? connection.status.message : "");
-  return (
-    <SafeAreaView className="flex-1 bg-background">
-      {!connection.canPair &&
-        connection.available &&
-        connection.status.mode !== "screen" && <PreventSleep />}
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      >
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          contentContainerStyle={{ flexGrow: 1, paddingBottom: space.xl }}
-        >
-          <View className="mx-auto w-full max-w-xl flex-1 gap-6 px-6 pt-4">
-            <View className="flex-row items-center justify-between">
-              <View
-                className="flex-row items-center gap-2.5"
-                accessibilityLabel="DuoDesk"
-              >
-                <View
-                  accessible={false}
-                  className="h-8 w-8 flex-row items-center justify-center gap-1 rounded-lg border border-foreground bg-surface"
-                >
-                  <View className="h-4 w-1 rounded-sm bg-foreground" />
-                  <View className="h-4 w-1 rounded-sm bg-primary" />
-                </View>
-                <Text className="text-lg font-semibold tracking-tight">
-                  DuoDesk
-                </Text>
-              </View>
-              <Button
-                variant="ghost"
-                size="icon"
-                accessibilityLabel={
-                  help ? "Close connection help" : "Connection help"
-                }
-                accessibilityState={{ expanded: help }}
-                onPress={() => setHelp(!help)}
-              >
-                <Icon
-                  name={help ? "close" : "help-circle-outline"}
-                  color={colors.text2}
-                  size={25}
-                />
-              </Button>
-            </View>
-            {help && (
-              <View className="gap-3 rounded-card border border-border bg-surface p-5">
-                <Text
-                  className="text-lg font-semibold"
-                  accessibilityRole="header"
-                >
-                  Two devices, one connection
-                </Text>
-                <Text className="text-sm leading-6 text-muted-foreground">
-                  1. Open DuoDesk on your PC.{`\n`}2. Create a pairing code.
-                  {`\n`}3. Scan its QR code, or enter the address and six-digit
-                  code here.
-                </Text>
-                <Text className="text-sm leading-6 text-muted-foreground">
-                  Codes expire quickly and work once. If one fails, create a new
-                  one. Both devices must be on the same local network. Check the
-                  PC firewall if connecting times out.
-                </Text>
-                <Text className="text-sm leading-6 text-muted-foreground">
-                  Share screen lets your PC view your display. Remote access
-                  also lets it tap and swipe after you enable Accessibility.
-                  Phone audio is optional. You can stop control at any time.
-                </Text>
-              </View>
-            )}
-            {(!connection.canPair || connection.mode === "closed") && (
-              <View className="gap-4 pt-5">
-                <View
-                  className="self-start flex-row items-center gap-2 rounded-full border border-border bg-muted px-3 py-1.5"
-                  style={
-                    sharingScreen
-                      ? { backgroundColor: colors.blueSoft }
-                      : undefined
-                  }
-                  accessibilityLiveRegion="polite"
-                >
-                  <View
-                    className="h-2 w-2 rounded-full"
-                    style={{
-                      backgroundColor: sharingScreen
-                        ? colors.blue
-                        : copy.tone === "red"
-                          ? colors.danger
-                          : copy.tone === "green"
-                            ? colors.success
-                            : colors.text3,
-                    }}
-                  />
-                  <Text className="text-xs font-medium text-muted-foreground">
-                    {copy.label}
-                  </Text>
-                </View>
-                <Text accessibilityRole="header" style={type.display}>
-                  {connection.negotiatingVideo
-                    ? connection.screenIntent
-                      ? "Starting screen sharing"
-                      : "Starting your video"
-                    : sharingScreen && connection.status.control?.state === "on"
-                      ? "Remote access is on"
-                      : copy.title}
-                </Text>
-                <Text className="max-w-sm text-[15px] leading-6 text-muted-foreground">
-                  {connection.negotiatingVideo
-                    ? connection.screenIntent
-                      ? "The PC is connected. Setting up screen sharing."
-                      : "The PC is connected. Setting up the test video stream."
-                    : copy.detail}
-                </Text>
-              </View>
-            )}
-            {error && connection.canPair ? (
-              <Notice title="Couldn’t complete that" error>
-                {error}
-              </Notice>
-            ) : null}
-            <View className="gap-5 rounded-card border border-border bg-surface p-5">
-              {connection.canPair ? (
-                <PairingPanel
-                  mode={connection.mode}
-                  setMode={connection.setMode}
-                  address={connection.address}
-                  setAddress={connection.setAddress}
-                  code={connection.code}
-                  setCode={connection.setCode}
-                  notice={connection.notice}
-                  available={connection.available}
-                  busy={connection.busy}
-                  canSubmit={connection.canSubmit}
-                  connecting={connection.operation === "connect"}
-                  connect={connection.connect}
-                  openScanner={connection.openScanner}
-                  closeScanner={connection.closeScanner}
-                  acceptScan={connection.acceptScan}
-                  guardPrompt={connection.guardPrompt}
-                />
-              ) : (
-                <Session connection={connection} />
-              )}
-            </View>
-            {!connection.available && (
-              <Notice title="Streaming unavailable in this build">
-                {Platform.OS === "web"
-                  ? "Connect and stream from the DuoDesk Android or iOS app. This browser preview shows the interface only."
-                  : "Install a DuoDesk development build with the native video sender to connect and stream."}
-              </Notice>
-            )}
-            <View className="mt-auto flex-row items-center justify-center gap-2 pt-2">
-              <Icon
-                name="shield-checkmark-outline"
-                size={15}
-                color={colors.text2}
-              />
-              <Text className="text-xs text-muted-foreground">
-                Direct to your PC. No cloud video.
-              </Text>
-            </View>
-          </View>
-        </ScrollView>
-        {!connection.canPair && <SessionControls connection={connection} />}
-      </KeyboardAvoidingView>
-    </SafeAreaView>
   );
 }

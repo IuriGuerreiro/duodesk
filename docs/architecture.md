@@ -123,3 +123,5 @@ First release acceptance: works without internet on a normal non-isolated LAN; u
 - [Windows capture](https://learn.microsoft.com/en-us/windows/uwp/audio-video-camera/screen-capture) provides native frame capture.
 - [Windows SendInput](https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-sendinput) documents input injection and UIPI restrictions.
 - [WebRTC peer connections](https://webrtc.org/getting-started/peer-connections) describes signaling and ICE negotiation.
+
+The mobile sender session is owned by `SenderSessionProvider` above the Expo Router stack. Home, Scan and manual entry share that connection, so navigating back from the scanner does not tear it down. The session hook handles native status, application backgrounding and teardown. Route views own navigation and camera presentation.

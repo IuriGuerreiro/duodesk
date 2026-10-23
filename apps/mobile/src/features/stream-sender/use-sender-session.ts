@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Keyboard, PermissionsAndroid, Platform } from "react-native";
-import { useFocusEffect } from "expo-router";
 import { parsePairingQrPayload } from "@duodesk/protocol/pairing";
 import {
   connectToDesktop,
@@ -104,18 +103,20 @@ export function useSenderSession() {
     }
   }, []);
 
-  const syncStatus = useCallback(async () => {
-    if (!sender.available) return;
+  const syncStatus = useCallback(() => {
+    if (!sender.available) return Promise.resolve();
     const seqAtCall = eventSeq.current;
-    try {
-      const snapshot = await sender.getStatus();
-      if (active.current && eventSeq.current === seqAtCall) {
-        statusRef.current = snapshot;
-        setStatus(snapshot);
-      }
-    } catch {
-      // Keep the last known status when the query fails.
-    }
+    return sender
+      .getStatus()
+      .then((snapshot) => {
+        if (active.current && eventSeq.current === seqAtCall) {
+          statusRef.current = snapshot;
+          setStatus(snapshot);
+        }
+      })
+      .catch(() => {
+        // Keep the last known status when the query fails.
+      });
   }, []);
 
   // Leaving the screen ends pairing and previews, but an active screen share
@@ -133,6 +134,7 @@ export function useSenderSession() {
 
   useEffect(() => {
     active.current = true;
+    void syncStatus();
     const subscription = sender.subscribe((next) => {
       if (!active.current) return;
       eventSeq.current += 1;
@@ -166,13 +168,6 @@ export function useSenderSession() {
       leaveScreen();
     };
   }, [closeScanner, leaveScreen, syncStatus]);
-
-  useFocusEffect(
-    useCallback(() => {
-      void syncStatus();
-      return leaveScreen;
-    }, [leaveScreen, syncStatus]),
-  );
 
   const canPair =
     status.state === "idle" ||
@@ -267,12 +262,12 @@ export function useSenderSession() {
     }
   }
 
-  function openScanner() {
+  const openScanner = useCallback(() => {
     gate.open();
     setError("");
     setNotice("");
     setMode("scan");
-  }
+  }, [gate]);
 
   function start() {
     remoteAccess.current?.cancel();
