@@ -10,40 +10,40 @@ type SessionCopy = {
 export const sessionCopy = {
   idle: {
     label: "Not connected",
-    title: "Your phone.\nMeet your PC.",
+    title: "Connect to your PC",
     detail:
-      "Pair with DuoDesk on your PC to send your screen or video over your local network.",
+      "Open DuoDesk on your PC, create a connection, then scan its pairing code.",
     tone: "neutral",
   },
   connecting: {
     label: "Connecting",
-    title: "Making the\nconnection.",
+    title: "Connecting to your PC",
     detail: "Keep DuoDesk open on both devices. This may take a few moments.",
     tone: "blue",
   },
   ready: {
     label: "Connected",
-    title: "Connected.\nReady when you are.",
+    title: "Your PC is ready",
     detail:
-      "Your PC is paired. Share your screen or start the test video to check your connection.",
+      "Share your screen, or let your PC tap and swipe with remote access.",
     tone: "green",
   },
   streaming: {
     label: "Video is live",
-    title: "Test video.\nLive on your PC.",
+    title: "Your video is live",
     detail:
       "The test video is streaming to your PC. Your phone screen is not being shared.",
     tone: "green",
   },
   stopped: {
     label: "Disconnected",
-    title: "Session ended.\nConnect again.",
+    title: "Session ended",
     detail: "Create a new pairing code on your PC to start another session.",
     tone: "neutral",
   },
   failed: {
     label: "Connection issue",
-    title: "Let’s get you\nreconnected.",
+    title: "Let’s reconnect",
     detail:
       "Check that both devices are on the same network, then create a new pairing code on your PC.",
     tone: "red",
@@ -57,7 +57,7 @@ export function screenStreamingCopy(audio: SenderStatus["audio"]): SessionCopy {
       : "Sound is not shared.";
   return {
     label: "Screen is live",
-    title: "Your screen.\nLive on your PC.",
+    title: "You’re sharing your screen",
     detail: `Your display is mirrored to your PC. ${sound} You can stop from the DuoDesk notification or here.`,
     tone: "green",
   };

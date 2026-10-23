@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { colors, space, type } from "@duodesk/design-tokens";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -14,7 +15,7 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Text } from "@/shared/ui/text";
 import { cn } from "@/shared/lib/utils";
-import { PairingDeviceLink, PairingPanel } from "@/features/pairing";
+import { PairingPanel } from "@/features/pairing";
 import { useSenderSession } from "./use-sender-session";
 import { screenStreamingCopy, sessionCopy } from "./session-copy";
 
@@ -23,7 +24,7 @@ type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
 function Icon({
   name,
-  color = "#2855D9",
+  color = colors.text2,
   size = 22,
 }: {
   name: IconName;
@@ -60,13 +61,15 @@ function Notice({
       accessibilityRole={error ? "alert" : undefined}
       accessibilityLiveRegion="polite"
       className={cn(
-        "flex-row gap-3 rounded-2xl border p-4",
-        error ? "border-[#F1C5CD] bg-[#FFF3F5]" : "border-border bg-white",
+        "flex-row gap-3 rounded-card border p-4",
+        error
+          ? "border-destructive/30 bg-destructive/10"
+          : "border-border bg-surface",
       )}
     >
       <Icon
         name={error ? "alert-circle-outline" : "information-circle-outline"}
-        color={error ? "#B42339" : "#5D6B82"}
+        color={error ? colors.danger : colors.text2}
       />
       <View className="flex-1 gap-1">
         <Text
@@ -77,7 +80,7 @@ function Notice({
         <Text
           className={cn(
             "text-sm leading-5 text-muted-foreground",
-            error && "text-[#8B2334]",
+            error && "text-destructive",
           )}
         >
           {children}
@@ -89,6 +92,7 @@ function Notice({
 
 function Session({ connection }: { connection: SenderSession }) {
   const { status } = connection;
+  const [details, setDetails] = useState(false);
   const stats = status.stats;
   const screenMode = status.mode === "screen" || connection.screenIntent;
   const starting =
@@ -120,7 +124,7 @@ function Session({ connection }: { connection: SenderSession }) {
                   : "Starting test video"
                 : "Connecting to PC"
             }
-            color="#2855D9"
+            color={colors.blue}
           />
         )}
       </View>
@@ -146,7 +150,18 @@ function Session({ connection }: { connection: SenderSession }) {
             </Text>
           </View>
         </View>
-        {status.state === "ready" && (
+        <Button
+          variant="ghost"
+          size="sm"
+          accessibilityState={{ expanded: details }}
+          onPress={() => setDetails(!details)}
+        >
+          <Text>
+            {status.state === "ready" ? "Stream options" : "Stream details"}
+          </Text>
+          <Icon name={details ? "chevron-up" : "chevron-down"} size={16} />
+        </Button>
+        {details && status.state === "ready" && (
           <View className="gap-2">
             <View className="flex-row items-center gap-3">
               <Text className="flex-1 text-sm text-muted-foreground">
@@ -169,26 +184,31 @@ function Session({ connection }: { connection: SenderSession }) {
             </Text>
           </View>
         )}
-        {status.state === "ready" && connection.supportsPlaybackAudio && (
-          <View className="gap-2">
-            <View className="flex-row items-center gap-3">
-              <Text className="flex-1 text-sm font-semibold">
-                Share phone audio
+        {details &&
+          status.state === "ready" &&
+          connection.supportsPlaybackAudio && (
+            <View className="gap-2">
+              <View className="flex-row items-center gap-3">
+                <Text className="flex-1 text-sm font-semibold">
+                  Share phone audio
+                </Text>
+                <Switch
+                  accessibilityLabel="Share phone audio when sharing the screen"
+                  trackColor={{ false: colors.surface3, true: colors.blue }}
+                  thumbColor={colors.text}
+                  ios_backgroundColor={colors.surface3}
+                  value={connection.shareAudio}
+                  onValueChange={connection.setShareAudio}
+                  disabled={connection.busy}
+                />
+              </View>
+              <Text className="text-xs leading-5 text-muted-foreground">
+                Sends sound from other apps, not your microphone. Android asks
+                for the microphone permission because it requires it for any
+                audio capture. Calls and apps that block capture stay silent.
               </Text>
-              <Switch
-                accessibilityLabel="Share phone audio when sharing the screen"
-                value={connection.shareAudio}
-                onValueChange={connection.setShareAudio}
-                disabled={connection.busy}
-              />
             </View>
-            <Text className="text-xs leading-5 text-muted-foreground">
-              Sends sound from other apps, not your microphone. Android asks for
-              the microphone permission because it requires it for any audio
-              capture. Calls and apps that block capture stay silent.
-            </Text>
-          </View>
-        )}
+          )}
         {screenMode && connection.audioNotice ? (
           <Text className="text-xs leading-5 text-muted-foreground">
             {connection.audioNotice}
@@ -204,7 +224,7 @@ function Session({ connection }: { connection: SenderSession }) {
             Waiting for stream statistics…
           </Text>
         )}
-        {stats && status.state === "streaming" && (
+        {details && stats && status.state === "streaming" && (
           <View className="gap-3 rounded-xl bg-muted p-4">
             <View className="flex-row flex-wrap gap-x-6 gap-y-3">
               <Metric
@@ -243,8 +263,8 @@ function Session({ connection }: { connection: SenderSession }) {
       </View>
       <Text className="text-xs leading-5 text-muted-foreground">
         {screenMode && status.state === "streaming"
-          ? "Sharing continues when you open other apps. Stop it here or from the DuoDesk notification. Reconnecting needs a new pairing code."
-          : "Keep DuoDesk open. Leaving the app ends this session. Reconnecting needs a new pairing code."}
+          ? "Sharing continues when you open other apps. Stop it here or from the DuoDesk notification. Stopping the stream keeps your PC connected."
+          : "Keep DuoDesk open. Leaving the app ends this session. Stopping the stream keeps your PC connected."}
       </Text>
     </View>
   );
@@ -271,7 +291,7 @@ function SessionControls({ connection }: { connection: SenderSession }) {
         ) : null}
         {status.state === "ready" && connection.supportsScreenSharing && (
           <Button disabled={connection.busy} onPress={connection.startScreen}>
-            <Icon name="phone-portrait-outline" color="white" size={19} />
+            <Icon name="phone-portrait-outline" color={colors.text} size={19} />
             <Text>Share screen</Text>
           </Button>
         )}
@@ -289,7 +309,7 @@ function SessionControls({ connection }: { connection: SenderSession }) {
                 : connection.requestRemoteAccess
             }
           >
-            <Icon name="hand-left-outline" color="#17243D" size={19} />
+            <Icon name="hand-left-outline" color={colors.text} size={19} />
             <Text>
               {connection.remoteAccessBusy
                 ? "Starting remote access…"
@@ -319,11 +339,7 @@ function SessionControls({ connection }: { connection: SenderSession }) {
             disabled={connection.busy}
             onPress={connection.start}
           >
-            <Icon
-              name="play"
-              color={connection.supportsScreenSharing ? "#17243D" : "white"}
-              size={19}
-            />
+            <Icon name="play" color={colors.text} size={19} />
             <Text>Start test video</Text>
           </Button>
         )}
@@ -342,20 +358,20 @@ function SessionControls({ connection }: { connection: SenderSession }) {
             disabled={connection.busy}
             onPress={connection.pause}
           >
-            <Icon name="stop" color="white" size={18} />
+            <Icon name="stop" color={colors.danger} size={18} />
             <Text>Stop streaming</Text>
           </Button>
         )}
         <Button
-          variant="outline"
-          size={status.state === "ready" ? "sm" : "default"}
+          variant="ghost"
+          size="sm"
           disabled={stopping}
           onPress={connection.stop}
         >
           {stopping ? (
-            <ActivityIndicator color="#2855D9" />
+            <ActivityIndicator color={colors.blue} />
           ) : (
-            <Icon name="close" color="#17243D" size={18} />
+            <Icon name="close" color={colors.text} size={18} />
           )}
           <Text>
             {stopping
@@ -403,9 +419,9 @@ export default function StreamSenderScreen() {
         <ScrollView
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          contentContainerStyle={{ flexGrow: 1, paddingBottom: 32 }}
+          contentContainerStyle={{ flexGrow: 1, paddingBottom: space.xl }}
         >
-          <View className="mx-auto w-full max-w-xl flex-1 gap-5 px-6 pt-3">
+          <View className="mx-auto w-full max-w-xl flex-1 gap-6 px-6 pt-4">
             <View className="flex-row items-center justify-between">
               <View
                 className="flex-row items-center gap-2.5"
@@ -413,13 +429,13 @@ export default function StreamSenderScreen() {
               >
                 <View
                   accessible={false}
-                  className="h-9 w-9 flex-row items-center justify-center gap-1 rounded-xl bg-primary"
+                  className="h-8 w-8 flex-row items-center justify-center gap-1 rounded-lg border border-foreground bg-surface"
                 >
-                  <View className="h-4 w-2 rounded-sm bg-white" />
-                  <View className="h-5 w-2 rounded-sm bg-[#AFC4FF]" />
+                  <View className="h-4 w-1 rounded-sm bg-foreground" />
+                  <View className="h-4 w-1 rounded-sm bg-primary" />
                 </View>
-                <Text className="text-xl font-bold tracking-tight">
-                  duodesk<Text className="text-primary">.</Text>
+                <Text className="text-lg font-semibold tracking-tight">
+                  DuoDesk
                 </Text>
               </View>
               <Button
@@ -433,13 +449,13 @@ export default function StreamSenderScreen() {
               >
                 <Icon
                   name={help ? "close" : "help-circle-outline"}
-                  color="#5D6B82"
+                  color={colors.text2}
                   size={25}
                 />
               </Button>
             </View>
             {help && (
-              <View className="gap-3 rounded-2xl border border-border bg-white p-5">
+              <View className="gap-3 rounded-card border border-border bg-surface p-5">
                 <Text
                   className="text-lg font-semibold"
                   accessibilityRole="header"
@@ -457,68 +473,63 @@ export default function StreamSenderScreen() {
                   PC firewall if connecting times out.
                 </Text>
                 <Text className="text-sm leading-6 text-muted-foreground">
-                  Screen sharing mirrors your display without audio, where the
-                  build supports it. The test video is a bundled clip.
+                  Share screen lets your PC view your display. Remote access
+                  also lets it tap and swipe after you enable Accessibility.
+                  Phone audio is optional. You can stop control at any time.
                 </Text>
               </View>
             )}
-            <View className="gap-4 pt-1">
-              <View
-                className="flex-row items-center gap-2"
-                accessibilityLiveRegion="polite"
-              >
+            {(!connection.canPair || connection.mode === "closed") && (
+              <View className="gap-4 pt-5">
                 <View
-                  className={cn(
-                    "h-2 w-2 rounded-full",
-                    copy.tone === "green"
-                      ? "bg-[#147D64]"
-                      : copy.tone === "red"
-                        ? "bg-destructive"
-                        : copy.tone === "blue"
-                          ? "bg-primary"
-                          : "bg-[#7C8BA3]",
-                  )}
-                />
-                <Text
-                  className={cn(
-                    "text-xs font-semibold uppercase tracking-widest",
-                    copy.tone === "green"
-                      ? "text-[#147D64]"
-                      : copy.tone === "red"
-                        ? "text-destructive"
-                        : "text-muted-foreground",
-                  )}
+                  className="self-start flex-row items-center gap-2 rounded-full border border-border bg-muted px-3 py-1.5"
+                  style={
+                    sharingScreen
+                      ? { backgroundColor: colors.blueSoft }
+                      : undefined
+                  }
+                  accessibilityLiveRegion="polite"
                 >
-                  {copy.label}
+                  <View
+                    className="h-2 w-2 rounded-full"
+                    style={{
+                      backgroundColor: sharingScreen
+                        ? colors.blue
+                        : copy.tone === "red"
+                          ? colors.danger
+                          : copy.tone === "green"
+                            ? colors.success
+                            : colors.text3,
+                    }}
+                  />
+                  <Text className="text-xs font-medium text-muted-foreground">
+                    {copy.label}
+                  </Text>
+                </View>
+                <Text accessibilityRole="header" style={type.display}>
+                  {connection.negotiatingVideo
+                    ? connection.screenIntent
+                      ? "Starting screen sharing"
+                      : "Starting your video"
+                    : sharingScreen && connection.status.control?.state === "on"
+                      ? "Remote access is on"
+                      : copy.title}
+                </Text>
+                <Text className="max-w-sm text-[15px] leading-6 text-muted-foreground">
+                  {connection.negotiatingVideo
+                    ? connection.screenIntent
+                      ? "The PC is connected. Setting up screen sharing."
+                      : "The PC is connected. Setting up the test video stream."
+                    : copy.detail}
                 </Text>
               </View>
-              <Text
-                accessibilityRole="header"
-                className="text-[34px] font-bold leading-[40px] tracking-tight"
-              >
-                {connection.negotiatingVideo
-                  ? connection.screenIntent
-                    ? "Getting your\nscreen ready."
-                    : "Getting your\nvideo ready."
-                  : copy.title}
-              </Text>
-              <Text className="max-w-sm text-base leading-6 text-muted-foreground">
-                {connection.negotiatingVideo
-                  ? connection.screenIntent
-                    ? "The PC is connected. Setting up screen sharing."
-                    : "The PC is connected. Setting up the test video stream."
-                  : copy.detail}
-              </Text>
-            </View>
-            {connection.canPair && connection.mode !== "scan" && (
-              <PairingDeviceLink />
             )}
             {error && connection.canPair ? (
               <Notice title="Couldn’t complete that" error>
                 {error}
               </Notice>
             ) : null}
-            <View className="gap-5 rounded-3xl border border-white bg-white p-5">
+            <View className="gap-5 rounded-card border border-border bg-surface p-5">
               {connection.canPair ? (
                 <PairingPanel
                   mode={connection.mode}
@@ -550,7 +561,11 @@ export default function StreamSenderScreen() {
               </Notice>
             )}
             <View className="mt-auto flex-row items-center justify-center gap-2 pt-2">
-              <Icon name="shield-checkmark-outline" size={15} color="#5D6B82" />
+              <Icon
+                name="shield-checkmark-outline"
+                size={15}
+                color={colors.text2}
+              />
               <Text className="text-xs text-muted-foreground">
                 Direct to your PC. No cloud video.
               </Text>

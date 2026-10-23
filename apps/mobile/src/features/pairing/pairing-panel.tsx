@@ -1,3 +1,4 @@
+import { colors } from "@duodesk/design-tokens";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Linking, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -32,7 +33,7 @@ type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
 function Icon({
   name,
-  color = "#2855D9",
+  color = colors.text2,
   size = 22,
 }: {
   name: IconName;
@@ -47,44 +48,6 @@ function Icon({
       accessible={false}
       aria-hidden
     />
-  );
-}
-
-export function PairingDeviceLink() {
-  return (
-    <View
-      accessible={false}
-      aria-hidden
-      importantForAccessibility="no-hide-descendants"
-      className="h-36 items-center justify-center"
-    >
-      <View className="absolute h-32 w-72 rounded-full bg-[#E8EDF8]" />
-      <View className="flex-row items-center gap-4">
-        <View className="h-[104px] w-[58px] rounded-[14px] border-[3px] border-[#526685] bg-background p-1">
-          <View className="flex-1 items-center justify-center rounded-lg bg-[#DFE7FA]">
-            <View className="absolute top-1 h-1 w-5 rounded-full bg-[#526685]" />
-            <Icon name="phone-portrait-outline" size={24} />
-          </View>
-        </View>
-        <View className="flex-row items-center gap-1.5">
-          {[0, 1, 2].map((dot) => (
-            <View key={dot} className="h-1.5 w-1.5 rounded-full bg-[#9FAEC8]" />
-          ))}
-          <Icon name="arrow-forward" size={16} color="#7D8CA6" />
-        </View>
-        <View className="items-center">
-          <View className="h-[90px] w-[134px] rounded-xl border-[3px] border-[#526685] bg-white p-1.5">
-            <View className="flex-1 items-center justify-center rounded-md bg-[#DFE7FA]">
-              <View className="h-10 w-10 items-center justify-center rounded-full bg-[#C4D2EF]">
-                <Icon name="desktop-outline" color="#526685" size={22} />
-              </View>
-            </View>
-          </View>
-          <View className="h-3 w-2 bg-[#526685]" />
-          <View className="h-1 w-12 rounded-full bg-[#526685]" />
-        </View>
-      </View>
-    </View>
   );
 }
 
@@ -130,11 +93,11 @@ function Scanner({ connection }: { connection: PairingPanelProps }) {
           accessibilityLabel="Close scanner"
           onPress={connection.closeScanner}
         >
-          <Icon name="close" color="#17243D" />
+          <Icon name="close" color={colors.text} />
         </Button>
       </View>
       {permission?.granted && !cameraError ? (
-        <View className="overflow-hidden rounded-2xl bg-[#17243D]">
+        <View className="overflow-hidden rounded-card border border-border bg-surface-raised">
           <CameraView
             style={{ height: 280, width: "100%" }}
             facing="back"
@@ -151,7 +114,7 @@ function Scanner({ connection }: { connection: PairingPanelProps }) {
           </Text>
         </View>
       ) : (
-        <View className="items-center gap-4 rounded-2xl bg-muted p-5">
+        <View className="items-center gap-4 rounded-card bg-muted p-5">
           <Icon name="camera-outline" size={36} />
           <Text className="text-center leading-6 text-muted-foreground">
             {cameraError ||
@@ -171,7 +134,7 @@ function Scanner({ connection }: { connection: PairingPanelProps }) {
                 } else void requestAccess();
               }}
             >
-              {requesting && <ActivityIndicator color="white" />}
+              {requesting && <ActivityIndicator color={colors.text} />}
               <Text>
                 {permission && !permission.canAskAgain
                   ? "Open camera settings"
@@ -198,24 +161,14 @@ export function PairingPanel(connection: PairingPanelProps) {
   if (connection.mode === "scan") return <Scanner connection={connection} />;
   return (
     <View className="gap-5">
-      <View className="flex-row items-start gap-3">
-        <View className="h-10 w-10 items-center justify-center rounded-xl bg-secondary">
-          <Icon name="desktop-outline" />
-        </View>
-        <View className="flex-1 gap-1">
-          <Text className="text-lg font-semibold">Connect to your PC</Text>
-          <Text className="text-sm leading-5 text-muted-foreground">
-            Open DuoDesk on your PC and create a pairing code.
-          </Text>
-        </View>
-      </View>
       <Button
+        variant={connection.mode === "manual" ? "ghost" : "default"}
         disabled={!connection.available || connection.busy}
         onPress={connection.openScanner}
       >
-        <Icon name="scan-outline" color="white" />
+        <Icon name="scan-outline" color={colors.text} />
         <Text>Scan QR code</Text>
-        <Icon name="arrow-forward" color="white" size={18} />
+        <Icon name="arrow-forward" color={colors.text} size={18} />
       </Button>
       {connection.mode === "manual" ? (
         <View className="gap-3 border-t border-border pt-4">
@@ -227,7 +180,7 @@ export function PairingPanel(connection: PairingPanelProps) {
               accessibilityLabel="Close manual entry"
               onPress={() => connection.setMode("closed")}
             >
-              <Icon name="close" size={20} color="#5D6B82" />
+              <Icon name="close" size={20} color={colors.text2} />
             </Button>
           </View>
           <Text className="text-sm leading-5 text-muted-foreground">
@@ -237,7 +190,7 @@ export function PairingPanel(connection: PairingPanelProps) {
           <Input
             accessibilityLabel="PC address and port"
             placeholder="192.168.1.20:39871"
-            placeholderTextColor="#5D6B82"
+            placeholderTextColor={colors.text3}
             value={connection.address}
             onChangeText={connection.setAddress}
             autoCapitalize="none"
@@ -247,8 +200,9 @@ export function PairingPanel(connection: PairingPanelProps) {
           />
           <Input
             accessibilityLabel="Six-digit verification code"
-            placeholder="Six-digit code"
-            placeholderTextColor="#5D6B82"
+            placeholder="000000"
+            className="text-center font-mono text-xl tracking-[6px]"
+            placeholderTextColor={colors.text3}
             value={connection.code}
             onChangeText={connection.setCode}
             keyboardType="number-pad"
@@ -269,7 +223,7 @@ export function PairingPanel(connection: PairingPanelProps) {
             }
             onPress={() => connection.connect()}
           >
-            {connection.connecting && <ActivityIndicator color="white" />}
+            {connection.connecting && <ActivityIndicator color={colors.text} />}
             <Text>
               {connection.connecting ? "Connecting…" : "Connect to PC"}
             </Text>
@@ -281,12 +235,12 @@ export function PairingPanel(connection: PairingPanelProps) {
           size="sm"
           onPress={() => connection.setMode("manual")}
         >
-          <Icon name="clipboard-outline" size={19} color="#5D6B82" />
+          <Icon name="clipboard-outline" size={19} color={colors.text2} />
           <Text className="text-muted-foreground">Enter address and code</Text>
         </Button>
       )}
       <View className="flex-row items-center gap-2">
-        <Icon name="wifi-outline" size={16} color="#5D6B82" />
+        <Icon name="wifi-outline" size={16} color={colors.text2} />
         <Text className="flex-1 text-xs leading-5 text-muted-foreground">
           Use the same Wi-Fi or local network on both devices.
         </Text>

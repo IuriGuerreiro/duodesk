@@ -1,4 +1,5 @@
 import "@/shared/global.css";
+import { colors } from "@duodesk/design-tokens";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -6,11 +7,11 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <StatusBar style="dark" />
+      <StatusBar style="light" />
       <Stack
         screenOptions={{
           headerShown: false,
-          contentStyle: { backgroundColor: "#F3F5F9" },
+          contentStyle: { backgroundColor: colors.background },
         }}
       />
     </SafeAreaProvider>

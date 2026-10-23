@@ -88,6 +88,7 @@ Desktop and phone move through the same states together.
 **Mobile (Expo)**
 - Imports `colors`, `type` and `space` from `@duodesk/design-tokens`.
 - A single stack of screens: Home → Scan or Paste → Live. There are no tabs.
+- Mobile uses the shared dark palette for its NativeWind theme, screen surfaces, inputs, buttons, status bar, and native splash screen. Stream options and live statistics are collapsed by default. Share screen and Remote access remain separate session actions.
 - While sharing, a "DuoDesk is sharing your screen" notification stays visible.
 
 ## Open issues
