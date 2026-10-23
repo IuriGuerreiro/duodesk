@@ -160,6 +160,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
   }
 
   private fun status(next: String) {
+    if (state != next) Log.i("DuoDesk", "Sender state $state -> $next, mode=$mode, generation=$generation")
     state = next
     val map = mutableMapOf<String, Any>("state" to next)
     mode?.let { map["mode"] = it }
@@ -168,6 +169,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
   }
 
   private fun fail(message: String) {
+    Log.w("DuoDesk", "Sender failed: $message, state=$state, mode=$mode, generation=$generation")
     lastError = message
     close()
     state = "failed"
@@ -688,6 +690,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
 
   /** Ends the video only; the desktop stays paired and a new start needs no new invitation. */
   fun pause() {
+    Log.i("DuoDesk", "Owner paused streaming, state=$state, mode=$mode")
     if (peer == null) return
     closeVideo()
     runCatching { send(JSONObject().put("type", "pause")) }.onFailure { return fail("Desktop connection lost") }
