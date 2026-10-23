@@ -27,6 +27,7 @@ declare class TestVideoNative extends NativeModule<Events> {
   allowControl?(): Promise<void>;
   revokeControl?(): Promise<void>;
   openAccessibilitySettings?(): Promise<void>;
+  isControlServiceEnabled?(): Promise<boolean>;
   pause?(): Promise<void>;
   stop(): Promise<void>;
   background?(): Promise<void>;
@@ -93,6 +94,16 @@ const controlModule = (): TestVideoNative => {
 /** Allows the paired PC to tap and swipe for this session only. Rejects with an explanation when it cannot start. */
 export const allowControl = (): Promise<void> =>
   controlModule().allowControl!();
+
+export const isControlServiceEnabled = (): Promise<boolean> => {
+  const mod = controlModule();
+  if (typeof mod.isControlServiceEnabled !== "function") {
+    throw new Error(
+      "Remote access setup requires an updated Android build. Rebuild and install DuoDesk.",
+    );
+  }
+  return mod.isControlServiceEnabled();
+};
 
 /** Stops accepting remote input at once. */
 export const revokeControl = (): Promise<void> =>

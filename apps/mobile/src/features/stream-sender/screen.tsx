@@ -16,7 +16,7 @@ import { Text } from "@/shared/ui/text";
 import { cn } from "@/shared/lib/utils";
 import { PairingDeviceLink, PairingPanel } from "@/features/pairing";
 import { useSenderSession } from "./use-sender-session";
-import { controlCopy, screenStreamingCopy, sessionCopy } from "./session-copy";
+import { screenStreamingCopy, sessionCopy } from "./session-copy";
 
 type SenderSession = ReturnType<typeof useSenderSession>;
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -228,11 +228,6 @@ function Session({ connection }: { connection: SenderSession }) {
             </Text>
           </View>
         )}
-        {screenMode &&
-          status.state === "streaming" &&
-          connection.supportsRemoteControl && (
-            <RemoteControlCard connection={connection} />
-          )}
         {status.state === "connecting" && (
           <Text
             accessibilityLiveRegion="polite"
@@ -255,50 +250,13 @@ function Session({ connection }: { connection: SenderSession }) {
   );
 }
 
-function RemoteControlCard({ connection }: { connection: SenderSession }) {
-  const copy = controlCopy(connection.status.control);
-  if (!copy) return null;
-  const on = copy.state === "on";
-  const press =
-    copy.action === "allow"
-      ? connection.allowControl
-      : copy.action === "stop"
-        ? connection.stopControl
-        : connection.openAccessibilitySettings;
-  return (
-    <View
-      className={cn(
-        "gap-3 rounded-xl border p-4",
-        on ? "border-[#B9E0D3] bg-[#F1FAF6]" : "border-border bg-white",
-      )}
-    >
-      <View
-        accessibilityLiveRegion="polite"
-        className="flex-row items-center gap-3"
-      >
-        <Icon
-          name={on ? "hand-left" : "hand-left-outline"}
-          color={on ? "#147D64" : "#2855D9"}
-        />
-        <Text className="flex-1 font-semibold">{copy.title}</Text>
-      </View>
-      <Text className="text-sm leading-5 text-muted-foreground">
-        {copy.detail}
-      </Text>
-      <Button
-        variant={on ? "destructive" : "outline"}
-        disabled={connection.controlBusy}
-        onPress={press}
-      >
-        <Text>{copy.buttonLabel}</Text>
-      </Button>
-    </View>
-  );
-}
-
 function SessionControls({ connection }: { connection: SenderSession }) {
   const { status } = connection;
   const stopping = connection.operation === "stop";
+  const canRemoteAccess =
+    connection.supportsRemoteControl &&
+    (status.state === "ready" ||
+      (status.state === "streaming" && status.mode === "screen"));
   return (
     <View className="border-t border-border bg-background px-6 pb-2 pt-3">
       <View className="mx-auto w-full max-w-xl gap-2">
@@ -316,6 +274,44 @@ function SessionControls({ connection }: { connection: SenderSession }) {
             <Icon name="phone-portrait-outline" color="white" size={19} />
             <Text>Share screen</Text>
           </Button>
+        )}
+        {canRemoteAccess && (
+          <Button
+            variant="outline"
+            disabled={
+              connection.busy ||
+              connection.controlBusy ||
+              connection.remoteAccessBusy
+            }
+            onPress={
+              status.control?.state === "on"
+                ? connection.stopControl
+                : connection.requestRemoteAccess
+            }
+          >
+            <Icon name="hand-left-outline" color="#17243D" size={19} />
+            <Text>
+              {connection.remoteAccessBusy
+                ? "Starting remote access…"
+                : status.control?.state === "on"
+                  ? "Stop remote access"
+                  : "Remote access"}
+            </Text>
+          </Button>
+        )}
+        {canRemoteAccess && (
+          <Text
+            accessibilityLiveRegion="polite"
+            className="text-xs leading-5 text-muted-foreground"
+          >
+            {connection.remoteAccessStep === "settings"
+              ? "Enable DuoDesk in Accessibility settings, then return here. If Android blocks the switch, open App info and allow restricted settings."
+              : connection.remoteAccessBusy
+                ? "Starting remote access for this session…"
+                : status.control?.state === "on"
+                  ? "Your PC can tap and swipe. Stop remote access to keep sharing without control."
+                  : "Remote access shares your screen and lets this PC tap and swipe. Accessibility permission is required."}
+          </Text>
         )}
         {status.state === "ready" && (
           <Button
@@ -365,8 +361,8 @@ function SessionControls({ connection }: { connection: SenderSession }) {
             {stopping
               ? "Ending session…"
               : status.state === "connecting"
-                  ? "Cancel connection"
-                  : "Disconnect"}
+                ? "Cancel connection"
+                : "Disconnect"}
           </Text>
         </Button>
       </View>

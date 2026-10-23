@@ -9,6 +9,8 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
 class TestVideoModule : Module() {
+  @Volatile
+  private var controlSettingsOpen = false
   private val pairing = PairingTransport()
   private val pairingQueue = java.util.concurrent.Executors.newSingleThreadExecutor()
 
@@ -87,9 +89,19 @@ class TestVideoModule : Module() {
       sender().controlAction(promise) { revoke(); null }
     }
 
+    AsyncFunction("isControlServiceEnabled") {
+      ControlAccessibilityService.injector() != null
+    }
+
     AsyncFunction("openAccessibilitySettings") {
       val context = requireNotNull(appContext.reactContext)
-      context.startActivity(ControlAccessibilityService.settingsIntent())
+      controlSettingsOpen = true
+      try {
+        context.startActivity(ControlAccessibilityService.settingsIntent())
+      } catch (error: Exception) {
+        controlSettingsOpen = false
+        throw error
+      }
     }
 
     AsyncFunction("pause") { promise: Promise ->
@@ -101,7 +113,7 @@ class TestVideoModule : Module() {
     }
 
     AsyncFunction("background") { promise: Promise ->
-      VideoSenderManager.background()
+      if (!controlSettingsOpen) VideoSenderManager.background()
       promise.resolve()
     }
 
@@ -117,7 +129,11 @@ class TestVideoModule : Module() {
 
     OnActivityEntersBackground {
       pairing.close()
-      VideoSenderManager.background()
+      if (!controlSettingsOpen) VideoSenderManager.background()
+    }
+
+    OnActivityEntersForeground {
+      controlSettingsOpen = false
     }
 
     OnDestroy {

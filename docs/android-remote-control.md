@@ -5,8 +5,8 @@ While an Android phone shares its screen, the paired desktop can **tap** (a clic
 ## Consent: three separate things
 
 1. **The phone owner turns on the DuoDesk accessibility service** in Android Settings → Accessibility. DuoDesk cannot do this itself. On Android 13+ a sideloaded build may first need App info → ⋮ → _Allow restricted settings_. The service declares `canPerformGestures` only. It listens to no events and has no `canRetrieveWindowContent`, so it cannot read the screen.
-2. **The owner taps "Allow control" in DuoDesk, for this session.** Enabling the service grants nothing by itself. Control is off at the start of every session and after every reconnect.
-3. **The owner can stop at any time**: the "Stop control" button, the "Stop control" action in the sharing notification (which also says the PC can control the phone), turning the service off, stopping the share, or disconnecting.
+2. **The owner taps "Remote access" in DuoDesk, for this session.** With accessibility enabled, this starts screen sharing and grants control after the stream connects. Otherwise it opens Accessibility settings and continues after the owner enables the service and returns. Returning without enabling it cancels the request. "Share screen" starts viewing only. Enabling the service outside this explicit flow grants no control. Every new share requires another Remote access press.
+3. **The owner can stop at any time**: the "Stop remote access" button, the "Stop control" action in the sharing notification (which also says the PC can control the phone), turning the service off, stopping the share, or disconnecting.
 
 DuoDesk does not try to get around the lock screen, secure (`FLAG_SECURE`) windows, or other protections. Android may ignore or cancel injected gestures there, and the desktop sees `cancelled` or `failed`.
 
@@ -76,3 +76,11 @@ No physical phone was connected when the feature was finished (the Samsung SM-A2
 Start Vite on port 1422 from `apps/desktop`, then run `pnpm test:control-surface` there. This renders the production control layer over moving video, enables control, and checks picture alignment, letterbox exclusion, resizing, and continued playback as native player controls disappear. The alignment check failed before the coordinate fix because viewport offsets were applied twice.
 
 The phone owner subsequently confirmed taps and swipes work on the Samsung, but reported that enabling control freezes the stream and shows a blue box. The misplaced desktop outline is fixed. The stream freeze has not been reproduced in the desktop checks; continued streaming with control enabled still needs verification on the phone.
+
+### Integration with the main design
+
+The desktop retains the design from main. The transparent input layer has no decorative outline, and its compact status and pause action sit in the existing floating toolbar. The toolbar stays above the input layer.
+
+On the phone, Share screen is view-only. Remote access is the explicit per-session request to share and control the screen. A pending request survives the Accessibility settings round trip, then grants control after screen streaming starts. Cancellation, a denied capture request, or disconnection discards it. Stopping streaming keeps the pairing but ends control.
+
+Integration checks passed: repository lint and typecheck, desktop build and UI smoke, video/audio/control loopbacks, the control layer against the production receiver UI, mobile flow tests, and Kotlin unit tests. The arm64 Android debug APK builds with `./gradlew :test-video:testDebugUnitTest :app:assembleDebug -PreactNativeArchitectures=arm64-v8a`. No phone was connected for this integration pass; the settings round trip and reported stream freeze still need device verification.

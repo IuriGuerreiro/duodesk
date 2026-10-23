@@ -1,6 +1,9 @@
 // Run alongside Vite, like receiver-smoke.mjs.
 import { app, BrowserWindow } from "electron";
-const deadline = setTimeout(() => app.exit(1), 30000);
+const deadline = setTimeout(() => {
+  console.error("Control surface check timed out");
+  app.exit(1);
+}, 30000);
 app.whenReady().then(async () => {
   try {
     const window = new BrowserWindow({

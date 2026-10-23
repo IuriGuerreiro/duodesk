@@ -1,35 +1,8 @@
-import { createRef, type RefObject } from "react";
+import { createRef } from "react";
 import { createRoot } from "react-dom/client";
 import { ControlLink } from "../src/features/remote-control/control-link";
-import {
-  ControlSurface,
-  useControlView,
-} from "../src/features/remote-control/control-surface";
+import { ReceiverWorkspace } from "../src/features/receiver/receiver-workspace";
 import "../src/App.css";
-
-function Player({
-  link,
-  videoRef,
-}: {
-  link: ControlLink;
-  videoRef: RefObject<HTMLVideoElement | null>;
-}) {
-  const view = useControlView(link);
-  return (
-    <div style={{ margin: "100px 70px", width: 600 }}>
-      <div className="video-stage has-video" style={{ height: 400 }}>
-        <video
-          ref={videoRef}
-          autoPlay
-          muted
-          playsInline
-          controls={view.phase !== "active"}
-        />
-        <ControlSurface link={link} videoRef={videoRef} />
-      </div>
-    </div>
-  );
-}
 
 const until = async (predicate: () => boolean, message: string) => {
   for (let i = 0; i < 100; i++) {
@@ -49,6 +22,8 @@ Object.assign(window, {
     canvas.width = 360;
     canvas.height = 800;
     const context = canvas.getContext("2d")!;
+    context.fillStyle = "#333";
+    context.fillRect(0, 0, 360, 800);
     let frame = 0;
     const drawing = setInterval(() => {
       context.fillStyle = `hsl(${frame++ % 360} 70% 35%)`;
@@ -65,9 +40,40 @@ Object.assign(window, {
       return channel;
     };
     const activeLink = new ControlLink(testPeer, sessionId);
-    root.render(<Player link={activeLink} videoRef={videoRef} />);
+    root.render(
+      <div style={{ margin: "100px 70px", width: 600 }}>
+        <ReceiverWorkspace
+          desktopAvailable
+          interfaces={[]}
+          ip=""
+          state="streaming"
+          error=""
+          busy={false}
+          remaining={0}
+          videoRef={videoRef}
+          control={activeLink}
+          playbackFailed={false}
+          audio={{
+            present: false,
+            muted: true,
+            volume: 1,
+            blocked: false,
+            onMutedChange: () => {},
+            onVolumeChange: () => {},
+          }}
+          onIpChange={() => {}}
+          onRefresh={() => {}}
+          onStart={() => {}}
+          onStop={() => {}}
+          onFullscreen={() => {}}
+          onPlay={() => {}}
+        />
+      </div>,
+    );
     await until(() => !!videoRef.current, "Video did not mount");
     const video = videoRef.current!;
+    const panel = video.closest<HTMLElement>(".receiver-panel")!;
+    panel.style.height = "400px";
     video.srcObject = media;
     await video.play();
     try {
@@ -116,7 +122,20 @@ Object.assign(window, {
           throw new Error("Control layer covers letterbox margins");
       };
       check();
-      if (video.controls) throw new Error("Player controls did not step aside");
+      const toolbar = document
+        .querySelector(".live-bar")!
+        .getBoundingClientRect();
+      const target = document.elementFromPoint(
+        toolbar.left + 20,
+        toolbar.top + toolbar.height / 2,
+      );
+      if (!target?.closest(".live-bar"))
+        throw new Error("Control layer blocks the floating toolbar");
+      if (
+        getComputedStyle(document.querySelector(".control-surface")!)
+          .outlineStyle !== "none"
+      )
+        throw new Error("Decorative control outline returned");
       const before = video.getVideoPlaybackQuality().totalVideoFrames;
       await new Promise((resolve) => setTimeout(resolve, 500));
       if (
@@ -124,8 +143,7 @@ Object.assign(window, {
         video.getVideoPlaybackQuality().totalVideoFrames <= before
       )
         throw new Error("Playback stopped while control was enabled");
-      const stage = video.parentElement!;
-      stage.style.height = "500px";
+      panel.style.height = "500px";
       await until(
         () =>
           document.querySelector(".control-surface")!.getBoundingClientRect()

@@ -4,9 +4,9 @@ import type { ControlView } from "./control-link";
 const offReasons: Record<ControlOffReason, string> = {
   unsupported: "Control isn't available for this kind of stream.",
   "service-disabled":
-    "On the phone, turn on the DuoDesk accessibility service, then allow control.",
-  "not-allowed": "On the phone, tap “Allow control”.",
-  revoked: "The phone stopped control. Allow it again on the phone.",
+    "On the phone, tap Remote access and enable the DuoDesk accessibility service.",
+  "not-allowed": "On the phone, tap Remote access.",
+  revoked: "The phone stopped control. Start remote access again on the phone.",
   "geometry-unknown":
     "The phone can't confirm its screen size, so control is off.",
 };

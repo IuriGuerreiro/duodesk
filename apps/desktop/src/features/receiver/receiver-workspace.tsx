@@ -16,7 +16,11 @@ import {
 } from "lucide-react";
 import type { Invitation, StreamState } from "@duodesk/protocol";
 import { createPairingQrPayload } from "@duodesk/protocol/pairing";
-import { ControlSurface, ControlStatus, type ControlLink } from "@/features/remote-control";
+import {
+  ControlSurface,
+  ControlStatus,
+  type ControlLink,
+} from "@/features/remote-control";
 import type { VideoStats } from "./video-receiver";
 import { Button } from "@/shared/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
@@ -282,8 +286,8 @@ export function ReceiverWorkspace({
             <p className="eyebrow">Step 2 of 2</p>
             <h1 id="pair-title">Scan with your phone</h1>
             <p className="lead">
-              Open DuoDesk on your phone and point the camera at this code,
-              or type the address and code below.
+              Open DuoDesk on your phone and point the camera at this code, or
+              type the address and code below.
             </p>
             {pairing?.code && remaining > 0 && (
               <div className="qr-frame">
@@ -369,7 +373,11 @@ export function ReceiverWorkspace({
                 ? `${stats.width} × ${stats.height} · ${stats.fps.toFixed(0)} fps`
                 : "Receiving video"}
             </span>
-            <div className="audio-controls" role="group" aria-label="Phone audio">
+            <div
+              className="audio-controls"
+              role="group"
+              aria-label="Phone audio"
+            >
               {audio.present ? (
                 <>
                   <Button

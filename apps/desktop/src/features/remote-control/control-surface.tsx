@@ -218,10 +218,21 @@ export function ControlStatus({
     view.phase === "active" ||
     view.phase === "paused" ||
     view.phase === "syncing";
+  const summary = controlSummary(view, mismatch);
+  const labels: Record<ControlView["phase"], string> = {
+    active: "Remote access",
+    paused: "Control paused",
+    syncing: "Syncing control…",
+    waiting: "View only",
+    off: "View only",
+  };
+  const label = mismatch ? labels.syncing : labels[view.phase];
   return (
     <div className="control-status" role="group" aria-label="Phone control">
       <MousePointerClick size={14} aria-hidden />
-      <span role="status">{controlSummary(view, mismatch)}</span>
+      <span role="status" title={summary} aria-label={summary}>
+        {label}
+      </span>
       {allowed && (
         <Button
           variant="ghost"

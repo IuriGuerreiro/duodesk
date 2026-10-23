@@ -25,6 +25,7 @@ export const startScreen = (
   _bitrateMbps: number,
   _shareAudio: boolean,
 ): Promise<void> => unsupported();
+export const isControlServiceEnabled = async (): Promise<boolean> => false;
 export const allowControl = (): Promise<void> => unsupported();
 export const revokeControl = async (): Promise<void> => {};
 export const openAccessibilitySettings = (): Promise<void> => unsupported();
