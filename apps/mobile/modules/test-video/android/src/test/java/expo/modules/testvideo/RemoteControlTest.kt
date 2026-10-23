@@ -225,6 +225,14 @@ class RemoteControlTest {
   }
 
   @Test
+  fun reportsUnknownGeometryBeforeTheScreenSizeArrives() {
+    val rig = Rig()
+    assertEquals(OffReason.GEOMETRY_UNKNOWN, rig.control.snapshot().reason)
+    rig.control.setGeometry(portrait)
+    assertEquals(OffReason.NOT_ALLOWED, rig.control.snapshot().reason)
+  }
+
+  @Test
   fun unknownGeometryTurnsControlOffUntilAllowedAgain() {
     val rig = Rig()
     rig.allowed()

@@ -94,7 +94,8 @@ export class RemoteAccessRequest {
       this.step === "sharing" &&
       status.state === "streaming" &&
       status.mode === "screen" &&
-      status.control
+      status.control &&
+      status.control.reason !== "geometry-unknown"
     ) {
       void this.allow().catch((error: unknown) => this.fail(error));
     }

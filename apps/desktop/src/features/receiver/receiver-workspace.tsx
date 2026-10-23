@@ -231,7 +231,9 @@ export function ReceiverWorkspace({
           aria-label="Incoming mobile video"
         />
 
-        <ControlSurface link={control} videoRef={videoRef} />
+        {!playbackFailed && (
+          <ControlSurface link={control} videoRef={videoRef} />
+        )}
 
         {phase === "setup" && (
           <section className="stage-card" aria-labelledby="setup-title">

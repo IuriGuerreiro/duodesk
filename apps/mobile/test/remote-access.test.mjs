@@ -143,3 +143,17 @@ test("a denied capture request cannot grant control to a later stream", async ()
   request.statusChanged(streaming);
   assert.deepEqual(calls, []);
 });
+
+test("remote access waits for the screen size before allowing control", async () => {
+  const { request, calls, status } = setup();
+  await request.start();
+  status({
+    ...streaming,
+    control: { state: "off", reason: "geometry-unknown", serviceEnabled: true },
+  });
+  await Promise.resolve();
+  assert.deepEqual(calls, ["share"]);
+  status(streaming);
+  await Promise.resolve();
+  assert.deepEqual(calls, ["share", "allow"]);
+});

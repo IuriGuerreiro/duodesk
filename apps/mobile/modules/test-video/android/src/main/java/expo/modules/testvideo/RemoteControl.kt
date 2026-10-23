@@ -62,8 +62,9 @@ internal class RemoteControl(
     val reason = when {
       !supported -> OffReason.UNSUPPORTED
       !enabled -> OffReason.SERVICE_DISABLED
-      !allowed -> offReason
+      // Reported before "not allowed" so the phone UI waits for the size instead of allowing too early.
       geometry == null -> OffReason.GEOMETRY_UNKNOWN
+      !allowed -> offReason
       else -> null
     }
     return ControlSnapshot(epoch, if (reason == null) geometry else null, reason, enabled)
