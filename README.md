@@ -34,7 +34,7 @@ Use `pnpm --filter @duodesk/mobile exec expo install <package>` to add mobile de
 
 ## Android development
 
-The same streaming screen supports Android and iOS. For Android, connect a phone with USB debugging enabled and run `pnpm --filter @duodesk/mobile android` with JDK 21 and the Android SDK installed. For an installable EAS APK, run `pnpm dlx eas-cli@25.1.1 build --platform android --profile development` from `apps/mobile`. Start `pnpm dev:mobile` to serve the development client. See [test-video setup](docs/test-video-validation.md) for pairing and validation.
+The same streaming screen supports Android and iOS. For Android, connect a phone with USB debugging enabled and run `pnpm --filter @duodesk/mobile android` with JDK 21 and the Android SDK installed. For an installable EAS APK, run `pnpm dlx eas-cli@25.1.1 build --platform android --profile development` from `apps/mobile`. Start `pnpm dev:mobile` to serve the development client. See [test-video setup](docs/test-video-validation.md) for pairing and validation. On Android, the paired desktop can also tap and swipe during a screen share; see [Android tap and swipe](docs/android-remote-control.md).
 
 ## Physical iPad development
 

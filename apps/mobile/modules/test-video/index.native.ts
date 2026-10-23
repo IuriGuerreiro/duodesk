@@ -9,6 +9,7 @@ import type { SenderStatus, ViewerStatus } from "./types";
 
 export type {
   AudioState,
+  ControlStatus,
   SenderStatus,
   SenderStats,
   StreamMode,
@@ -25,6 +26,7 @@ declare class TestVideoNative extends NativeModule<Events> {
   readonly supportsScreenSharing?: boolean;
   readonly supportsViewing?: boolean;
   readonly supportsPlaybackAudio?: boolean;
+  readonly supportsRemoteControl?: boolean;
   pairRequest(
     address: string,
     message: string,
@@ -34,6 +36,10 @@ declare class TestVideoNative extends NativeModule<Events> {
   connect(invitation: string): Promise<void>;
   start(bitrateMbps: number): Promise<void>;
   startScreen?(bitrateMbps: number, shareAudio: boolean): Promise<void>;
+  allowControl?(): Promise<void>;
+  revokeControl?(): Promise<void>;
+  openAccessibilitySettings?(): Promise<void>;
+  isControlServiceEnabled?(): Promise<boolean>;
   pause?(): Promise<void>;
   stop(): Promise<void>;
   background?(): Promise<void>;
@@ -59,6 +65,11 @@ export const StreamViewerView: ComponentType<ViewProps> = supportsViewing
 /** True on Android 10+ where the app can capture other apps' playback with the screen-share permission. */
 export const supportsPlaybackAudio: boolean = Boolean(
   native?.supportsPlaybackAudio,
+);
+
+/** True on Android builds that include the gesture-only accessibility service. */
+export const supportsRemoteControl: boolean = Boolean(
+  native?.supportsRemoteControl,
 );
 
 let cachedStatus: SenderStatus = { state: "idle" };
@@ -90,6 +101,38 @@ export const startScreen = async (
   }
   return mod.startScreen(bitrateMbps, shareAudio && supportsPlaybackAudio);
 };
+
+const controlModule = (): TestVideoNative => {
+  const mod = module();
+  if (!supportsRemoteControl) {
+    throw new Error(
+      "Remote control requires an updated Android development build. Rebuild and install the app.",
+    );
+  }
+  return mod;
+};
+
+/** Allows the paired PC to tap and swipe for this session only. Rejects with an explanation when it cannot start. */
+export const allowControl = (): Promise<void> =>
+  controlModule().allowControl!();
+
+export const isControlServiceEnabled = (): Promise<boolean> => {
+  const mod = controlModule();
+  if (typeof mod.isControlServiceEnabled !== "function") {
+    throw new Error(
+      "Remote access setup requires an updated Android build. Rebuild and install DuoDesk.",
+    );
+  }
+  return mod.isControlServiceEnabled();
+};
+
+/** Stops accepting remote input at once. */
+export const revokeControl = (): Promise<void> =>
+  controlModule().revokeControl!();
+
+/** Opens Android's Accessibility settings, where the owner turns the DuoDesk service on. */
+export const openAccessibilitySettings = (): Promise<void> =>
+  controlModule().openAccessibilitySettings!();
 
 /** Ends the video but keeps the desktop paired. */
 export const pause = async (): Promise<void> => {

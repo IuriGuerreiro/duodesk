@@ -15,6 +15,9 @@ class FakePeer {
     FakePeer.latest = this;
   }
   transceivers = [];
+  createDataChannel(label, init) {
+    return { label, ...init, close() {} };
+  }
   addTransceiver(kind, init) {
     this.transceivers.push({ kind, init });
   }

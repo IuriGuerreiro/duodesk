@@ -22,7 +22,8 @@
     "test:host": "node --test test/*.integration.mjs",
     "test:sender": "node scripts/run-electron.mjs scripts/sender-smoke.mjs",
     "test:receiver": "node scripts/run-electron.mjs scripts/receiver-smoke.mjs",
-    "test:ui": "node scripts/run-electron.mjs scripts/ui-smoke.mjs"
+    "test:ui": "node scripts/run-electron.mjs scripts/ui-smoke.mjs",
+    "test:control-surface": "node scripts/run-electron.mjs scripts/control-surface-smoke.mjs"
   },
   "dependencies": {
     "@duodesk/design-tokens": "workspace:*",

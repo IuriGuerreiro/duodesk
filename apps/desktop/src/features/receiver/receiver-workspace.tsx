@@ -17,6 +17,11 @@ import {
 import type { Invitation, StreamState } from "@duodesk/protocol";
 import { createPairingQrPayload } from "@duodesk/protocol/pairing";
 import type { NetworkAddress } from "@/shared/host";
+import {
+  ControlSurface,
+  ControlStatus,
+  type ControlLink,
+} from "@/features/remote-control";
 import type { VideoStats } from "./video-receiver";
 import { Button } from "@/shared/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
@@ -49,6 +54,7 @@ export interface ReceiverWorkspaceProps {
   playbackFailed: boolean;
   onPlay: () => void;
   audio: ReceiverAudio;
+  control?: ControlLink;
   onStart: () => void;
   onStop: () => void;
   onFullscreen: () => void;
@@ -62,6 +68,7 @@ const CHROME_HIDE_MS = 2000;
 
 export function ReceiverWorkspace({
   audio,
+  control,
   busy,
   desktopAvailable,
   error,
@@ -218,6 +225,10 @@ export function ReceiverWorkspace({
           aria-label="Incoming mobile video"
         />
 
+        {!playbackFailed && (
+          <ControlSurface link={control} videoRef={videoRef} />
+        )}
+
         {phase === "setup" && (
           <section className="stage-card" aria-labelledby="setup-title">
             <p className="eyebrow">Step 1 of 2</p>
@@ -271,8 +282,8 @@ export function ReceiverWorkspace({
             <p className="eyebrow">Step 2 of 2</p>
             <h1 id="pair-title">Scan with your phone</h1>
             <p className="lead">
-              Open DuoDesk on your phone and point the camera at this code,
-              or type the address and code below.
+              Open DuoDesk on your phone and point the camera at this code, or
+              type the address and code below.
             </p>
             {pairing?.code && remaining > 0 && (
               <div className="qr-frame">
@@ -352,12 +363,17 @@ export function ReceiverWorkspace({
 
         {live && (
           <div className="live-bar">
+            <ControlStatus link={control} videoRef={videoRef} />
             <span className="live-stats">
               {stats
                 ? `${stats.width} × ${stats.height} · ${stats.fps.toFixed(0)} fps`
                 : "Receiving video"}
             </span>
-            <div className="audio-controls" role="group" aria-label="Phone audio">
+            <div
+              className="audio-controls"
+              role="group"
+              aria-label="Phone audio"
+            >
               {audio.present ? (
                 <>
                   <Button

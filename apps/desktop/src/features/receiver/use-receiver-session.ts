@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ControlLink } from "@/features/remote-control";
 import { invoke } from "@/shared/host";
 import {
   useStreamSession,
@@ -10,6 +11,7 @@ import { VideoReceiver, type VideoStats } from "./video-receiver";
 
 export function useReceiverSession(): ReceiverWorkspaceProps {
   const [stats, setStats] = useState<VideoStats>();
+  const [remoteControl, setControl] = useState<ControlLink>();
   const [hasAudio, setHasAudio] = useState(false);
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(1);
@@ -23,6 +25,7 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
   function release() {
     peer.current?.stop();
     peer.current = undefined;
+    setControl(undefined);
     if (video.current) video.current.srcObject = null;
     setPlaybackFailed(false);
     setHasAudio(false);
@@ -46,6 +49,11 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
       },
       (connection) => {
         if (connection === "connected") control.current?.setState("streaming");
+      },
+      (rtc) => {
+        const link = new ControlLink(rtc, session.sessionId);
+        setControl(link);
+        return link;
       },
     );
   }
@@ -158,6 +166,7 @@ export function useReceiverSession(): ReceiverWorkspaceProps {
     busy: session.busy,
     remaining: session.remaining,
     videoRef: video,
+    control: remoteControl,
     playbackFailed,
     onPlay: () => {
       if (video.current) void play(video.current);
