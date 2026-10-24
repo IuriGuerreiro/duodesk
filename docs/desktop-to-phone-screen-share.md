@@ -26,6 +26,8 @@ Background and measurements are in the [capture spike](linux-to-mobile-spike.md)
 
 ## What was verified
 
+On 2026-10-24, the user confirmed Linux-to-phone sharing working on a connected Samsung SM_A266B after installing the current Android debug build.
+
 On this Linux x64 machine (X11, Electron 44.8):
 
 - Protocol, desktop and Rust tests, lint and type checks pass.

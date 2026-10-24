@@ -147,9 +147,9 @@ class TestVideoModule : Module() {
     }
 
     OnActivityEntersBackground {
-      pairing.close()
       StreamViewerManager.stop()
-      if (!controlSettingsOpen) VideoSenderManager.background()
+      // The sender screen handles backgrounding with its system-prompt guard.
+      // Activity pause alone also fires for audio and screen-capture permission dialogs.
     }
 
     OnActivityEntersForeground {
