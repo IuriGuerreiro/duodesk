@@ -8,37 +8,26 @@ import "./App.css";
 
 type Mode = "receive" | "share";
 
-const modes: { id: Mode; label: string }[] = [
-  { id: "receive", label: "Receive from phone" },
-  { id: "share", label: "Share this screen" },
-];
-
-function Receive() {
-  return <ReceiverWorkspace {...useReceiverSession()} />;
+function Receive({ onShareScreen }: { onShareScreen: () => void }) {
+  return (
+    <ReceiverWorkspace
+      {...useReceiverSession()}
+      onShareScreen={onShareScreen}
+    />
+  );
 }
 
-function Share() {
-  return <ScreenShareWorkspace {...useScreenShareSession()} />;
+function Share({ onReceive }: { onReceive: () => void }) {
+  return (
+    <ScreenShareWorkspace {...useScreenShareSession()} onReceive={onReceive} />
+  );
 }
 
-/** Switching modes unmounts the other one, which ends its session. */
 export default function App() {
   const [mode, setMode] = useState<Mode>("receive");
-  return (
-    <>
-      <nav className="mode-switch" aria-label="Session type">
-        {modes.map(({ id, label }) => (
-          <button
-            key={id}
-            type="button"
-            aria-pressed={mode === id}
-            onClick={() => setMode(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
-      {mode === "receive" ? <Receive /> : <Share />}
-    </>
+  return mode === "receive" ? (
+    <Receive onShareScreen={() => setMode("share")} />
+  ) : (
+    <Share onReceive={() => setMode("receive")} />
   );
 }

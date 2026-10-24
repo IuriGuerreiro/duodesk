@@ -3,6 +3,7 @@ import {
   CircleHelp,
   LoaderCircle,
   RefreshCw,
+  Smartphone,
   ShieldCheck,
   Square,
   Wifi,
@@ -29,6 +30,7 @@ export interface ScreenShareWorkspaceProps {
   sharing: boolean;
   busy: boolean;
   remaining: number;
+  onReceive: () => void;
   onStart: () => void;
   onStop: () => void;
   onShare: () => void;
@@ -43,6 +45,7 @@ export function ScreenShareWorkspace({
   ip,
   onIpChange,
   onRefresh,
+  onReceive,
   onShare,
   onStart,
   onStop,
@@ -156,6 +159,14 @@ export function ScreenShareWorkspace({
             >
               {busy ? <LoaderCircle className="spin" /> : <Wifi />}
               {busy ? "Creating connection…" : "Create connection"}
+            </Button>
+            <Button
+              variant="ghost"
+              className="secondary-action"
+              onClick={onReceive}
+              disabled={busy}
+            >
+              <Smartphone /> Receive from phone
             </Button>
           </section>
         )}

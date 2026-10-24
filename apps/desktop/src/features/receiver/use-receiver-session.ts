@@ -9,7 +9,7 @@ import type { Invitation } from "@duodesk/protocol";
 import type { ReceiverWorkspaceProps } from "./receiver-workspace";
 import { VideoReceiver, type VideoStats } from "./video-receiver";
 
-export function useReceiverSession(): ReceiverWorkspaceProps {
+export function useReceiverSession(): Omit<ReceiverWorkspaceProps, "onShareScreen"> {
   const [stats, setStats] = useState<VideoStats>();
   const [remoteControl, setControl] = useState<ControlLink>();
   const [hasAudio, setHasAudio] = useState(false);

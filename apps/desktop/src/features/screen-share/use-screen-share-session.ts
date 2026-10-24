@@ -9,7 +9,7 @@ import { ScreenSender, type ScreenStats } from "./screen-sender";
 
 const RETRYABLE = ["NotAllowedError", "NotFoundError", "AbortError"];
 
-export function useScreenShareSession(): ScreenShareWorkspaceProps {
+export function useScreenShareSession(): Omit<ScreenShareWorkspaceProps, "onReceive"> {
   const [stats, setStats] = useState<ScreenStats>();
   const [sharing, setSharing] = useState(false);
   const peer = useRef<ScreenSender | undefined>(undefined);

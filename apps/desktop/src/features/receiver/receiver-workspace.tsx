@@ -6,6 +6,7 @@ import {
   Expand,
   LoaderCircle,
   Minimize,
+  MonitorUp,
   Play,
   RefreshCw,
   ShieldCheck,
@@ -55,6 +56,7 @@ export interface ReceiverWorkspaceProps {
   onPlay: () => void;
   audio: ReceiverAudio;
   control?: ControlLink;
+  onShareScreen: () => void;
   onStart: () => void;
   onStop: () => void;
   onFullscreen: () => void;
@@ -79,6 +81,7 @@ export function ReceiverWorkspace({
   onIpChange,
   onPlay,
   onRefresh,
+  onShareScreen,
   onStart,
   onStop,
   pairing,
@@ -254,6 +257,14 @@ export function ReceiverWorkspace({
             >
               {busy ? <LoaderCircle className="spin" /> : <Wifi />}
               {busy ? "Creating connection…" : "Create connection"}
+            </Button>
+            <Button
+              variant="ghost"
+              className="secondary-action"
+              onClick={onShareScreen}
+              disabled={busy}
+            >
+              <MonitorUp /> Share this screen
             </Button>
             {desktopAvailable && !interfaces.length && (
               <p className="hint">

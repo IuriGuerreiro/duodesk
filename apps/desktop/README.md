@@ -19,7 +19,7 @@ Linux needs a graphical X11 or Wayland session and Electron's GTK/NSS/audio/grap
 
 ## Share this screen
 
-The **Share this screen** tab shows the desktop on an Android phone. It uses the same pairing as receiving. The phone scans the QR and sharing starts automatically after pairing, using Chromium `getDisplayMedia`. The phone sees the whole display, including this window.
+The **Share this screen** button below **Create connection** shows the desktop on an Android phone. It uses the same pairing as receiving. The phone scans the QR and sharing starts automatically after pairing, using Chromium `getDisplayMedia`. The phone sees the whole display, including this window.
 
 Electron grants capture only to its own window, video only, and only while a share session is open (`electron/capture.mjs`). Every other permission stays denied. Linux Wayland needs PipeWire and Chromium's portal capture and is untested. Tauri's WebKitGTK has no screen capture, so this feature is Electron only. Setup, route table and phone test steps are in [desktop-to-phone screen sharing](../../docs/desktop-to-phone-screen-share.md).
 
