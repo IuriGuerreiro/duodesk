@@ -55,7 +55,10 @@ test(
       const addresses = await host.request("stream_interfaces");
       const ip = addresses.find((a) => a.selectable)?.address;
       assert.ok(ip, "Integration requires a private LAN interface");
-      const connection = await host.request("stream_start", { ip });
+      const connection = await host.request("stream_start", {
+        ip,
+        direction: "phone-to-desktop",
+      });
       info = connection.invitation;
       const [hostname, port] = connection.address.split(":");
       async function open() {

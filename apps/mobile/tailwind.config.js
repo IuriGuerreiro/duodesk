@@ -1,3 +1,5 @@
+const { colors, radius } = require("@duodesk/design-tokens");
+
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: ["./src/**/*.{ts,tsx}"],
@@ -6,16 +8,29 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        background: "#F3F5F9",
-        foreground: "#17243D",
-        primary: { DEFAULT: "#2855D9", foreground: "#FFFFFF" },
-        secondary: { DEFAULT: "#E8EEFC", foreground: "#2449AD" },
-        muted: { DEFAULT: "#EDF0F5", foreground: "#5D6B82" },
-        accent: { DEFAULT: "#E8EEFC", foreground: "#2449AD" },
-        destructive: "#B42339",
-        border: "#D9DFE9",
-        input: "#B9C4D5",
-        ring: "#2855D9",
+        background: colors.background,
+        foreground: colors.text,
+        surface: {
+          DEFAULT: colors.surface1,
+          raised: colors.surface2,
+          hover: colors.surface3,
+        },
+        primary: {
+          DEFAULT: colors.blue,
+          foreground: colors.text,
+          hover: colors.blueHover,
+        },
+        secondary: { DEFAULT: colors.surface3, foreground: colors.text },
+        muted: { DEFAULT: colors.surface2, foreground: colors.text2 },
+        accent: { DEFAULT: colors.surface3, foreground: colors.text },
+        destructive: colors.danger,
+        border: colors.border,
+        input: colors.borderStrong,
+        ring: colors.blue,
+      },
+      borderRadius: {
+        control: `${radius.control}px`,
+        card: `${radius.card}px`,
       },
     },
   },

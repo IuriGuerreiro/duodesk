@@ -24,6 +24,7 @@
   <pre id="result"></pre>
   <script type="module">
     import { VideoReceiver } from "/src/features/receiver/video-receiver.ts";
+    import { ControlLink } from "/src/features/remote-control/control-link.ts";
     window.runLoopback = async () => {
       const sessionId = "a".repeat(32),
         errors = [],
@@ -134,6 +135,194 @@
           null,
           2,
         );
+      }
+    };
+    // The browser plays the phone: it opens the same negotiated channels, reports control state, and answers
+    // commands. Passing proves the production receiver and ControlLink work over a real WebRTC connection.
+    window.runControlLoopback = async () => {
+      const sessionId = "c".repeat(32),
+        errors = [],
+        pending = [],
+        commands = [];
+      const video = document.querySelector("video");
+      const canvas = document.createElement("canvas");
+      canvas.width = 360;
+      canvas.height = 800;
+      const context = canvas.getContext("2d");
+      let frame = 0;
+      const drawing = setInterval(() => {
+        context.fillStyle = `hsl(${frame++ % 360} 70% 35%)`;
+        context.fillRect(0, 0, 360, 800);
+      }, 33);
+      const media = canvas.captureStream(30);
+      const phone = new RTCPeerConnection({ iceServers: [] });
+      let epoch = 1;
+      const phoneControl = phone.createDataChannel("duodesk-control", {
+        negotiated: true,
+        id: 1,
+        ordered: true,
+      });
+      const phoneInput = phone.createDataChannel("duodesk-input", {
+        negotiated: true,
+        id: 2,
+        ordered: true,
+        maxPacketLifeTime: 500,
+      });
+      const say = (message) =>
+        phoneControl.send(JSON.stringify({ v: 1, sessionId, ...message }));
+      const status = (state) =>
+        say(
+          state === "on"
+            ? {
+                type: "status",
+                epoch,
+                state,
+                geometry: { width: 1080, height: 2400, rotation: 0 },
+              }
+            : { type: "status", epoch, state, reason: "revoked" },
+        );
+      phoneInput.onmessage = (event) => {
+        const command = JSON.parse(event.data);
+        commands.push(command);
+        say({
+          type: "result",
+          epoch: command.epoch,
+          seq: command.seq,
+          status: "done",
+        });
+      };
+      let link;
+      const receiver = new VideoReceiver(
+        sessionId,
+        async (message) => {
+          if (message.type === "answer") {
+            await phone.setRemoteDescription({
+              type: "answer",
+              sdp: message.sdp,
+            });
+            for (const candidate of pending.splice(0))
+              await phone.addIceCandidate(candidate);
+          } else if (message.type === "candidate") {
+            const candidate = {
+              candidate: message.candidate,
+              sdpMid: message.sdpMid,
+              sdpMLineIndex: message.sdpMLineIndex,
+            };
+            if (phone.remoteDescription) await phone.addIceCandidate(candidate);
+            else pending.push(candidate);
+          }
+        },
+        (stream) => {
+          video.srcObject = stream;
+          void video.play();
+        },
+        (error) => errors.push(error),
+        () => {},
+        (peer) => (link = new ControlLink(peer, sessionId)),
+      );
+      phone.onicecandidate = (event) => {
+        if (event.candidate)
+          void receiver.receive({
+            v: 1,
+            sessionId,
+            type: "candidate",
+            candidate: event.candidate.candidate,
+            sdpMid: event.candidate.sdpMid,
+            sdpMLineIndex: event.candidate.sdpMLineIndex ?? 0,
+          });
+      };
+      const until = async (check, what) => {
+        const deadline = Date.now() + 10000;
+        while (!check()) {
+          if (errors.length) throw new Error(errors.join("; "));
+          if (Date.now() > deadline) throw new Error(`Timed out: ${what}`);
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      };
+      let result;
+      try {
+        phone.addTransceiver(media.getVideoTracks()[0], {
+          direction: "sendonly",
+        });
+        const offer = await phone.createOffer();
+        await phone.setLocalDescription(offer);
+        await receiver.receive({
+          v: 1,
+          sessionId,
+          type: "offer",
+          sdp: offer.sdp,
+        });
+        await until(
+          () =>
+            phoneControl.readyState === "open" &&
+            phoneInput.readyState === "open",
+          "channels open",
+        );
+        // The phone repeats its status, as the real sender does, so a late desktop channel still learns it.
+        const beat = setInterval(() => status(epoch % 2 ? "on" : "off"), 200);
+        await until(() => link.getView().phase !== "waiting", "status heard");
+        const size = () => ({
+          width: video.videoWidth,
+          height: video.videoHeight,
+        });
+        await until(() => video.videoWidth === 360, "video size");
+        // The 360x800 picture matches a 1080x2400 display (same 0.45 shape).
+        await until(() => link.getView().phase === "active", "settled");
+        if (link.tap([0.25, 0.5], link.currentEpoch(), size()) !== true)
+          throw new Error("tap refused");
+        await until(
+          () => commands.length === 1 && !link.getView().busy,
+          "tap result",
+        );
+        if (link.tap([0.25, 0.5], link.currentEpoch(), size()) !== true)
+          throw new Error("second tap refused");
+        await until(
+          () => commands.length === 2 && !link.getView().busy,
+          "second result",
+        );
+        const swiped = link.swipe(
+          [
+            [0.5, 0.8],
+            [0.5, 0.2],
+          ],
+          300,
+          link.currentEpoch(),
+          size(),
+        );
+        await until(
+          () => commands.length === 3 && !link.getView().busy,
+          "swipe result",
+        );
+        // Phone revokes: input stops before the next command can be sent.
+        epoch = 2;
+        status("off");
+        await until(() => link.getView().phase === "off", "revoked");
+        const afterRevoke = link.tap([0.5, 0.5], link.currentEpoch(), size());
+        clearInterval(beat);
+        result = {
+          passed:
+            swiped === true &&
+            afterRevoke === false &&
+            commands.length === 3 &&
+            commands[0].type === "tap" &&
+            commands[0].x === 0.25 &&
+            commands[2].type === "swipe" &&
+            commands.every(
+              (command, index) =>
+                command.seq === index + 1 && command.sessionId === sessionId,
+            ),
+          commands: commands.length,
+        };
+        return result;
+      } catch (error) {
+        result = { passed: false, error: String(error) };
+        return result;
+      } finally {
+        receiver.stop();
+        phone.close();
+        clearInterval(drawing);
+        media.getTracks().forEach((track) => track.stop());
+        video.srcObject = null;
       }
     };
     // Sends a left-only 440 Hz stereo tone plus video in one stream. Passing proves the production receiver

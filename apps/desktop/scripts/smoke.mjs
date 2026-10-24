@@ -42,7 +42,7 @@ void (async () => {
     await new Promise(r=>setTimeout(r,100));
     const ips = await window.duoDesk.invoke('stream_interfaces');
     if (!ips.length) throw Error('No LAN interface');
-    const {invitation} = await window.duoDesk.invoke('stream_start', {ip: ips.find(i => i.selectable).address});
+    const {invitation} = await window.duoDesk.invoke('stream_start', {ip: ips.find(i => i.selectable).address, direction: 'phone-to-desktop'});
     if (!invitation.url.startsWith('wss://') || invitation.fingerprint.length !== 64) throw Error('Invalid invitation');
     await window.duoDesk.invoke('stream_stop');
     const a = new RTCPeerConnection({iceServers: []});

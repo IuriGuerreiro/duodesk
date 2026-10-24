@@ -1,5 +1,13 @@
 // Exercise the shipped renderer controls against the real Electron host.
 import { app, BrowserWindow } from "electron";
+import { Host } from "../electron/host.mjs";
+let sessionId;
+const request = Host.prototype.request;
+Host.prototype.request = async function (method, args) {
+  const result = await request.call(this, method, args);
+  if (method === "stream_start") sessionId = result.invitation.sessionId;
+  return result;
+};
 import "../electron/main.mjs";
 const deadline = setTimeout(() => app.exit(1), 30000);
 void (async () => {
@@ -16,6 +24,13 @@ void (async () => {
         break;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
+    window.webContents.on("console-message", (event) => {
+      if (event.message === "test:pause")
+        window.webContents.send("duodesk:event", {
+          kind: "signal",
+          signal: { v: 1, sessionId, type: "pause" },
+        });
+    });
     const result = await window.webContents.executeJavaScript(
       `(async () => {
     const wait = async (predicate, message) => {
@@ -44,7 +59,6 @@ void (async () => {
     if (button('Create connection')) throw Error('Create connection button should be hidden during active session');
     if (document.querySelector('textarea') || document.body.innerText.includes('Manual invitation')) throw Error('Legacy invitation input returned');
     if (!document.querySelector('video')) throw Error('Video stage missing');
-    window.RTCPeerConnection = Peer;
     const video = document.querySelector('video');
     const canvas = document.createElement('canvas');
     canvas.width = 32; canvas.height = 32;
@@ -63,6 +77,15 @@ void (async () => {
     await wait(()=>button('Play video') && document.querySelector('[role="alert"]'), 'Playback recovery missing in live view');
     button('Play video').click();
     await wait(()=>!button('Play video') && !video.paused, 'Manual playback retry failed');
+    const firstPeer = peer;
+    console.info('test:pause');
+    await wait(()=>peer !== firstPeer && document.querySelector('.phase-connecting'), 'Pause must create a fresh receiver and retain the paired session');
+    if (document.querySelector('.pair-card') || button('Create connection')) throw Error('Pause lost pairing');
+    peer.ontrack({track: media.getVideoTracks()[0]});
+    Object.defineProperty(peer, 'connectionState', {value: 'connected'});
+    peer.onconnectionstatechange();
+    await wait(()=>document.querySelector('.phase-live') && !video.paused, 'Receiver did not resume');
+    window.RTCPeerConnection = Peer;
     delete video.play;
     clearInterval(draw);
     media.getTracks().forEach(track=>track.stop());
@@ -80,7 +103,7 @@ void (async () => {
     await wait(()=>button('Exit fullscreen'), 'Fullscreen button did not update');
     button('Exit fullscreen').click();
     await wait(()=>!document.fullscreenElement, 'Fullscreen did not exit');
-    return {passed:true,addressOptions:select.options.length,pairingQrCard:true,stopped:true,videoStage:true,playbackRecovery:true,fullscreen:true};
+    return {passed:true,addressOptions:select.options.length,pairingQrCard:true,stopped:true,videoStage:true,playbackRecovery:true,pauseResume:true,fullscreen:true};
   })()`,
       true,
     );

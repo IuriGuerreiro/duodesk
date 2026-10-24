@@ -176,6 +176,10 @@ internal object VideoSenderManager {
     }
   }
 
+  fun revokeControl() {
+    activeSender?.revokeControl()
+  }
+
   fun background() {
     synchronized(this) {
       if (isPendingScreenConsent()) {

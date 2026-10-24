@@ -456,3 +456,21 @@ details summary:hover {
     transition: none !important;
   }
 }
+
+/* Input follows the picture; the existing floating toolbar stays above it. */
+.control-surface {
+  position: absolute;
+  z-index: 1;
+  cursor: crosshair;
+  touch-action: none;
+}
+.live-bar {
+  z-index: 2;
+}
+.control-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--dd-text-2);
+}
