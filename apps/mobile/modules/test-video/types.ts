@@ -47,3 +47,17 @@ export interface SenderStatus {
   /** Present during a screen-sharing session. */
   control?: ControlStatus;
 }
+
+export interface ViewerStats {
+  codec: string;
+  mbps: number;
+  fps: number;
+  width: number;
+  height: number;
+}
+
+export interface ViewerStatus {
+  state: StreamState;
+  message?: string;
+  stats?: ViewerStats;
+}

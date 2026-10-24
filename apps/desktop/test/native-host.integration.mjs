@@ -15,14 +15,20 @@ test("native transport lists interfaces, rejects remote bind and exits on close"
   try {
     assert.ok(Array.isArray(await host.request("stream_interfaces")));
     await assert.rejects(
-      host.request("stream_start", { ip: "203.0.113.1" }),
+      host.request("stream_start", {
+        ip: "203.0.113.1",
+        direction: "phone-to-desktop",
+      }),
       /local IPv4/,
     );
     await host.request("stream_stop");
     const ips = await host.request("stream_interfaces");
     const ip = ips.find((item) => item.selectable)?.address;
     if (ip) {
-      const { invitation } = await host.request("stream_start", { ip });
+      const { invitation } = await host.request("stream_start", {
+        ip,
+        direction: "phone-to-desktop",
+      });
       const url = new URL(invitation.url);
       const exited = once(host.child, "exit");
       host.close();

@@ -22,12 +22,31 @@ class TestVideoModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("DuoDeskTestVideo")
     Constant("supportsScreenSharing") { true }
+    Constant("supportsViewing") { true }
     Constant("supportsRemoteControl") { true }
     Constant("supportsPlaybackAudio") { Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q }
-    Events("onStatus")
+    Events("onStatus", "onViewerStatus")
 
     OnCreate {
       VideoSenderManager.setStatusListener { sendEvent("onStatus", it) }
+      StreamViewerManager.setStatusListener { sendEvent("onViewerStatus", it) }
+    }
+
+    View(StreamViewerView::class) {
+      OnViewDestroys { view: StreamViewerView -> view.release() }
+    }
+
+    AsyncFunction("watch") { invitation: String, promise: Promise ->
+      val context = requireNotNull(appContext.reactContext).applicationContext
+      StreamViewerManager.getOrCreate(context).submit(promise) { connect(invitation) }
+    }
+
+    AsyncFunction("stopWatching") { promise: Promise ->
+      StreamViewerManager.stop(promise)
+    }
+
+    AsyncFunction("getViewerStatus") {
+      StreamViewerManager.getStatus()
     }
 
     AsyncFunction("pairRequest") { address: String, message: String, fresh: Boolean, promise: Promise ->
@@ -128,8 +147,9 @@ class TestVideoModule : Module() {
     }
 
     OnActivityEntersBackground {
-      pairing.close()
-      if (!controlSettingsOpen) VideoSenderManager.background()
+      StreamViewerManager.stop()
+      // The sender screen handles backgrounding with its system-prompt guard.
+      // Activity pause alone also fires for audio and screen-capture permission dialogs.
     }
 
     OnActivityEntersForeground {
@@ -140,6 +160,7 @@ class TestVideoModule : Module() {
       pairing.close()
       pairingQueue.shutdownNow()
       VideoSenderManager.setStatusListener(null)
+      StreamViewerManager.setStatusListener(null)
     }
   }
 }

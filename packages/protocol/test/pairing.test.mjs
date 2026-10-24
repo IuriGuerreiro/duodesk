@@ -10,6 +10,7 @@ import {
 } from "../src/pairing.ts";
 const invitation = () => ({
   v: 1,
+  direction: "phone-to-desktop",
   sessionId: "a".repeat(32),
   token: "b".repeat(64),
   fingerprint: "c".repeat(64),

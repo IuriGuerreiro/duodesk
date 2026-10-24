@@ -76,16 +76,18 @@ Current code is split by feature. A feature exposes a public `index.ts`; everyth
 apps/mobile/src/
   app/                       # thin routes; index loads the sender, stream-test redirects to it
   features/
-    stream-sender/           # screen, use-sender-session, session copy; remote control Allow/Stop UI
-    pairing/                 # QR scanner and scan gate, manual entry, pairing client, connect flow
+    stream-sender/           # screen, use-sender-session, session copy
+    stream-viewer/           # watch the desktop screen (/watch), native view
+    pairing/                 # QR scanner and scan gate, manual entry, connect flow, invitation handoff
   shared/                    # NativeWind tokens, UI primitives, utilities, shared types
   (native module: apps/mobile/modules/test-video, outside src)
 apps/desktop/src/
   features/receiver/         # workspace UI, use-receiver-session, video-receiver (WebRTC)
-  features/remote-control/   # ControlLink (data channels), gesture recorder, click layer
-  shared/                    # host adapter (Electron/Tauri), shadcn ui/, lib/
+  features/screen-share/     # Share this screen: workspace UI, session hook, screen-sender (WebRTC)
+  shared/                    # host adapter (Electron/Tauri), session/ (pairing + host events), shadcn ui/, lib/
 packages/protocol/src/
-  stream/                    # invitation.ts, signal.ts, state.ts, internal guards.ts
+  stream/                    # invitation.ts, signal.ts, direction.ts (route table), state.ts, internal guards.ts
+  features/remote-control/   # ControlLink (data channels), gesture recorder, click layer
   control/                   # remote control messages, validators, coordinate mapping
 ```
 

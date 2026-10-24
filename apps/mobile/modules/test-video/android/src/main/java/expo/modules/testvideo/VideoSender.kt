@@ -10,39 +10,14 @@ import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
 import expo.modules.kotlin.Promise
-import okhttp3.*
 import org.json.JSONObject
 import org.webrtc.*
 import org.webrtc.audio.JavaAudioDeviceModule
 import java.nio.ByteBuffer
-import java.net.URI
-import java.security.MessageDigest
-import java.security.cert.CertificateException
-import java.security.cert.X509Certificate
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.TimeUnit
-import javax.net.ssl.SSLContext
-import javax.net.ssl.X509TrustManager
-
-internal data class Invitation(val sessionId: String, val url: String, val token: String, val fingerprint: String) {
-  companion object {
-    fun parse(text: String): Invitation {
-      require(text.toByteArray().size <= 2048) { "Invitation is too large" }
-      val json = JSONObject(text)
-      require(json.keys().asSequence().toSet() == setOf("v", "sessionId", "url", "token", "fingerprint", "expiresAt")) { "Invalid invitation fields" }
-      val uri = URI(json.getString("url"))
-      val now = System.currentTimeMillis()
-      require(json.getInt("v") == 1 && json.getString("sessionId").matches(Regex("[a-f0-9]{32}")) &&
-        json.getString("token").matches(Regex("[a-f0-9]{64}")) && json.getString("fingerprint").matches(Regex("[a-f0-9]{64}")) &&
-        json.getLong("expiresAt") > now && json.getLong("expiresAt") <= now + 300_000 &&
-        uri.scheme == "wss" && uri.port in 1..65535 && uri.path == "/" && uri.userInfo == null && uri.query == null && uri.fragment == null &&
-        uri.host?.split('.')?.let { parts -> parts.size == 4 && parts.all { it.toIntOrNull() in 0..255 } } == true) { "Invalid or expired invitation. Create a new one on the desktop." }
-      return Invitation(json.getString("sessionId"), uri.toString(), json.getString("token"), json.getString("fingerprint"))
-    }
-  }
-}
 
 internal class VideoSender(private val context: Context, private val emit: (Map<String, Any>) -> Unit) {
   @Volatile
@@ -57,18 +32,16 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
   @Volatile
   private var link = 0L
   private var invitation: Invitation? = null
-  private var socket: WebSocket? = null
-  private var client: OkHttpClient? = null
+  private var signaling: PinnedSignaling? = null
   private var peer: PeerConnection? = null
   private var source: VideoSource? = null
   private var track: VideoTrack? = null
   private var audioSource: AudioSource? = null
   private var audioTrack: AudioTrack? = null
   private var audioDevice: JavaAudioDeviceModule? = null
+  private var factory: PeerConnectionFactory? = null
   private var clip: ClipSource? = null
   private var screen: ScreenSource? = null
-  private var egl: EglBase? = null
-  private var factory: PeerConnectionFactory? = null
   private var timeout: ScheduledFuture<*>? = null
   private var stats: ScheduledFuture<*>? = null
   private val candidates = mutableListOf<IceCandidate>()
@@ -156,7 +129,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     ControlAccessibilityService.removeListener(serviceListener)
     close(); factory?.dispose(); factory = null
     audioDevice?.release(); audioDevice = null
-    egl?.release(); egl = null; queue.shutdown()
+    queue.shutdown()
   }
 
   private fun status(next: String) {
@@ -212,53 +185,27 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
   fun connect(text: String) {
     close()
     val info = Invitation.parse(text)
+    require(info.direction == Direction.PhoneToDesktop) { "This invitation is for viewing the desktop screen. Use the viewer instead." }
     invitation = info
-    val epoch = generation
-    val trust = object : X509TrustManager {
-      override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
-      override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) { throw CertificateException("Client trust is not supported") }
-      override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {
-        val leaf = chain.firstOrNull() ?: throw CertificateException("Missing receiver certificate")
-        val digest = MessageDigest.getInstance("SHA-256").digest(leaf.encoded).joinToString("") { "%02x".format(it) }
-        if (digest != info.fingerprint) throw CertificateException("Receiver certificate does not match the invitation")
-      }
-    }
-    val tls = SSLContext.getInstance("TLS").apply { init(null, arrayOf(trust), null) }
-    val client = OkHttpClient.Builder().sslSocketFactory(tls.socketFactory, trust)
-      .hostnameVerifier { host, _ -> host == URI(info.url).host }
-      .connectionSpecs(listOf(ConnectionSpec.MODERN_TLS)).pingInterval(10, TimeUnit.SECONDS)
-      .connectTimeout(10, TimeUnit.SECONDS).readTimeout(0, TimeUnit.MILLISECONDS).build()
-    this.client = client
     val linkEpoch = link
     status("connecting")
     armTimeout("Connection timed out. Check Wi-Fi and the desktop firewall.")
-    socket = client.newWebSocket(Request.Builder().url(info.url).build(), object : WebSocketListener() {
-      override fun onOpen(webSocket: WebSocket, response: Response) = dispatch {
-        if (link == linkEpoch) send(JSONObject().put("type", "pair").put("token", info.token))
-      }
-      override fun onMessage(webSocket: WebSocket, text: String) = dispatch {
+    signaling = PinnedSignaling(info, object : PinnedSignaling.Listener {
+      override fun onMessage(text: String) = dispatch {
         if (link == linkEpoch) runCatching { receive(text) }.onFailure { fail(it.message ?: "Invalid signaling message") }
       }
-      override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) = dispatch {
-        if (link == linkEpoch) fail("Unexpected binary signaling message")
+      override fun onFailure(message: String) = dispatch {
+        if (link == linkEpoch) fail(message)
       }
-      override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) = dispatch {
-        if (link == linkEpoch) fail("Receiver connection failed: ${t.message}")
-      }
-      override fun onClosing(webSocket: WebSocket, code: Int, reason: String) = dispatch {
+      override fun onClosed() = dispatch {
         if (link == linkEpoch) stop()
       }
-      override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = dispatch {
-        if (link == linkEpoch) stop()
-      }
-    })
+    }).also { it.open() }
   }
 
   private fun nativeFactory(): PeerConnectionFactory {
     factory?.let { return it }
-    initialize(context)
-    val egl = EglBase.create()
-    this.egl = egl
+    val egl = WebRtcFactory.get(context).egl
     // Recordingless mode: the module never creates a microphone AudioRecord. It asks onAudioBuffer for
     // every 10 ms buffer, and that callback supplies captured playback audio or paced silence.
     val adm = JavaAudioDeviceModule.builder(context)
@@ -436,7 +383,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     val (pc, epoch) = initPeerConnection(bitrateMbps)
     val src = checkNotNull(source)
     src.adaptOutputFormat(1920, 1080, 30)
-    clip = ClipSource(context, checkNotNull(egl).eglBaseContext, src.capturerObserver) { message ->
+    clip = ClipSource(context, WebRtcFactory.get(context).egl.eglBaseContext, src.capturerObserver) { message ->
       dispatch { if (epoch == generation) fail(message) }
     }
     sendOffer(pc, epoch)
@@ -482,7 +429,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     val src = checkNotNull(source)
     screen = ScreenSource(
       context = context,
-      eglContext = checkNotNull(egl).eglBaseContext,
+      eglContext = WebRtcFactory.get(context).egl.eglBaseContext,
       observer = src.capturerObserver,
       resultData = resultData,
       queue = queue,
@@ -523,13 +470,8 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     require(text.toByteArray().size <= 65_536) { "Signaling message is too large" }
     val message = JSONObject(text)
     check(message.getInt("v") == 1 && message.getString("sessionId") == invitation?.sessionId) { "Stale signaling session" }
-    val keys = setOf("v", "sessionId", "type")
-    val expected = when (message.getString("type")) {
-      "paired", "stop" -> keys
-      "answer" -> keys + "sdp"
-      "candidate" -> keys + setOf("candidate", "sdpMid", "sdpMLineIndex")
-      else -> error("Unexpected signaling message")
-    }
+    val direction = checkNotNull(invitation).direction
+    val expected = SignalRoutes.desktopFields(direction, message.getString("type"))
     require(message.keys().asSequence().toSet() == expected) { "Invalid signaling fields" }
     when (message.getString("type")) {
       "paired" -> {
@@ -579,9 +521,8 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
   }
 
   private fun send(message: JSONObject) {
-    val info = invitation ?: return
-    message.put("v", 1).put("sessionId", info.sessionId)
-    check(socket?.send(message.toString()) == true) { "Signaling socket is closed or busy" }
+    val signaling = signaling ?: return
+    check(signaling.send(message)) { "Signaling socket is closed or busy" }
   }
 
   private fun startStats(pc: PeerConnection) {
@@ -681,9 +622,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
   private fun close() {
     closeVideo()
     link++
-    runCatching { send(JSONObject().put("type", "stop")) }
-    socket?.cancel(); socket = null
-    client?.dispatcher?.executorService?.shutdown(); client?.connectionPool?.evictAll(); client = null
+    signaling?.close(); signaling = null
     invitation = null
     state = "stopped"
   }
@@ -715,18 +654,11 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       }
     }
   }
-
-  companion object {
-    private var initialized = false
-    @Synchronized private fun initialize(context: Context) {
-      if (!initialized) { PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(context).createInitializationOptions()); initialized = true }
-    }
-  }
 }
 
 internal open class SdpCallbacks(private val failure: (String) -> Unit) : SdpObserver {
   override fun onCreateSuccess(description: SessionDescription) {}
   override fun onSetSuccess() {}
-  override fun onCreateFailure(error: String) = failure("Could not create video offer: $error")
+  override fun onCreateFailure(error: String) = failure("Could not create video description: $error")
   override fun onSetFailure(error: String) = failure("Could not apply video description: $error")
 }

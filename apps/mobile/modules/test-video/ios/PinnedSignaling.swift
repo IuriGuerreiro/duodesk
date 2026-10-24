@@ -4,6 +4,7 @@ import Security
 
 struct StreamInvitation: Decodable {
   let v: Int
+  let direction: String
   let sessionId: String
   let url: String
   let token: String
@@ -13,6 +14,8 @@ struct StreamInvitation: Decodable {
   static func parse(_ text: String) throws -> StreamInvitation {
     guard text.utf8.count <= 2048, let data = text.data(using: .utf8) else { throw SenderError.invalidInvitation }
     let invitation = try JSONDecoder().decode(Self.self, from: data)
+    guard invitation.direction == "phone-to-desktop" || invitation.direction == "desktop-to-phone" else { throw SenderError.invalidInvitation }
+    guard invitation.direction == "phone-to-desktop" else { throw SenderError.viewerUnsupported }
     let now = Date().timeIntervalSince1970 * 1000
     guard invitation.v == 1, invitation.sessionId.range(of: "^[a-f0-9]{32}$", options: .regularExpression) != nil,
           invitation.token.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil,
@@ -29,10 +32,11 @@ struct StreamInvitation: Decodable {
 }
 
 enum SenderError: LocalizedError {
-  case invalidInvitation, notReady, clipMissing, peerUnavailable
+  case invalidInvitation, viewerUnsupported, notReady, clipMissing, peerUnavailable
   var errorDescription: String? {
     switch self {
     case .invalidInvitation: return "Pairing failed or expired. Check the desktop address and code, then create a new pairing code."
+    case .viewerUnsupported: return "Viewing the desktop screen is not available on iOS yet."
     case .notReady: return "Connect to Windows before starting."
     case .clipMissing: return "The bundled test clip is missing. Rebuild the development client."
     case .peerUnavailable: return "Could not create the native WebRTC sender."

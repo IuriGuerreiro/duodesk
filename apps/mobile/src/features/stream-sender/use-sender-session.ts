@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Keyboard, PermissionsAndroid, Platform } from "react-native";
+import { useRouter } from "expo-router";
+import { parseInvitation } from "@duodesk/protocol";
 import { parsePairingQrPayload } from "@duodesk/protocol/pairing";
 import {
+  holdInvitation,
   connectToDesktop,
   createScanGate,
   pairWithCode,
@@ -55,6 +58,7 @@ function parseBitrate(raw: string): number {
 }
 
 export function useSenderSession() {
+  const router = useRouter();
   const [status, setStatus] = useState<SenderStatus>({ state: "idle" });
   const [operation, setOperation] = useState<Operation>(null);
   const [mode, setMode] = useState<PairingMode>("closed");
@@ -224,7 +228,16 @@ export function useSenderSession() {
         {
           requestLocalNetwork: () => guardPrompt(localNetworkPermission),
           pair: pairWithCode,
-          connect: sender.connect,
+          connect: async (invitation) => {
+            if (parseInvitation(invitation).direction === "desktop-to-phone") {
+              if (!sender.supportsViewing)
+                throw new Error(
+                  "Watching your PC screen needs the Android app with the latest build.",
+                );
+              holdInvitation(invitation);
+              router.push("/watch");
+            } else await sender.connect(invitation);
+          },
         },
         {
           address: target,
@@ -284,24 +297,26 @@ export function useSenderSession() {
     if (statusRef.current.state !== "ready" || !sender.supportsScreenSharing)
       return false;
     Keyboard.dismiss();
-    return run("screen", async () => {
-      const value = parseBitrate(bitrate);
-      if (Platform.OS === "android" && Number(Platform.Version) >= 33) {
-        await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
-        );
-      }
-      let audio = shareAudio && sender.supportsPlaybackAudio;
-      setAudioNotice("");
-      if (audio && !(await playbackAudioPermission())) {
-        audio = false;
-        setAudioNotice(
-          "Audio permission was denied, so only video is shared. You can allow it in Android settings.",
-        );
-      }
-      setIntent("screen");
-      await sender.startScreen(value, audio);
-    });
+    return run("screen", () =>
+      guardPrompt(async () => {
+        const value = parseBitrate(bitrate);
+        if (Platform.OS === "android" && Number(Platform.Version) >= 33) {
+          await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+          );
+        }
+        let audio = shareAudio && sender.supportsPlaybackAudio;
+        setAudioNotice("");
+        if (audio && !(await playbackAudioPermission())) {
+          audio = false;
+          setAudioNotice(
+            "Audio permission was denied, so only video is shared. You can allow it in Android settings.",
+          );
+        }
+        setIntent("screen");
+        await sender.startScreen(value, audio);
+      }),
+    );
   }
 
   // Control actions are quick and independent of the pairing lock; a refusal explains itself and ends nothing.

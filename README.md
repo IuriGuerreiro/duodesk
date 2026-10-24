@@ -1,6 +1,6 @@
 # DuoDesk
 
-Electron and retained Tauri desktop hosts share a React/TypeScript/Vite receiver alongside the Expo mobile app in a pnpm + Turbo workspace. See [desktop setup, packaging, and validation](apps/desktop/README.md). Both apps import `@duodesk/protocol`. The first test-video sender and Windows receiver are implemented, with native-device validation pending. See [test-video setup and validation](docs/test-video-validation.md). iPad screen broadcasting follows after this experiment. See [architecture](docs/architecture.md) and the [approved scaffold plan](docs/scaffold-plan.md).
+Electron and retained Tauri desktop hosts share a React/TypeScript/Vite receiver alongside the Expo mobile app in a pnpm + Turbo workspace. See [desktop setup, packaging, and validation](apps/desktop/README.md). Both apps import `@duodesk/protocol`. The first test-video sender and Windows receiver are implemented, with native-device validation pending. See [test-video setup and validation](docs/test-video-validation.md). The desktop can also share its screen to an Android phone; see [desktop-to-phone screen sharing](docs/desktop-to-phone-screen-share.md). iPad screen broadcasting follows after this experiment. See [architecture](docs/architecture.md) and the [approved scaffold plan](docs/scaffold-plan.md).
 
 ## Tooling and commands
 

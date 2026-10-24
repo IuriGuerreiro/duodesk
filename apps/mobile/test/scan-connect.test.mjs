@@ -180,6 +180,7 @@ function lan(serve, invitation) {
 }
 const invitation = (expiresAt = Date.now() + 120000) => ({
   v: 1,
+  direction: "phone-to-desktop",
   sessionId: "a".repeat(32),
   token: "b".repeat(64),
   fingerprint: "c".repeat(64),

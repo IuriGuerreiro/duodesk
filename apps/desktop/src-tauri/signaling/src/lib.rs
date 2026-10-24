@@ -52,10 +52,59 @@ pub enum Payload {
     Stop,
     Pause,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Direction {
+    PhoneToDesktop,
+    DesktopToPhone,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Role {
+    Desktop,
+    Phone,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Kind {
+    Pair,
+    Paired,
+    Offer,
+    Answer,
+    Candidate,
+    Stop,
+    Pause,
+}
+impl Payload {
+    fn kind(&self) -> Kind {
+        match self {
+            Payload::Pair { .. } => Kind::Pair,
+            Payload::Paired => Kind::Paired,
+            Payload::Offer { .. } => Kind::Offer,
+            Payload::Answer { .. } => Kind::Answer,
+            Payload::Candidate { .. } => Kind::Candidate,
+            Payload::Stop => Kind::Stop,
+            Payload::Pause => Kind::Pause,
+        }
+    }
+}
+/// Who may send which message once paired. The offerer is the device that shares its screen.
+/// The direction-independent handshake (`pair`, `paired`) is not listed, so it is rejected
+/// after the session is established.
+fn routes(direction: Direction, from: Role) -> &'static [Kind] {
+    use {Direction::*, Kind::*, Role::*};
+    match (direction, from) {
+        (PhoneToDesktop, Phone) => &[Offer, Candidate, Stop, Pause],
+        (DesktopToPhone, Desktop) => &[Offer, Candidate, Stop],
+        (PhoneToDesktop, Desktop) | (DesktopToPhone, Phone) => &[Answer, Candidate, Stop],
+    }
+}
+pub fn can_send(direction: Direction, from: Role, payload: &Payload) -> bool {
+    routes(direction, from).contains(&payload.kind())
+}
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Invitation {
     pub v: u8,
+    pub direction: Direction,
     pub session_id: String,
     pub url: String,
     pub token: String,
@@ -118,11 +167,8 @@ impl Session {
     }
     pub fn send(&self, signal: Signal) -> Result<(), String> {
         validate(&signal, &self.invitation.session_id)?;
-        if !matches!(
-            signal.payload,
-            Payload::Answer { .. } | Payload::Candidate { .. } | Payload::Stop
-        ) {
-            return Err("Unexpected receiver message".into());
+        if !can_send(self.invitation.direction, Role::Desktop, &signal.payload) {
+            return Err("Unexpected desktop message".into());
         }
         self.outgoing
             .try_send(signal)
@@ -226,7 +272,11 @@ fn valid_pair(signal: &Signal, invitation: &Invitation, now: u64) -> bool {
         && matches!(&signal.payload, Payload::Pair { token } if token == &invitation.token)
 }
 
-pub async fn start(ip: String, emit: Arc<dyn Fn(Event) + Send + Sync>) -> Result<Session, String> {
+pub async fn start(
+    ip: String,
+    direction: Direction,
+    emit: Arc<dyn Fn(Event) + Send + Sync>,
+) -> Result<Session, String> {
     if !interfaces().contains(&ip) || ip.parse::<Ipv4Addr>().is_err() {
         return Err("Select a local IPv4 interface".into());
     }
@@ -243,6 +293,7 @@ pub async fn start(ip: String, emit: Arc<dyn Fn(Event) + Send + Sync>) -> Result
         .map_err(|e| e.to_string())?;
     let invitation = Invitation {
         v: 1,
+        direction,
         session_id: random_hex(16),
         token: random_hex(32),
         fingerprint,
@@ -328,7 +379,7 @@ pub async fn start(ip: String, emit: Arc<dyn Fn(Event) + Send + Sync>) -> Result
                         match incoming.map_err(|e| e.to_string())? {
                             Message::Text(text) => {
                                 let signal = parse(&text, &info.session_id)?;
-                                if !matches!(signal.payload, Payload::Offer { .. } | Payload::Candidate { .. } | Payload::Stop | Payload::Pause) { return Err("Unexpected sender message".into()); }
+                                if !can_send(info.direction, Role::Phone, &signal.payload) { return Err("Unexpected phone message".into()); }
                                 let stop = matches!(signal.payload, Payload::Stop);
                                 emit(Event::Signal { signal });
                                 if stop { break; }
@@ -373,13 +424,22 @@ mod tests {
     }
     #[tokio::test]
     async fn rejects_nonlocal_binding() {
-        assert!(start("203.0.113.1".into(), Arc::new(|_| {})).await.is_err());
+        assert!(
+            start(
+                "203.0.113.1".into(),
+                Direction::PhoneToDesktop,
+                Arc::new(|_| {})
+            )
+            .await
+            .is_err()
+        );
     }
 
     #[test]
     fn pairing_rejects_expiry_and_stale_session() {
         let info = Invitation {
             v: 1,
+            direction: Direction::PhoneToDesktop,
             session_id: "session".into(),
             token: "secret".into(),
             url: "unused".into(),
@@ -433,6 +493,148 @@ mod tests {
             .0
     }
 
+    fn payloads() -> [Payload; 7] {
+        [
+            Payload::Pair { token: "t".into() },
+            Payload::Paired,
+            Payload::Offer { sdp: "v=0".into() },
+            Payload::Answer { sdp: "v=0".into() },
+            Payload::Candidate {
+                candidate: "c".into(),
+                sdp_mid: None,
+                sdp_m_line_index: 0,
+            },
+            Payload::Stop,
+            Payload::Pause,
+        ]
+    }
+    fn allowed(direction: Direction, from: Role) -> Vec<Kind> {
+        payloads()
+            .iter()
+            .filter(|p| can_send(direction, from, p))
+            .map(Payload::kind)
+            .collect()
+    }
+
+    #[test]
+    fn routes_let_only_the_offerer_send_an_offer() {
+        use {Direction::*, Kind::*, Role::*};
+        assert_eq!(
+            allowed(PhoneToDesktop, Phone),
+            [Offer, Candidate, Stop, Pause]
+        );
+        assert_eq!(allowed(PhoneToDesktop, Desktop), [Answer, Candidate, Stop]);
+        assert_eq!(allowed(DesktopToPhone, Desktop), [Offer, Candidate, Stop]);
+        assert_eq!(allowed(DesktopToPhone, Phone), [Answer, Candidate, Stop]);
+    }
+
+    #[test]
+    fn invitation_serializes_direction() {
+        let info = Invitation {
+            v: 1,
+            direction: Direction::DesktopToPhone,
+            session_id: "s".into(),
+            url: "u".into(),
+            token: "t".into(),
+            fingerprint: "f".into(),
+            expires_at: 1,
+        };
+        let value = serde_json::to_value(&info).unwrap();
+        assert_eq!(value["direction"], "desktop-to-phone");
+        assert_eq!(value.as_object().unwrap().len(), 7);
+    }
+
+    #[tokio::test]
+    async fn desktop_offers_and_phone_answers() {
+        let Some(ip) = interfaces().first().cloned() else {
+            return;
+        };
+        let (events, mut received) = mpsc::unbounded_channel();
+        let session = start(
+            ip,
+            Direction::DesktopToPhone,
+            Arc::new(move |event| {
+                let _ = events.send(event);
+            }),
+        )
+        .await
+        .unwrap();
+        let info = session.invitation.clone();
+        let signal = |payload| Signal {
+            v: 1,
+            session_id: info.session_id.clone(),
+            payload,
+        };
+        let text = |payload| serde_json::to_string(&signal(payload)).unwrap();
+        let mut ws = connect(&session).await;
+        ws.send(Message::text(text(Payload::Pair {
+            token: info.token.clone(),
+        })))
+        .await
+        .unwrap();
+        let paired = timeout(Duration::from_secs(2), ws.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .into_text()
+            .unwrap();
+        assert!(matches!(
+            parse(&paired, &info.session_id).unwrap().payload,
+            Payload::Paired
+        ));
+        // The desktop is the offerer in this direction and cannot answer.
+        assert!(
+            session
+                .send(signal(Payload::Answer { sdp: "a".into() }))
+                .is_err()
+        );
+        session
+            .send(signal(Payload::Offer {
+                sdp: "v=0\r\n".into(),
+            }))
+            .unwrap();
+        let offer = timeout(Duration::from_secs(2), ws.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .into_text()
+            .unwrap();
+        assert!(matches!(
+            parse(&offer, &info.session_id).unwrap().payload,
+            Payload::Offer { .. }
+        ));
+        ws.send(Message::text(text(Payload::Answer { sdp: "a".into() })))
+            .await
+            .unwrap();
+        loop {
+            if let Event::Signal { signal } = timeout(Duration::from_secs(2), received.recv())
+                .await
+                .unwrap()
+                .unwrap()
+            {
+                assert!(matches!(signal.payload, Payload::Answer { .. }));
+                break;
+            }
+        }
+        // A phone offer is outside this direction's route table and fails the session.
+        ws.send(Message::text(text(Payload::Offer { sdp: "v=0".into() })))
+            .await
+            .unwrap();
+        loop {
+            if let Event::State { state, .. } = timeout(Duration::from_secs(2), received.recv())
+                .await
+                .unwrap()
+                .unwrap()
+            {
+                if state == "failed" {
+                    break;
+                }
+            }
+        }
+    }
+
     #[tokio::test]
     async fn authenticates_once_forwards_messages_and_stops() {
         let Some(ip) = interfaces().first().cloned() else {
@@ -441,6 +643,7 @@ mod tests {
         let (events, mut received) = mpsc::unbounded_channel();
         let session = start(
             ip,
+            Direction::PhoneToDesktop,
             Arc::new(move |event| {
                 let _ = events.send(event);
             }),

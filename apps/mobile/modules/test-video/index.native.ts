@@ -1,5 +1,11 @@
-import { NativeModule, requireOptionalNativeModule } from "expo";
-import type { SenderStatus } from "./types";
+import type { ComponentType } from "react";
+import type { ViewProps } from "react-native";
+import {
+  NativeModule,
+  requireNativeView,
+  requireOptionalNativeModule,
+} from "expo";
+import type { SenderStatus, ViewerStatus } from "./types";
 
 export type {
   AudioState,
@@ -7,12 +13,18 @@ export type {
   SenderStatus,
   SenderStats,
   StreamMode,
+  ViewerStats,
+  ViewerStatus,
 } from "./types";
 
-type Events = { onStatus: (status: SenderStatus) => void };
+type Events = {
+  onStatus: (status: SenderStatus) => void;
+  onViewerStatus: (status: ViewerStatus) => void;
+};
 
 declare class TestVideoNative extends NativeModule<Events> {
   readonly supportsScreenSharing?: boolean;
+  readonly supportsViewing?: boolean;
   readonly supportsPlaybackAudio?: boolean;
   readonly supportsRemoteControl?: boolean;
   pairRequest(
@@ -32,6 +44,9 @@ declare class TestVideoNative extends NativeModule<Events> {
   stop(): Promise<void>;
   background?(): Promise<void>;
   getStatus?(): Promise<SenderStatus>;
+  watch?(invitation: string): Promise<void>;
+  stopWatching?(): Promise<void>;
+  getViewerStatus?(): Promise<ViewerStatus>;
 }
 
 const native = requireOptionalNativeModule<TestVideoNative>("DuoDeskTestVideo");
@@ -41,6 +56,12 @@ export const supportsScreenSharing: boolean = Boolean(
   native?.supportsScreenSharing,
 );
 
+export const supportsViewing: boolean = Boolean(native?.supportsViewing);
+
+/** Draws the desktop's video natively. Only renders where `supportsViewing` is true. */
+export const StreamViewerView: ComponentType<ViewProps> = supportsViewing
+  ? requireNativeView<ViewProps>("DuoDeskTestVideo")
+  : () => null;
 /** True on Android 10+ where the app can capture other apps' playback with the screen-share permission. */
 export const supportsPlaybackAudio: boolean = Boolean(
   native?.supportsPlaybackAudio,
@@ -156,3 +177,29 @@ export const pairRequest = (address: string, message: string, fresh: boolean) =>
 export const pairClose = async () => {
   await native?.pairClose();
 };
+
+export const watch = async (invitation: string): Promise<void> => {
+  const mod = module();
+  if (!supportsViewing || typeof mod.watch !== "function") {
+    throw new Error(
+      "Watching the desktop screen requires an updated Android development build. Rebuild and install the app.",
+    );
+  }
+  return mod.watch(invitation);
+};
+
+export const stopWatching = async (): Promise<void> => {
+  if (native && typeof native.stopWatching === "function")
+    await native.stopWatching();
+};
+
+export const getViewerStatus = async (): Promise<ViewerStatus> => {
+  if (native && typeof native.getViewerStatus === "function")
+    return native.getViewerStatus();
+  return { state: "idle" };
+};
+
+export const subscribeViewer = (
+  listener: (status: ViewerStatus) => void,
+): { remove(): void } =>
+  native?.addListener("onViewerStatus", listener) ?? { remove() {} };

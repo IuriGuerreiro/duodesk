@@ -73,17 +73,31 @@ export class Host {
     if (unexpected) this.onFailure();
   }
 }
-export function validateCommand(method, args) {
+/** Signal fields by type the desktop may send, per direction. Mirrors SIGNAL_ROUTES[direction].desktop in @duodesk/protocol. */
+export const DESKTOP_SENDS = {
+  "phone-to-desktop": {
+    answer: ["sdp"],
+    candidate: ["candidate", "sdpMid", "sdpMLineIndex"],
+    stop: [],
+  },
+  "desktop-to-phone": {
+    offer: ["sdp"],
+    candidate: ["candidate", "sdpMid", "sdpMLineIndex"],
+    stop: [],
+  },
+};
+export function validateCommand(method, args, direction) {
   if (method === "stream_interfaces" || method === "stream_stop") {
     if (args !== undefined) throw new Error("Unexpected arguments");
   } else if (method === "stream_start") {
     if (
       !args ||
-      Object.keys(args).join() !== "ip" ||
+      Object.keys(args).sort().join() !== "direction,ip" ||
       typeof args.ip !== "string" ||
-      !/^\d{1,3}(\.\d{1,3}){3}$/.test(args.ip)
+      !/^\d{1,3}(\.\d{1,3}){3}$/.test(args.ip) ||
+      !Object.hasOwn(DESKTOP_SENDS, args.direction)
     )
-      throw new Error("Invalid interface");
+      throw new Error("Invalid stream request");
   } else if (method === "stream_pair_reply") {
     const reply = args?.reply;
     if (
@@ -114,11 +128,7 @@ export function validateCommand(method, args) {
       !/^[a-f0-9]{32}$/.test(s.sessionId)
     )
       throw new Error("Invalid session");
-    const fields = {
-      answer: ["sdp"],
-      candidate: ["candidate", "sdpMid", "sdpMLineIndex"],
-      stop: [],
-    }[s.type];
+    const fields = DESKTOP_SENDS[direction]?.[s.type];
     if (
       !fields ||
       Object.keys(s).sort().join() !==
@@ -126,7 +136,7 @@ export function validateCommand(method, args) {
     )
       throw new Error("Invalid signal fields");
     if (
-      s.type === "answer" &&
+      (s.type === "answer" || s.type === "offer") &&
       (typeof s.sdp !== "string" || !s.sdp.length || s.sdp.length > 60_000)
     )
       throw new Error("Invalid SDP");
