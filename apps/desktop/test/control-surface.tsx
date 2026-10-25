@@ -122,6 +122,31 @@ Object.assign(window, {
           throw new Error("Control layer covers letterbox margins");
       };
       check();
+      // The layer takes the wheel so the desktop page does not scroll; margins and Ctrl+wheel do not.
+      const layer = document
+        .querySelector(".control-surface")!
+        .getBoundingClientRect();
+      const box = video.getBoundingClientRect();
+      const spin = (x: number, y: number, ctrlKey = false) => {
+        const event = new WheelEvent("wheel", {
+          deltaY: 100,
+          clientX: x,
+          clientY: y,
+          ctrlKey,
+          bubbles: true,
+          cancelable: true,
+        });
+        document.elementFromPoint(x, y)!.dispatchEvent(event);
+        return event.defaultPrevented;
+      };
+      const centreX = layer.left + layer.width / 2;
+      const centreY = layer.top + layer.height / 2;
+      if (!spin(centreX, centreY))
+        throw new Error("Wheel over the picture scrolled the desktop");
+      if (spin(centreX, centreY, true))
+        throw new Error("Ctrl+wheel was taken from the desktop");
+      if (spin(box.left + 5, box.top + 5))
+        throw new Error("Wheel over the letterbox was taken");
       const toolbar = document
         .querySelector(".live-bar")!
         .getBoundingClientRect();
@@ -157,6 +182,7 @@ Object.assign(window, {
         letterboxing: true,
         resize: true,
         playbackContinues: true,
+        wheelPrevented: true,
       };
     } finally {
       clearInterval(drawing);

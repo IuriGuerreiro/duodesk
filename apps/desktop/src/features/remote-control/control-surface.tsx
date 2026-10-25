@@ -17,6 +17,7 @@ import { Button } from "@/shared/ui/button";
 import type { ControlLink, ControlView } from "./control-link";
 import { controlSummary } from "./copy";
 import { GestureRecorder } from "./gesture";
+import { WheelScroller } from "./wheel";
 
 const idle: ControlView = {
   phase: "waiting",
@@ -122,14 +123,59 @@ export function ControlSurface({
   const picture = usePicture(videoRef, open);
   const recorder = useRef(new GestureRecorder());
   const epoch = useRef(-1);
+  const scroller = useRef<WheelScroller>(undefined);
+  const [surface, setSurface] = useState<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!link) return;
+    const wheel = new WheelScroller(link);
+    scroller.current = wheel;
+    return () => {
+      wheel.close();
+      scroller.current = undefined;
+    };
+  }, [link]);
 
   useEffect(() => {
     if (open) return;
     recorder.current.cancel();
+    scroller.current?.clear();
   }, [open]);
 
+  // React's onWheel is passive, so it cannot stop the desktop page scrolling. Bind natively instead.
   useEffect(() => {
-    const cancel = () => recorder.current.cancel();
+    const video = videoRef.current;
+    if (!surface || !link || !video) return;
+    const onWheel = (event: WheelEvent) => {
+      // Ctrl+wheel is a pinch or desktop zoom; leave it to the desktop.
+      if (event.ctrlKey) return;
+      event.preventDefault();
+      // A press in progress owns the phone; a scroll must not race it.
+      if (recorder.current.active) return scroller.current?.clear();
+      const rect = pictureRect(video);
+      const point = rect && toNormalized(event.clientX, event.clientY, rect);
+      if (!rect || !point) return scroller.current?.clear();
+      scroller.current?.wheel(event, point, rect, {
+        width: video.videoWidth,
+        height: video.videoHeight,
+      });
+    };
+    const leave = () => scroller.current?.clear();
+    surface.addEventListener("wheel", onWheel, { passive: false });
+    surface.addEventListener("pointerleave", leave);
+    return () => {
+      surface.removeEventListener("wheel", onWheel);
+      surface.removeEventListener("pointerleave", leave);
+      // The layer goes away on pause, a shape mismatch or teardown.
+      scroller.current?.clear();
+    };
+  }, [surface, link, videoRef]);
+
+  useEffect(() => {
+    const cancel = () => {
+      recorder.current.cancel();
+      scroller.current?.clear();
+    };
     const onKey = (event: KeyboardEvent) => event.key === "Escape" && cancel();
     window.addEventListener("blur", cancel);
     window.addEventListener("keydown", onKey);
@@ -148,6 +194,7 @@ export function ControlSurface({
 
   return (
     <div
+      ref={setSurface}
       className="control-surface"
       style={{
         left: picture.left,
@@ -160,6 +207,7 @@ export function ControlSurface({
         if (event.button !== 0 || !event.isPrimary) return;
         const point = locate(event);
         if (!point) return;
+        scroller.current?.clear();
         event.currentTarget.setPointerCapture(event.pointerId);
         epoch.current = link.currentEpoch();
         recorder.current.begin(
@@ -196,7 +244,7 @@ export function ControlSurface({
       onPointerCancel={() => recorder.current.cancel()}
       onLostPointerCapture={() => recorder.current.cancel()}
       onContextMenu={(event) => event.preventDefault()}
-      aria-label="Phone screen. Click to tap, drag to swipe."
+      aria-label="Phone screen. Click to tap, drag to swipe, use the wheel to scroll."
       role="application"
     />
   );
