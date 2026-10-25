@@ -1,6 +1,6 @@
-# Android tap, swipe and typing from the desktop
+# Android tap, swipe, scroll and typing from the desktop
 
-While an Android phone shares its screen, the paired desktop can **tap** (a click), **swipe** (a click-drag) and, on Android 13+, **type** into the focused field (see [Typing](#typing)). Live raw keyboard, arrow keys and shortcuts, Back/Home/Recents, mouse wheel, multi-touch, iOS control and unattended access are out of scope.
+While an Android phone shares its screen, the paired desktop can **tap** (a click), **swipe** (a click-drag), **scroll** (mouse wheel or trackpad, sent as a swipe) and, on Android 13+, **type** into the focused field (see [Typing](#typing)). Live raw keyboard, arrow keys and shortcuts, Back/Home/Recents, multi-touch, iOS control and unattended access are out of scope.
 
 ## Consent: three separate things
 
@@ -54,6 +54,12 @@ Android 13 (API 33) added an input method for accessibility services (`FLAG_INPU
 - **Desktop mapping.** The click layer sits exactly over the video's drawn picture (`object-fit: contain`), so black margins never receive clicks. The picture rectangle is re-measured on resize, fullscreen and video size change. Pointer positions are normalised against that rectangle at the moment of the click. A gesture that started under an older epoch is dropped.
 - **Pixels.** `round(x × (width − 1))`, clamped to the display. Identical on both sides (`toPixel`, `RemoteControl.pixel`).
 - **Clicks and drags.** Primary button only. Movement ≤ 8 px and ≤ 500 ms is a tap. A longer stationary press is ignored. Anything that moves is a swipe sent on release, simplified to ≤ 24 points. Escape, window blur or pointer cancel discards the gesture.
+- **Wheel and trackpad.** There is no scroll command. The desktop sends an ordinary `swipe`, so the protocol and phone are unchanged. Details are in `wheel.ts`:
+  - Pixel, line (16 px) and page deltas are converted to picture pixels. Wheel down moves the finger up, like a touch screen. Shift+wheel scrolls sideways when there is no horizontal delta. Ctrl+wheel (trackpad pinch, desktop zoom) is ignored and left to the desktop.
+  - The swipe starts at the pointer and never moves, so it stays in the list under it. Travel is capped at 15% of the screen per swipe, and the end is clamped 3% from the edges. A pointer inside that 3% edge band sends nothing, to avoid system edge gestures. Duration is 200–400 ms, scaled by travel. These are tuning guesses, not measured defaults.
+  - While the phone is busy, wheel movement collects up to one swipe's worth. The excess is lost, never queued. The collected scroll is sent when the current command completes, or dropped if the wheel has been still for over 250 ms. It is also dropped on epoch change, pause, shape mismatch, blur, Escape, the pointer leaving, a press starting, and teardown.
+  - The wheel listener is native and non-passive, on the click layer only, so the desktop page does not scroll. Letterbox margins keep normal wheel behaviour. A wheel turn during a press is ignored.
+  - Android's `dispatchGesture` cancels any gesture in progress, including the owner's own touch. That is one more reason one command stays in flight and nothing is queued.
 
 ## Code map
 
@@ -78,6 +84,9 @@ The accessibility service is declared in the module's own manifest and resources
 | ------------------------------------------------------------------------------------------------------ | ---------------------------------- |
 | Protocol tests (validation, letterbox mapping, aspect check, pixel rounding)                           | pass                               |
 | Desktop unit tests (link gating, epochs, pause, timeouts, recorder)                                    | pass                               |
+| Desktop wheel tests (delta modes, direction, bounds, staleness, clearing, busy/completion/timeout)     | pass                               |
+| Electron control layer: wheel default prevented on picture, not on letterbox or Ctrl+wheel             | pass                               |
+| Samsung wheel scrolling (checklist below)                                                              | not yet tested on device           |
 | Kotlin unit tests (wire format 6, grant / epoch / busy / replay / revoke / rotation / service loss 19) | pass                               |
 | Electron loopback over real WebRTC: negotiated channels, status, tap, swipe, result, revoke            | pass                               |
 | Existing video and audio loopbacks                                                                     | pass                               |
@@ -87,6 +96,17 @@ The accessibility service is declared in the module's own manifest and resources
 | Typing: protocol, desktop link and composer helpers, Kotlin wire / gating / Enter choice               | pass                               |
 | Typing: Electron loopback (caps, text, key, revoke) and composer overlay smoke                         | pass                               |
 | Typing on a real phone (Samsung checks in the manual steps)                                            | not run                            |
+
+### Wheel scrolling device checklist (Samsung, not yet run)
+
+- [ ] Chrome page: wheel down/up scrolls down/up, with no stray taps.
+- [ ] Settings list, and a nested list inside a scrolling page: the scroll stays in the list under the pointer.
+- [ ] Horizontal carousel: Shift+wheel and a sideways trackpad swipe.
+- [ ] Notched wheel vs. smooth trackpad: step size and fling feel. Tune `MAX_TRAVEL` and durations if needed.
+- [ ] Fast wheel spin: no backlog after stopping, and a click right after scrolling still taps.
+- [ ] Pointer near the screen edges: no notification shade, back gesture or app switcher.
+- [ ] Rotation mid-scroll: nothing lands on the rotated screen.
+- [ ] Owner touching the phone while the desktop scrolls: the owner's touch may be cancelled (Android behaviour).
 
 Manual steps are in [manual-verification-android-screen-sharing.md](manual-verification-android-screen-sharing.md#remote-control).
 
