@@ -6,7 +6,6 @@ import {
   PermissionsAndroid,
   Platform,
 } from "react-native";
-import { useFocusEffect } from "expo-router";
 import { parsePairingQrPayload } from "@duodesk/protocol/pairing";
 import {
   connectToDesktop,
@@ -177,6 +176,7 @@ export function useSenderSession() {
   useEffect(() => {
     active.current = true;
     void Promise.resolve().then(refreshSaved);
+    void Promise.resolve().then(syncStatus);
     const subscription = sender.subscribe((next) => {
       if (!active.current) return;
       eventSeq.current += 1;
@@ -205,13 +205,6 @@ export function useSenderSession() {
       leaveScreen();
     };
   }, [closeScanner, leaveScreen, reconnectFlow, refreshSaved, syncStatus]);
-
-  useFocusEffect(
-    useCallback(() => {
-      void syncStatus();
-      return leaveScreen;
-    }, [leaveScreen, syncStatus]),
-  );
 
   const canPair =
     status.state === "idle" ||
@@ -314,7 +307,7 @@ export function useSenderSession() {
   // A valid QR is a complete request: connect without a second tap. Fields stay
   // filled and visible so a failed attempt can be retried or corrected.
   function acceptScan(text: string) {
-    if (locked.current || !canPair || !sender.available) return;
+    if (locked.current || !canPair || !sender.available) return false;
     const scan = gate.accept(text);
     if (scan.kind === "invalid") {
       setError(scan.message);
@@ -324,7 +317,9 @@ export function useSenderSession() {
       setNotice("");
       setMode("manual");
       pair(scan.address, scan.code);
+      return true;
     }
+    return false;
   }
 
   function openScanner() {
@@ -416,25 +411,19 @@ export function useSenderSession() {
     });
   }
 
-  useFocusEffect(
-    useCallback(() => {
-      const subscription = BackHandler.addEventListener(
-        "hardwareBackPress",
-        () => {
-          if (locked.current === "connect" || locked.current === "reconnect") {
-            stop();
-            return true;
-          }
-          if (mode === "scan") {
-            closeScanner();
-            return true;
-          }
-          return false;
-        },
-      );
-      return () => subscription.remove();
-    }, [mode, closeScanner, stop]),
-  );
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => {
+        if (locked.current === "connect" || locked.current === "reconnect") {
+          stop();
+          return true;
+        }
+        return false;
+      },
+    );
+    return () => subscription.remove();
+  }, [stop]);
 
   return {
     status,

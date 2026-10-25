@@ -94,7 +94,7 @@ function DesktopRow({
           className="flex-row items-center gap-2"
           accessibilityLiveRegion="polite"
         >
-          <ActivityIndicator color="#2855D9" />
+          <ActivityIndicator color="#3B82F6" />
           <Text className="flex-1 text-sm leading-5 text-muted-foreground">
             {state.kind === "waiting"
               ? `Cannot reach the PC. Retrying in ${state.delayMs / 1000} seconds…`
@@ -131,7 +131,7 @@ function DesktopRow({
 export function SavedDesktopsPanel(control: Props) {
   if (!control.error && control.desktops.length === 0) return null;
   return (
-    <View className="gap-4 rounded-3xl bg-white p-5">
+    <View className="gap-4 rounded-3xl bg-background p-5">
       <Text accessibilityRole="header" className="text-lg font-semibold">
         Saved desktops
       </Text>
