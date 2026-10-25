@@ -23,6 +23,7 @@ const idle: ControlView = {
   epoch: -1,
   busy: false,
   paused: false,
+  text: false,
 };
 
 export function useControlView(link: ControlLink | undefined): ControlView {
@@ -195,6 +196,8 @@ export function ControlSurface({
       }}
       onPointerCancel={() => recorder.current.cancel()}
       onLostPointerCapture={() => recorder.current.cancel()}
+      // Tapping the phone must not take focus from the typing composer.
+      onMouseDown={(event) => event.preventDefault()}
       onContextMenu={(event) => event.preventDefault()}
       aria-label="Phone screen. Click to tap, drag to swipe."
       role="application"

@@ -130,7 +130,7 @@ Object.assign(window, {
         toolbar.top + toolbar.height / 2,
       );
       if (!target?.closest(".live-bar"))
-        throw new Error("Control layer blocks the floating toolbar");
+        throw new Error(`Control layer blocks the floating toolbar: ${target?.outerHTML.slice(0, 120)} ${JSON.stringify(toolbar.toJSON())}`);
       if (
         getComputedStyle(document.querySelector(".control-surface")!)
           .outlineStyle !== "none"
@@ -151,8 +151,55 @@ Object.assign(window, {
         "Control layer did not follow resize",
       );
       check();
+      // Typing composer: shown only after the phone advertises text for this epoch.
+      if (document.querySelector(".text-composer"))
+        throw new Error("Composer shown without text caps");
+      channels[0].dispatchEvent(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            v: 1,
+            sessionId,
+            type: "caps",
+            epoch: 1,
+            text: true,
+          }),
+        }),
+      );
+      await until(
+        () => !!document.querySelector(".text-composer.collapsed button"),
+        "Composer did not appear after caps",
+      );
+      document
+        .querySelector<HTMLButtonElement>(".text-composer.collapsed button")!
+        .click();
+      await until(
+        () => document.activeElement?.tagName === "TEXTAREA",
+        "Composer did not take focus",
+      );
+      const composer = document
+        .querySelector(".text-composer")!
+        .getBoundingClientRect();
+      const bar = document.querySelector(".live-bar")!.getBoundingClientRect();
+      if (composer.bottom > bar.top)
+        throw new Error(
+          `Composer overlaps the toolbar: ${JSON.stringify({ composer: composer.toJSON(), bar: bar.toJSON() })}`,
+        );
+      // Clicking the phone picture must not steal focus from the composer.
+      const surface = document.querySelector(".control-surface")!;
+      const rect = surface.getBoundingClientRect();
+      surface.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          cancelable: true,
+          clientX: rect.left + 10,
+          clientY: rect.top + 10,
+        }),
+      );
+      if (document.activeElement?.tagName !== "TEXTAREA")
+        throw new Error("Tapping the picture stole composer focus");
       return {
         passed: true,
+        composer: true,
         offsetStage: true,
         letterboxing: true,
         resize: true,

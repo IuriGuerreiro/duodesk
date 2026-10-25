@@ -6,11 +6,13 @@ import {
   STATUS_TIMEOUT_MS,
   encodeInputCommand,
   parseCommandResult,
+  parseControlCaps,
   parseControlStatus,
   videoMatchesDisplay,
   type ControlOffReason,
   type DisplayGeometry,
   type NormalizedPoint,
+  type TypedKey,
 } from "@duodesk/protocol";
 
 /** After the phone's screen changes shape, ignore input until the new frames have had time to arrive. */
@@ -28,6 +30,20 @@ export type ControlPhase =
   | "syncing"
   | "active";
 
+/**
+ * How the phone answered the last text or key command. Never carries the text itself.
+ * `done` means Android handed it to the focused field, not that the field shows it: custom editors may
+ * ignore input. `unconfirmed` means no answer arrived (timeout, revocation, disconnect), so it may or may
+ * not have been typed. Everything else means nothing was typed.
+ */
+export type TypingOutcome =
+  "done" | "nofield" | "rejected" | "failed" | "unconfirmed";
+
+export interface TypingResult {
+  seq: number;
+  outcome: TypingOutcome;
+}
+
 export interface ControlView {
   phase: ControlPhase;
   reason?: ControlOffReason;
@@ -37,6 +53,10 @@ export interface ControlView {
   busy: boolean;
   /** Input is sent only when this is true. */
   paused: boolean;
+  /** The phone accepts text and key commands for the current epoch. */
+  text: boolean;
+  /** The answer to the most recent text or key command, once it is known. */
+  typing?: TypingResult;
 }
 
 export interface VideoSize {
@@ -61,7 +81,15 @@ export class ControlLink {
   private heardAt = 0;
   private settleUntil = 0;
   private seq = 0;
-  private pending?: { seq: number; since: number };
+  private pending?: {
+    seq: number;
+    epoch: number;
+    since: number;
+    typing: boolean;
+  };
+  /** Text capability, valid only for the epoch it was reported in. */
+  private textCaps = false;
+  private typing?: TypingResult;
   private paused = false;
   private closed = false;
   private listeners = new Set<() => void>();
@@ -117,7 +145,8 @@ export class ControlLink {
     if (this.phone.state !== "waiting" && at - this.heardAt > STATUS_TIMEOUT_MS)
       this.reset();
     if (this.pending && at - this.pending.since > RESULT_TIMEOUT_MS) {
-      this.pending = undefined;
+      // Never retried: a late text may still have been typed.
+      this.forget();
       this.update();
     }
     // The settle window ending changes what the UI may show.
@@ -133,14 +162,36 @@ export class ControlLink {
       message =
         type === "result"
           ? parseCommandResult(data, this.sessionId)
-          : parseControlStatus(data, this.sessionId);
+          : type === "caps"
+            ? parseControlCaps(data, this.sessionId)
+            : parseControlStatus(data, this.sessionId);
     } catch {
       // A malformed message from the phone changes nothing.
       return;
     }
     const at = this.now();
     if (message.type === "result") {
-      if (this.pending?.seq === message.seq) this.pending = undefined;
+      const pending = this.pending;
+      // A result for an older epoch or command was already given up on.
+      if (pending?.seq !== message.seq || pending.epoch !== message.epoch)
+        return;
+      this.pending = undefined;
+      if (pending.typing)
+        this.typing = {
+          seq: pending.seq,
+          outcome:
+            message.status === "done"
+              ? "done"
+              : message.status === "rejected"
+                ? message.reason === "nofield"
+                  ? "nofield"
+                  : "rejected"
+                : "failed",
+        };
+    } else if (message.type === "caps") {
+      // Capabilities describe one epoch; the status that announced it always comes first.
+      if (message.epoch !== this.epoch) return;
+      this.textCaps = message.text;
     } else {
       this.heardAt = at;
       // Epochs only grow within a session. An older status is a late arrival.
@@ -148,7 +199,8 @@ export class ControlLink {
       if (message.epoch !== this.epoch) {
         this.epoch = message.epoch;
         this.settleUntil = at + SETTLE_MS;
-        this.pending = undefined;
+        this.textCaps = false;
+        this.forget();
       }
       this.phone =
         message.state === "on"
@@ -161,8 +213,16 @@ export class ControlLink {
   private reset() {
     this.phone = { state: "waiting" };
     this.epoch = -1;
-    this.pending = undefined;
+    this.textCaps = false;
+    this.forget();
     this.update();
+  }
+
+  /** Gives up on the command in flight. A text or key command becomes `unconfirmed`, never silently lost. */
+  private forget() {
+    if (this.pending?.typing)
+      this.typing = { seq: this.pending.seq, outcome: "unconfirmed" };
+    this.pending = undefined;
   }
 
   /** Why input cannot be sent right now, or undefined if it can. */
@@ -180,6 +240,19 @@ export class ControlLink {
       !videoMatchesDisplay(this.phone.geometry, video.width, video.height)
     )
       return "syncing";
+    return undefined;
+  }
+
+  /** Why text cannot be sent right now, or undefined if it can. Text does not depend on the picture. */
+  typeBlocker(): ControlPhase | undefined {
+    if (
+      this.closed ||
+      this.phone.state !== "on" ||
+      this.input.readyState !== "open"
+    )
+      return this.phone.state === "off" ? "off" : "waiting";
+    if (this.paused) return "paused";
+    if (!this.textCaps || this.now() < this.settleUntil) return "syncing";
     return undefined;
   }
 
@@ -201,6 +274,25 @@ export class ControlLink {
     return this.send(epoch, video, { type: "swipe", durationMs, points });
   }
 
+  /**
+   * Sends text for the focused field on the phone. Returns the command's `seq`, matched later by
+   * `getView().typing`, or undefined when nothing was sent. `text` must already satisfy `validTypedText`.
+   */
+  typeText(text: string): number | undefined {
+    return this.sendTyping({ type: "text", text });
+  }
+
+  typeKey(key: TypedKey): number | undefined {
+    return this.sendTyping({ type: "key", key });
+  }
+
+  private sendTyping(
+    body: { type: "text"; text: string } | { type: "key"; key: TypedKey },
+  ): number | undefined {
+    if (this.typeBlocker() || this.pending) return undefined;
+    return this.transmit(this.epoch, body, true);
+  }
+
   private send(
     epoch: number,
     video: VideoSize,
@@ -208,11 +300,23 @@ export class ControlLink {
       | { type: "tap"; x: number; y: number }
       | { type: "swipe"; durationMs: number; points: NormalizedPoint[] },
   ): boolean {
-    const at = this.now();
     // One gesture at a time: input made while the phone is busy is dropped, not queued.
-    if (this.blocker(video, at) || epoch !== this.epoch || this.pending)
+    if (this.blocker(video) || epoch !== this.epoch || this.pending)
       return false;
-    if (this.input.bufferedAmount > BUFFER_LIMIT) return false;
+    return this.transmit(epoch, body, false) !== undefined;
+  }
+
+  private transmit(
+    epoch: number,
+    body:
+      | { type: "tap"; x: number; y: number }
+      | { type: "swipe"; durationMs: number; points: NormalizedPoint[] }
+      | { type: "text"; text: string }
+      | { type: "key"; key: TypedKey },
+    typing: boolean,
+  ): number | undefined {
+    const at = this.now();
+    if (this.input.bufferedAmount > BUFFER_LIMIT) return undefined;
     const seq = ++this.seq;
     try {
       this.input.send(
@@ -225,11 +329,11 @@ export class ControlLink {
         }),
       );
     } catch {
-      return false;
+      return undefined;
     }
-    this.pending = { seq, since: at };
+    this.pending = { seq, epoch, since: at, typing };
     this.update();
-    return true;
+    return seq;
   }
 
   close() {
@@ -242,7 +346,8 @@ export class ControlLink {
     this.control.close();
     this.input.close();
     this.phone = { state: "waiting" };
-    this.pending = undefined;
+    this.textCaps = false;
+    this.forget();
     this.snapshot = this.compute();
     this.listeners.forEach((listener) => listener());
     this.listeners.clear();
@@ -253,6 +358,8 @@ export class ControlLink {
       epoch: this.epoch,
       busy: this.pending !== undefined,
       paused: this.paused,
+      text: !this.closed && this.textCaps && this.phone.state === "on",
+      typing: this.typing,
     };
     if (this.closed || this.phone.state === "waiting")
       return { ...base, phase: "waiting" };
@@ -274,6 +381,8 @@ export class ControlLink {
       next.epoch === previous.epoch &&
       next.busy === previous.busy &&
       next.paused === previous.paused &&
+      next.text === previous.text &&
+      next.typing === previous.typing &&
       next.geometry === previous.geometry
     )
       return;
