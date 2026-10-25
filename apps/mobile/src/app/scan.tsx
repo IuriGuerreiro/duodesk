@@ -6,16 +6,13 @@ import { useSenderConnection } from "@/features/stream-sender";
 
 export default function ScanScreen() {
   const connection = useSenderConnection();
-  const { openScanner, closeScanner, canPair, busy } = connection;
+  const { openScanner, closeScanner } = connection;
   useFocusEffect(
     useCallback(() => {
       openScanner();
       return closeScanner;
     }, [openScanner, closeScanner]),
   );
-  useEffect(() => {
-    if (!canPair || busy) router.dismissTo("/");
-  }, [canPair, busy]);
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") openScanner();

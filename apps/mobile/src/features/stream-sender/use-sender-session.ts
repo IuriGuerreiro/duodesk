@@ -226,6 +226,7 @@ export function useSenderSession() {
 
   function pair(target: string, pairingCode: string) {
     Keyboard.dismiss();
+    router.dismissTo("/");
     void run("connect", async (epoch) => {
       await connectToDesktop(
         {
