@@ -277,7 +277,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     transceiver.setCodecPreferences(video + codecs.filter { it.name.equals("rtx", true) }).throwError()
     val parameters = transceiver.sender.parameters
     parameters.encodings.forEach { it.maxBitrateBps = bitrateMbps * 1_000_000; it.maxFramerate = 30 }
-    parameters.degradationPreference = RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
+    parameters.degradationPreference = RtpParameters.DegradationPreference.BALANCED
     check(transceiver.sender.setParameters(parameters)) { "Could not configure video bitrate" }
     if (withAudio) addAudioTrack(factory, pc)
     return Pair(pc, epoch)
