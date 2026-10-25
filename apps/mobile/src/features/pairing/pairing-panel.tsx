@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,6 +13,8 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, space } from "@duodesk/design-tokens";
 import { Action, styles } from "@/shared/ui/duo-ui";
+import type { NearbyDesktop } from "@duodesk/protocol/discovery";
+import type { Nearby } from "./use-nearby";
 
 export type PairingMode = "closed" | "manual" | "scan";
 export type PairingPanelProps = {
@@ -27,6 +30,9 @@ export type PairingPanelProps = {
   connect(): void;
   acceptScan(text: string): void;
   guardPrompt<T>(request: () => Promise<T>): Promise<T>;
+  nearby: Nearby;
+  /** Fills the address only; the user still enters the PC's code. */
+  selectNearby(device: NearbyDesktop): void;
 };
 
 export function PairingScanner({
@@ -194,5 +200,73 @@ export function PairingManual({
         <View style={{ height: space.xs }} />
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+const nearbyCopy: Record<Nearby["status"], string> = {
+  idle: "",
+  searching: "Looking for PCs with a pairing code open.",
+  "needs-permission": "Allow local network access to find PCs automatically.",
+  denied:
+    "Local network access was denied. Allow it in your phone’s app settings, or scan the code instead.",
+  unsupported: "",
+  error: "Couldn’t search the network. Check Wi-Fi and try again.",
+};
+
+/** PCs found on the local network. Choosing one still requires its code. */
+export function NearbyList({
+  connection,
+  onSelect,
+}: {
+  connection: PairingPanelProps;
+  onSelect(): void;
+}) {
+  const { nearby } = connection;
+  if (nearby.status === "idle" || nearby.status === "unsupported") return null;
+  const searching = nearby.status === "searching";
+  return (
+    <View style={styles.stats}>
+      <View style={[styles.stat, { alignItems: "center" }]}>
+        <Text style={styles.label}>Nearby PCs</Text>
+        {searching && <ActivityIndicator size="small" color={colors.blue} />}
+      </View>
+      {nearby.devices.map((device) => (
+        <Pressable
+          key={device.id}
+          style={styles.stat}
+          disabled={!connection.available || connection.busy}
+          accessibilityRole="button"
+          accessibilityLabel={`${device.name}, ${device.address}. Select, then enter its code.`}
+          onPress={() => {
+            connection.selectNearby(device);
+            onSelect();
+          }}
+        >
+          <Text style={styles.statValue} numberOfLines={1}>
+            {device.name}
+          </Text>
+          <Text style={styles.statLabel}>{device.address}</Text>
+        </Pressable>
+      ))}
+      {(!searching || nearby.devices.length === 0) && (
+        <Text
+          style={[styles.statLabel, { paddingVertical: space.sm }]}
+          accessibilityLiveRegion="polite"
+        >
+          {nearbyCopy[nearby.status]}
+        </Text>
+      )}
+      {!searching && (
+        <Action
+          variant="ghost"
+          label={
+            nearby.status === "needs-permission"
+              ? "Find nearby PCs"
+              : "Try again"
+          }
+          onPress={nearby.retry}
+        />
+      )}
+    </View>
   );
 }

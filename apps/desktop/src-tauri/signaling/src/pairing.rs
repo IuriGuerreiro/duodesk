@@ -59,6 +59,7 @@ pub struct PairReply {
 }
 pub fn spawn(
     listener: TcpListener,
+    advertisement: Option<crate::discovery::Advertisement>,
     info: Invitation,
     emit: Arc<dyn Fn(Event) + Send + Sync>,
     mut cancelled: watch::Receiver<bool>,
@@ -143,6 +144,10 @@ pub fn spawn(
             },
         }
         // Dropping listener and active socket closes all bootstrap work.
+        // Withdraw the record off the async workers; unregister waits briefly for the goodbye.
+        if let Some(advertisement) = advertisement {
+            tokio::task::spawn_blocking(move || drop(advertisement));
+        }
     })
 }
 #[cfg(test)]
@@ -182,6 +187,7 @@ mod tests {
         let (replies, rx) = mpsc::channel(4);
         let task = spawn(
             listener,
+            None,
             info(now_ms() + 2000),
             Arc::new(move |e| {
                 events.send(e).unwrap();
@@ -230,6 +236,7 @@ mod tests {
         let (_replies, rx) = mpsc::channel(4);
         let task = spawn(
             listener,
+            None,
             info(now_ms() + 2000),
             Arc::new(|event| assert!(matches!(event, Event::PairingStatus { .. }))),
             cancelled,
@@ -267,6 +274,7 @@ mod tests {
             let (_replies, rx) = mpsc::channel(4);
             let task = spawn(
                 listener,
+                None,
                 info(now_ms() + 50),
                 Arc::new(|_| {}),
                 cancelled,

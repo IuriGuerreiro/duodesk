@@ -14,6 +14,12 @@ class TestVideoModule : Module() {
   private val pairing = PairingTransport()
   private val pairingQueue = java.util.concurrent.Executors.newSingleThreadExecutor()
 
+  private var nearby: NearbyBrowser? = null
+
+  private fun nearby(): NearbyBrowser = nearby ?: NearbyBrowser(requireNotNull(appContext.reactContext).applicationContext) {
+    sendEvent("onNearby", it)
+  }.also { nearby = it }
+
   private fun sender(): VideoSender {
     val context = requireNotNull(appContext.reactContext).applicationContext
     return VideoSenderManager.getOrCreateSender(context)
@@ -25,7 +31,8 @@ class TestVideoModule : Module() {
     Constant("supportsViewing") { true }
     Constant("supportsRemoteControl") { true }
     Constant("supportsPlaybackAudio") { Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q }
-    Events("onStatus", "onViewerStatus")
+    Constant("supportsNearby") { true }
+    Events("onStatus", "onViewerStatus", "onNearby")
 
     OnCreate {
       VideoSenderManager.setStatusListener { sendEvent("onStatus", it) }
@@ -57,6 +64,9 @@ class TestVideoModule : Module() {
       }
     }
     AsyncFunction("pairClose") { pairing.close() }
+
+    AsyncFunction("nearbyStart") { nearby().start() }
+    AsyncFunction("nearbyStop") { nearby?.stop() }
 
     AsyncFunction("connect") { invitation: String, promise: Promise ->
       sender().submit(promise) { connect(invitation) }
@@ -147,6 +157,7 @@ class TestVideoModule : Module() {
     }
 
     OnActivityEntersBackground {
+      nearby?.stop()
       StreamViewerManager.stop()
       // The sender screen handles backgrounding with its system-prompt guard.
       // Activity pause alone also fires for audio and screen-capture permission dialogs.
@@ -158,6 +169,7 @@ class TestVideoModule : Module() {
 
     OnDestroy {
       pairing.close()
+      nearby?.destroy()
       pairingQueue.shutdownNow()
       VideoSenderManager.setStatusListener(null)
       StreamViewerManager.setStatusListener(null)

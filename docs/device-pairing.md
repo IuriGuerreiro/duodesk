@@ -86,6 +86,16 @@ Protocol tests, desktop/mobile lint and type checks, desktop renderer build, and
 
 `pairing/scan-gate.ts` turns the camera's repeated barcode events into one request: a valid QR disarms the gate synchronously, and an unreadable payload is reported once. `pairing/connect-flow.ts` is the shared connect step for scans and manual entry: local network permission, SRP code check, then the native sender, stopping if the attempt was cancelled. React Native on Android can report a system permission dialog as the app going to the background (not confirmed on a device here), so `use-sender-session.ts` ignores that signal while a dialog it opened is pending (`guardPrompt`); otherwise the attempt would be cancelled right after the user answered. The camera permission is requested once when the scanner opens. Tests: `pnpm --filter @duodesk/mobile test` covers repeated events, invalid, expired and reused codes, denied permission, cancellation, retry, and a real SRP exchange from QR to sender. A physical phone scanning a live desktop QR has not been tested.
 
+## Nearby PCs (local network discovery)
+
+While a pairing code is active, the desktop sidecar advertises a DNS-SD service `_duodesk._tcp` (`signaling/src/discovery.rs`, `mdns-sd` crate) on the selected interface only. Electron and Tauri share it. The record holds the bootstrap port and TXT `v=1`, `role=desktop`, a display `name` and a random per-session `id`. It never contains the code, token, invitation or certificate fingerprint. The record is withdrawn (goodbye packet) when the bootstrap closes: code used, locked, expired, cancelled or stopped. If the process is killed, the record lingers until its mDNS TTL expires; tapping it then fails like an outdated address.
+
+Android browses with `NsdManager` (`NearbyBrowser.kt`, no subnet scanning). API 34+ uses `registerServiceInfoCallback` for address updates and loss; older versions queue `resolveService` calls. Browsing stops in the background and restarts on return. On Android 17+ (`ACCESS_LOCAL_NETWORK`), browsing starts automatically only if access is already granted; otherwise the list shows **Find nearby PCs**, which asks.
+
+Discovery is untrusted. `@duodesk/protocol/discovery` validates each record (instance format, version, role, port, first private IPv4 among several addresses, sanitized and bounded name), dedupes by instance, replaces an older session from the same endpoint and caps the list at 16. Choosing a nearby PC only fills the address; the user must still enter the six-digit code from that PC, and the same SRP pairing runs. QR and manual entry are unchanged. iOS and web report discovery as unsupported and show no list.
+
+Tests: protocol record/lifecycle tests, mobile controller tests (permission, denial, stale events after stop, errors), Rust unit tests and an ignored real multicast round trip (`cargo test -- --ignored browse`). A separate-process `mdns-sd` browser resolved the real sidecar's record with the bootstrap port and saw its removal on stop. Avahi on the same Linux host did not list it (local-host packets); not tested on a physical phone.
+
 ## References
 
 - [SRP library and API](https://github.com/swan-io/srp), including its proof/parameter implementation.

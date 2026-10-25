@@ -14,6 +14,10 @@
     "./pairing": {
       "types": "./src/pairing.ts",
       "default": "./src/pairing.ts"
+    },
+    "./discovery": {
+      "types": "./src/discovery.ts",
+      "default": "./src/discovery.ts"
     }
   },
   "scripts": {

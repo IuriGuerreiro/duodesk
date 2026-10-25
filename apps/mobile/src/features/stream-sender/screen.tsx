@@ -13,6 +13,7 @@ import { useKeepAwake } from "expo-keep-awake";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, space } from "@duodesk/design-tokens";
 import { Action, styles } from "@/shared/ui/duo-ui";
+import { NearbyList } from "@/features/pairing";
 import { useSenderConnection } from "./session-context";
 
 const QUALITY = [
@@ -93,6 +94,10 @@ export default function SenderScreen() {
               )}
               {message ? <Text style={styles.error}>{message}</Text> : null}
             </View>
+            <NearbyList
+              connection={connection}
+              onSelect={() => router.push("/paste")}
+            />
             <Action
               label="Scan code"
               disabled={!connection.available}
