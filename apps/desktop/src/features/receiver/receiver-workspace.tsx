@@ -376,9 +376,15 @@ export function ReceiverWorkspace({
           <div className="live-bar">
             <ControlStatus link={control} videoRef={videoRef} />
             <span className="live-stats">
-              {stats
-                ? `${stats.width} × ${stats.height} · ${stats.fps.toFixed(0)} fps`
-                : "Receiving video"}
+              {stats ? (
+                <>
+                  {stats.width} × {stats.height}
+                  <br />
+                  {stats.fps.toFixed(0)} fps
+                </>
+              ) : (
+                "Receiving video"
+              )}
             </span>
             <div
               className="audio-controls"
@@ -427,11 +433,13 @@ export function ReceiverWorkspace({
             </div>
             <Button
               variant="ghost"
-              size="sm"
+              size="icon-sm"
               className="stop-live"
               onClick={onStop}
+              aria-label="Stop session"
+              title="Stop session"
             >
-              <Square /> Stop session
+              <Square />
             </Button>
           </div>
         )}

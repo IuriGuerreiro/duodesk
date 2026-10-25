@@ -266,9 +266,19 @@ export function ScreenShareWorkspace({
             </section>
             <div className="live-bar">
               <span className="live-stats">
-                {stats
-                  ? `${stats.width} × ${stats.height} · ${stats.fps.toFixed(0)} fps · ${stats.codec.replace("video/", "")} · ${stats.mbps.toFixed(1)} Mbps`
-                  : "Sharing your screen"}
+                {stats ? (
+                  <>
+                    {stats.width} × {stats.height}
+                    <br />
+                    {stats.fps.toFixed(0)} fps
+                    <br />
+                    {stats.codec.replace("video/", "")}
+                    <br />
+                    {stats.mbps.toFixed(1)} Mbps
+                  </>
+                ) : (
+                  "Sharing your screen"
+                )}
               </span>
             </div>
           </>
