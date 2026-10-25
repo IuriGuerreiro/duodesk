@@ -19,6 +19,15 @@ private class FakeInjector(var accept: Boolean = true) : GestureInjector {
     return true
   }
   fun complete(outcome: GestureOutcome = GestureOutcome.DONE) = finish!!.invoke(outcome)
+
+  var available = NavAction.entries.toSet()
+  var navAccepts = true
+  val navigations = mutableListOf<NavAction>()
+  override fun navActions() = available
+  override fun navigate(action: NavAction): Boolean {
+    navigations.add(action)
+    return navAccepts
+  }
 }
 
 class RemoteControlTest {
@@ -47,6 +56,10 @@ class RemoteControlTest {
     fun swipe(epoch: Int, seq: Int, duration: Int = 300) = control.onCommand(
       """{"v":1,"sessionId":"$session","type":"swipe","epoch":$epoch,"seq":$seq,"durationMs":$duration,"points":[[0.5,0.8],[0.5,0.5],[0.5,0.2]]}"""
     )
+    fun nav(epoch: Int, seq: Int, action: String = "back") = control.onCommand(
+      """{"v":1,"sessionId":"$session","type":"nav","epoch":$epoch,"seq":$seq,"action":"$action"}"""
+    )
+    fun lastCaps() = sent.last { it.getString("type") == "nav-caps" }
     fun allowed(): Int {
       control.setGeometry(portrait)
       assertNull(control.allow())
@@ -295,5 +308,55 @@ class RemoteControlTest {
     val statuses = rig.sent.filter { it.getString("type") == "status" }
     assertEquals(epoch, statuses.last().getInt("epoch"))
     assertEquals(statuses[statuses.size - 1].toString(), statuses[statuses.size - 2].toString())
+  }
+
+  @Test
+  fun navigationIsGatedLikeATap() {
+    val rig = Rig()
+    rig.control.setGeometry(portrait)
+    rig.nav(rig.control.snapshot().epoch, 1)
+    assertEquals("off", rig.lastResult().getString("reason"))
+    val epoch = rig.allowed()
+    rig.nav(epoch - 1, 2)
+    assertEquals("stale", rig.lastResult().getString("reason"))
+    rig.nav(epoch, 2)
+    assertEquals("replayed seq", "stale", rig.lastResult().getString("reason"))
+    rig.tap(epoch, 3)
+    rig.nav(epoch, 4)
+    assertEquals("busy", rig.lastResult().getString("reason"))
+    assertTrue(rig.injector!!.navigations.isEmpty())
+    rig.injector!!.complete()
+    rig.nav(epoch, 5, "recents")
+    assertEquals("done", rig.lastResult().getString("status"))
+    assertEquals(listOf(NavAction.RECENTS), rig.injector!!.navigations)
+  }
+
+  @Test
+  fun refusedNavigationIsReportedOnceAndNotRetried() {
+    val rig = Rig()
+    val epoch = rig.allowed()
+    rig.injector!!.navAccepts = false
+    rig.nav(epoch, 1, "home")
+    assertEquals("failed", rig.lastResult().getString("status"))
+    assertEquals(1, rig.injector!!.navigations.size)
+    rig.control.revoke()
+    rig.nav(epoch, 2)
+    assertEquals("off", rig.lastResult().getString("reason"))
+    rig.injector = null
+    rig.control.serviceChanged()
+    assertEquals(1, rig.sent.count { it.optString("status") == "failed" })
+  }
+
+  @Test
+  fun advertisesOnlyWhatTheServiceReports() {
+    val rig = Rig()
+    rig.control.setGeometry(portrait)
+    assertEquals("[\"back\",\"home\",\"recents\"]", rig.lastCaps().getJSONArray("actions").toString())
+    rig.injector!!.available = setOf(NavAction.BACK)
+    rig.control.publish()
+    assertEquals("[\"back\"]", rig.lastCaps().getJSONArray("actions").toString())
+    rig.injector = null
+    rig.control.serviceChanged()
+    assertEquals(0, rig.lastCaps().getJSONArray("actions").length())
   }
 }

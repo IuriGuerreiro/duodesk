@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Gestures only. No event types and no canRetrieveWindowContent: this service cannot read the screen. -->
+<!-- Gestures and global actions (Back, Home, Recents) only. No event types and no canRetrieveWindowContent: this service cannot read the screen. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
   android:description="@string/duodesk_control_service_description"
   android:accessibilityFeedbackType="feedbackGeneric"

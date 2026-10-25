@@ -4,13 +4,14 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Intent
 import android.graphics.Path
+import android.os.Build
 import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
 import java.util.concurrent.CopyOnWriteArraySet
 
 /**
- * Lets an allowed DuoDesk session perform taps and swipes. It declares no event types and cannot read window
- * content: its only capability is `canPerformGestures`. The phone owner turns it on in Android's Accessibility
+ * Lets an allowed DuoDesk session perform taps, swipes and Back / Home / Recents. It declares no event types and
+ * cannot read window content: its only capability is `canPerformGestures`; global actions need none. The phone owner turns it on in Android's Accessibility
  * settings; being on does not allow control by itself, each session needs its own Allow.
  */
 class ControlAccessibilityService : AccessibilityService() {
@@ -50,6 +51,21 @@ class ControlAccessibilityService : AccessibilityService() {
       }
       return dispatchGesture(gesture, callback, null)
     }
+
+    override fun navActions(): Set<NavAction> {
+      // Before Android 11 there is no availability list; these three actions exist on every supported version.
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return NavAction.entries.toSet()
+      val ids = systemActions.map { it.id }.toSet()
+      return NavAction.entries.filter { globalId(it) in ids }.toSet()
+    }
+
+    override fun navigate(action: NavAction): Boolean = performGlobalAction(globalId(action))
+  }
+
+  private fun globalId(action: NavAction) = when (action) {
+    NavAction.BACK -> GLOBAL_ACTION_BACK
+    NavAction.HOME -> GLOBAL_ACTION_HOME
+    NavAction.RECENTS -> GLOBAL_ACTION_RECENTS
   }
 
   override fun onServiceConnected() {

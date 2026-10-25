@@ -474,3 +474,18 @@ details summary:hover {
   font-size: 12px;
   color: var(--dd-text-2);
 }
+/* Navigation buttons make the bar wider; on a narrow window it wraps instead of leaving the stage. */
+.live-bar:has(.control-nav) {
+  max-width: calc(100% - 32px);
+  flex-wrap: wrap;
+  justify-content: center;
+  border-radius: 20px;
+}
+.control-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.control-nav-result:empty {
+  display: none;
+}

@@ -1,10 +1,10 @@
-# Android tap, swipe and scroll from the desktop
+# Android tap, swipe, scroll and navigation from the desktop
 
-While an Android phone shares its screen, the paired desktop can **tap** (a click), **swipe** (a click-drag) and **scroll** (mouse wheel or trackpad, sent as a swipe). This is the whole feature. Keyboard and text input, Back/Home/Recents, multi-touch, iOS control and unattended access are out of scope.
+While an Android phone shares its screen, the paired desktop can **tap** (a click), **swipe** (a click-drag), **scroll** (mouse wheel or trackpad, sent as a swipe) and press **Back, Home and Recents** (toolbar buttons). This is the whole feature. Keyboard and text input, multi-touch, iOS control and unattended access are out of scope.
 
 ## Consent: three separate things
 
-1. **The phone owner turns on the DuoDesk accessibility service** in Android Settings → Accessibility. DuoDesk cannot do this itself. On Android 13+ a sideloaded build may first need App info → ⋮ → _Allow restricted settings_. The service declares `canPerformGestures` only. It listens to no events and has no `canRetrieveWindowContent`, so it cannot read the screen.
+1. **The phone owner turns on the DuoDesk accessibility service** in Android Settings → Accessibility. DuoDesk cannot do this itself. On Android 13+ a sideloaded build may first need App info → ⋮ → _Allow restricted settings_. The service declares `canPerformGestures` only; Back, Home and Recents use `performGlobalAction`, which needs no extra flag. It listens to no events and has no `canRetrieveWindowContent`, so it cannot read the screen.
 2. **The owner taps "Remote access" in DuoDesk, for this session.** With accessibility enabled, this starts screen sharing and grants control after the stream connects. Otherwise it opens Accessibility settings and continues after the owner enables the service and returns. Returning without enabling it cancels the request. "Share screen" starts viewing only. Enabling the service outside this explicit flow grants no control. Every new share requires another Remote access press.
 3. **The owner can stop at any time**: the "Stop remote access" button, the "Stop control" action in the sharing notification (which also says the PC can control the phone), turning the service off, stopping the share, or disconnecting.
 
@@ -14,15 +14,17 @@ DuoDesk does not try to get around the lock screen, secure (`FLAG_SECURE`) windo
 
 Defined in `packages/protocol/src/control/`, mirrored in `ControlWire.kt`. Two data channels ride on the existing WebRTC connection, both **negotiated** (fixed ids, created by both ends before the offer, so neither waits for an announcement):
 
-| Channel           | Id  | Direction  | Delivery                                                   | Carries            |
-| ----------------- | --- | ---------- | ---------------------------------------------------------- | ------------------ |
-| `duodesk-control` | 1   | phone → PC | reliable, ordered                                          | `status`, `result` |
-| `duodesk-input`   | 2   | PC → phone | ordered, packets expire after 500 ms (`maxPacketLifeTime`) | `tap`, `swipe`     |
+| Channel           | Id  | Direction  | Delivery                                                   | Carries                        |
+| ----------------- | --- | ---------- | ---------------------------------------------------------- | ------------------------------ |
+| `duodesk-control` | 1   | phone → PC | reliable, ordered                                          | `status`, `nav-caps`, `result` |
+| `duodesk-input`   | 2   | PC → phone | ordered, packets expire after 500 ms (`maxPacketLifeTime`) | `tap`, `swipe`, `nav`          |
 
 Commands travel on a short-lived channel so a network stall cannot replay old input later. Every message is JSON, at most 2048 bytes, version 1, carries the stream `sessionId`, and has exactly the documented fields. Anything else is dropped.
 
 - `status`: `{epoch, state:"on", geometry:{width,height,rotation}}` or `{epoch, state:"off", reason}`. Sent on every change and repeated every second, so a channel that opens late learns the state. The desktop treats 4 s of silence as off.
 - `tap`: `{epoch, seq, x, y}`. `swipe`: `{epoch, seq, durationMs 50–2000, points: 2–32 × [x, y]}`. Coordinates are 0–1 over the **whole captured display**.
+- `nav-caps`: `{epoch, actions: subset of ["back","home","recents"]}`, sent with every status. Availability only, not a grant. It is a separate message type because status parsers require exact fields: desktops that predate it drop it, and the desktop never sends `nav` to a phone that has not advertised the action (older phone apps would silently drop it). On Android 11+ the list comes from `getSystemActions()`; before that all three are assumed, since they exist on every version.
+- `nav`: `{epoch, seq, action: back | home | recents}`. Gated exactly like a tap (on, current epoch, increasing seq, nothing in flight), but needs no picture match because it has no coordinates.
 - `result`: `{epoch, seq, status: done | cancelled | failed}` or `rejected` with reason `stale | off | invalid | busy`.
 
 ## Safety rules the phone enforces
@@ -32,6 +34,13 @@ Commands travel on a short-lived channel so a network stall cannot replay old in
 - **One gesture at a time, nothing queued.** A command that arrives while one is running is rejected `busy`. The desktop does the same and never queues.
 - Gestures are single finished strokes (taps are 50 ms; swipes ≤ 2 s, ≤ 32 points). They are not split into held-down pieces, so a stop can never leave a finger stuck down. A gesture already handed to Android (2 s at most) cannot be recalled; nothing new starts after a stop.
 - Control turns off, and stays off until allowed again, if the display size cannot be read.
+
+## Back, Home and Recents
+
+- Three labelled buttons in the control toolbar, shown while control is allowed. Disabled while paused, while a command is waiting, or when the phone has not advertised the action (with the reason as a tooltip). No desktop keyboard shortcuts are captured.
+- The phone calls `AccessibilityService.performGlobalAction` once. `done` means Android accepted the action, nothing more; the video is the only proof of what appeared. `false` from Android becomes `failed`. Recents fails on launchers that do not show recent apps.
+- A command is never retried. If no answer arrives (3.5 s) or the epoch changes first, the desktop shows "no answer" and the user decides.
+- The lock screen, secure windows and OEM launchers are honoured, not bypassed. Android or the launcher may ignore Home or Recents there, and may still report the action as accepted.
 
 ## Coordinates and capture scope
 
@@ -65,19 +74,21 @@ The accessibility service is declared in the module's own manifest and resources
 
 ## Verification record
 
-| Check                                                                                                  | Result                  |
-| ------------------------------------------------------------------------------------------------------ | ----------------------- |
-| Protocol tests (validation, letterbox mapping, aspect check, pixel rounding)                           | pass                    |
-| Desktop unit tests (link gating, epochs, pause, timeouts, recorder)                                    | pass                    |
-| Desktop wheel tests (delta modes, direction, bounds, staleness, clearing, busy/completion/timeout)       | pass                    |
-| Electron control layer: wheel default prevented on picture, not on letterbox or Ctrl+wheel             | pass                    |
-| Samsung wheel scrolling (checklist below)                                                              | not yet tested on device |
-| Kotlin unit tests (wire format 6, grant / epoch / busy / replay / revoke / rotation / service loss 19) | pass                    |
-| Electron loopback over real WebRTC: negotiated channels, status, tap, swipe, result, revoke            | pass                    |
-| Existing video and audio loopbacks                                                                     | pass                    |
-| arm64 Android debug APK builds                                                                         | pass                    |
+| Check                                                                                                  | Result                             |
+| ------------------------------------------------------------------------------------------------------ | ---------------------------------- |
+| Protocol tests (validation, letterbox mapping, aspect check, pixel rounding)                           | pass                               |
+| Desktop unit tests (link gating, epochs, pause, timeouts, recorder)                                    | pass                               |
+| Desktop wheel tests (delta modes, direction, bounds, staleness, clearing, busy/completion/timeout)     | pass                               |
+| Electron control layer: wheel default prevented on picture, not on letterbox or Ctrl+wheel             | pass                               |
+| Samsung wheel scrolling (checklist below)                                                              | not yet tested on device           |
+| Kotlin unit tests (wire format 6, grant / epoch / busy / replay / revoke / rotation / service loss 19) | pass                               |
+| Navigation: protocol, desktop link and Kotlin gating / failure / capability tests                      | pass                               |
+| Back, Home, Recents on a real device                                                                   | still need verification            |
+| Electron loopback over real WebRTC: negotiated channels, status, tap, swipe, result, revoke            | pass                               |
+| Existing video and audio loopbacks                                                                     | pass                               |
+| arm64 Android debug APK builds                                                                         | pass                               |
 | Samsung screen sharing with remote access enabled                                                      | owner confirmed; diagnostics below |
-| Real-device rotation, fullscreen, audible playback and lock screen                                      | still need verification |
+| Real-device rotation, fullscreen, audible playback and lock screen                                     | still need verification            |
 
 ### Wheel scrolling device checklist (Samsung, not yet run)
 

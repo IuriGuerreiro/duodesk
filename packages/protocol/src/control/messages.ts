@@ -55,7 +55,25 @@ export type InputCommand = {
 } & (
   | { type: "tap"; x: number; y: number }
   | { type: "swipe"; durationMs: number; points: NormalizedPoint[] }
+  | { type: "nav"; action: NavAction }
 );
+
+/** Android system navigation, performed by the phone as a global action rather than a touch. */
+export type NavAction = "back" | "home" | "recents";
+export const NAV_ACTIONS: readonly NavAction[] = ["back", "home", "recents"];
+
+/**
+ * Phone to desktop, beside `status`: the navigation actions the phone can perform right now. Its own
+ * message type so desktops that predate it drop it, and a desktop never sends `nav` to a phone that did
+ * not advertise it. Availability is not a grant: `nav` is still gated like a tap.
+ */
+export interface NavCapabilities {
+  v: 1;
+  sessionId: string;
+  type: "nav-caps";
+  epoch: number;
+  actions: NavAction[];
+}
 
 const OFF_REASONS: readonly string[] = [
   "unsupported",
@@ -129,6 +147,27 @@ function validGeometry(value: unknown): value is DisplayGeometry {
   );
 }
 
+export function parseNavCapabilities(
+  text: string,
+  sessionId: string,
+): NavCapabilities {
+  const value = decode(text, sessionId);
+  const actions = value.actions;
+  const valid =
+    value.type === "nav-caps" &&
+    exact(value, [...BASE, "actions"]) &&
+    counter(value.epoch, 0) &&
+    Array.isArray(actions) &&
+    actions.length <= NAV_ACTIONS.length &&
+    actions.every(
+      (action: unknown, index) =>
+        NAV_ACTIONS.includes(action as NavAction) &&
+        actions.indexOf(action) === index,
+    );
+  if (!valid) throw new Error("Invalid navigation capabilities.");
+  return value as unknown as NavCapabilities;
+}
+
 export function parseCommandResult(
   text: string,
   sessionId: string,
@@ -176,7 +215,10 @@ export function parseInputCommand(
               unit(point[0]) &&
               unit(point[1]),
           )
-        : false);
+        : value.type === "nav"
+          ? exact(value, [...base, "action"]) &&
+            NAV_ACTIONS.includes(value.action as NavAction)
+          : false);
   if (!valid) throw new Error("Invalid input command.");
   return value as unknown as InputCommand;
 }

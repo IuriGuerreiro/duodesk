@@ -240,7 +240,7 @@ export default function SenderScreen() {
                   ]}
                 >
                   {controlling
-                    ? "Your PC can tap and swipe."
+                    ? "Your PC can tap, swipe, and press Back, Home and Recents."
                     : "Your screen is being shared."}
                 </Text>
               )}

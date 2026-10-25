@@ -6,6 +6,7 @@ import {
   parseCommandResult,
   parseControlStatus,
   parseInputCommand,
+  parseNavCapabilities,
   toNormalized,
   toPixel,
   videoMatchesDisplay,
@@ -228,4 +229,57 @@ test("video must have the shape of the reported display", () => {
     false,
   );
   assert.equal(videoMatchesDisplay(geometry, 0, 0), false);
+});
+
+test("navigation commands carry exactly one known action", () => {
+  const nav = {
+    v: 1,
+    sessionId,
+    type: "nav",
+    epoch: 2,
+    seq: 3,
+    action: "back",
+  };
+  for (const action of ["back", "home", "recents"])
+    assert.deepEqual(
+      parseInputCommand(encodeInputCommand({ ...nav, action }), sessionId),
+      { ...nav, action },
+    );
+  for (const bad of [
+    { ...nav, action: "power" },
+    { ...nav, action: "BACK" },
+    { ...nav, action: 1 },
+    { ...nav, action: undefined },
+    { ...nav, x: 0.5 },
+    { ...nav, seq: 0 },
+    { ...nav, v: 2 },
+  ])
+    assert.throws(() => parseInputCommand(JSON.stringify(bad), sessionId));
+});
+
+test("navigation capabilities list each known action at most once", () => {
+  const caps = {
+    v: 1,
+    sessionId,
+    type: "nav-caps",
+    epoch: 1,
+    actions: ["back", "recents"],
+  };
+  assert.deepEqual(parseNavCapabilities(JSON.stringify(caps), sessionId), caps);
+  assert.deepEqual(
+    parseNavCapabilities(JSON.stringify({ ...caps, actions: [] }), sessionId)
+      .actions,
+    [],
+  );
+  for (const bad of [
+    { ...caps, actions: ["back", "back"] },
+    { ...caps, actions: ["power"] },
+    { ...caps, actions: "back" },
+    { ...caps, extra: true },
+    { ...caps, type: "status" },
+    { ...caps, sessionId: "b".repeat(32) },
+  ])
+    assert.throws(() => parseNavCapabilities(JSON.stringify(bad), sessionId));
+  // A desktop that predates capabilities reads them as a status, and refuses them.
+  assert.throws(() => parseControlStatus(JSON.stringify(caps), sessionId));
 });

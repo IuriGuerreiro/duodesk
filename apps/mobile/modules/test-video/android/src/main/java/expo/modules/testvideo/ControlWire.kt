@@ -31,6 +31,7 @@ internal object ControlWire {
       val durationMs: Int,
       val points: List<Pair<Double, Double>>
     ) : Command()
+    data class Nav(override val epoch: Int, override val seq: Int, val action: NavAction) : Command()
   }
 
   /** Throws [IllegalArgumentException] for anything that is not exactly a version 1 tap or swipe for [sessionId]. */
@@ -59,6 +60,12 @@ internal object ControlWire {
         }
         Command.Swipe(epoch, seq, duration.toInt(), points)
       }
+      "nav" -> {
+        requireKeys(json, base + setOf("action"))
+        val action = NavAction.entries.firstOrNull { it.wire == json.opt("action") }
+          ?: throw IllegalArgumentException("Unknown action")
+        Command.Nav(epoch, seq, action)
+      }
       else -> throw IllegalArgumentException("Unknown command")
     }
   }
@@ -74,6 +81,13 @@ internal object ControlWire {
       message.put("state", "off").put("reason", requireNotNull(reason))
     }
     return message.toString()
+  }
+
+  /** Its own message type, so desktops that predate navigation drop it instead of misreading a status. */
+  fun navCaps(sessionId: String, epoch: Int, actions: Set<NavAction>): String {
+    val list = JSONArray()
+    NavAction.entries.filter { it in actions }.forEach { list.put(it.wire) }
+    return base(sessionId, "nav-caps").put("epoch", epoch).put("actions", list).toString()
   }
 
   fun result(sessionId: String, epoch: Int, seq: Int, status: String, rejection: Rejection? = null): String {

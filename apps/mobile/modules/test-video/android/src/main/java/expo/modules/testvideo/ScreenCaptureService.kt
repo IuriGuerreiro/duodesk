@@ -236,7 +236,7 @@ class ScreenCaptureService : Service() {
     builder
       .setContentTitle("DuoDesk")
       .setContentText(
-        if (controlActive) "Your PC can tap and swipe on this phone" else "Sharing screen with Windows receiver"
+        if (controlActive) "Your PC can tap, swipe and press Back, Home and Recents" else "Sharing screen with Windows receiver"
       )
       .setSmallIcon(iconRes)
       .setOngoing(true)

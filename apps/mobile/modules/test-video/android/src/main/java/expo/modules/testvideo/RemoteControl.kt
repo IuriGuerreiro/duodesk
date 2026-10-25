@@ -5,6 +5,9 @@ internal data class Geometry(val width: Int, val height: Int, val rotation: Int)
 
 internal enum class GestureOutcome { DONE, CANCELLED }
 
+/** Android system navigation. Mirrors `NavAction` in the shared protocol package. */
+internal enum class NavAction(val wire: String) { BACK("back"), HOME("home"), RECENTS("recents") }
+
 /** Performs one finite single-pointer gesture. Implemented by the accessibility service. */
 internal interface GestureInjector {
   /**
@@ -12,6 +15,12 @@ internal interface GestureInjector {
    * After true, [onDone] runs exactly once, on any thread. [points] holds one point for a tap.
    */
   fun dispatch(points: List<Pair<Int, Int>>, durationMs: Int, onDone: (GestureOutcome) -> Unit): Boolean
+
+  /** The navigation actions Android reports as available now. */
+  fun navActions(): Set<NavAction>
+
+  /** Performs [action] once. True means Android accepted it, not that the expected screen appeared. */
+  fun navigate(action: NavAction): Boolean
 }
 
 internal enum class OffReason(val wire: String) {
@@ -81,6 +90,8 @@ internal class RemoteControl(
     if (closed) return
     val snap = current
     send(ControlWire.status(sessionId, snap.epoch, snap.geometry, snap.reason?.wire))
+    val actions = try { injector()?.navActions() } catch (_: RuntimeException) { null } ?: emptySet()
+    send(ControlWire.navCaps(sessionId, snap.epoch, actions))
   }
 
   /** The phone owner pressed Allow. Returns an explanation if control cannot start. */
@@ -158,6 +169,7 @@ internal class RemoteControl(
     val target = injector() ?: return reject(ControlWire.Rejection.OFF)
 
     val (points, duration) = when (command) {
+      is ControlWire.Command.Nav -> return navigate(target, command)
       is ControlWire.Command.Tap -> Pair(listOf(pixel(command.x, command.y, geometry)), TAP_MS)
       is ControlWire.Command.Swipe -> Pair(command.points.map { pixel(it.first, it.second, geometry) }, command.durationMs)
     }
@@ -177,6 +189,12 @@ internal class RemoteControl(
       inFlight = false
       send(ControlWire.result(sessionId, command.epoch, command.seq, "failed"))
     }
+  }
+
+  /** Synchronous, so nothing stays in flight. Performed once; a failure is reported, never retried. */
+  private fun navigate(target: GestureInjector, command: ControlWire.Command.Nav) {
+    val accepted = try { target.navigate(command.action) } catch (_: RuntimeException) { false }
+    send(ControlWire.result(sessionId, command.epoch, command.seq, if (accepted) "done" else "failed"))
   }
 
   companion object {

@@ -7,9 +7,11 @@ import {
   encodeInputCommand,
   parseCommandResult,
   parseControlStatus,
+  parseNavCapabilities,
   videoMatchesDisplay,
   type ControlOffReason,
   type DisplayGeometry,
+  type NavAction,
   type NormalizedPoint,
 } from "@duodesk/protocol";
 
@@ -37,7 +39,20 @@ export interface ControlView {
   busy: boolean;
   /** Input is sent only when this is true. */
   paused: boolean;
+  /** Navigation actions the phone says it can perform. Undefined until it says, as older phone apps never do. */
+  navActions?: readonly NavAction[];
+  /** The last navigation request and what the phone answered. `done` means Android accepted it. */
+  lastNav?: { action: NavAction; outcome: NavOutcome };
 }
+
+export type NavOutcome =
+  | "sent"
+  | "done"
+  | "cancelled"
+  | "failed"
+  | "rejected"
+  /** The phone did not answer in time. It may or may not have acted, so nothing is retried. */
+  | "unanswered";
 
 export interface VideoSize {
   width: number;
@@ -61,7 +76,9 @@ export class ControlLink {
   private heardAt = 0;
   private settleUntil = 0;
   private seq = 0;
-  private pending?: { seq: number; since: number };
+  private pending?: { seq: number; since: number; nav?: NavAction };
+  private navActions?: readonly NavAction[];
+  private lastNav?: { action: NavAction; outcome: NavOutcome };
   private paused = false;
   private closed = false;
   private listeners = new Set<() => void>();
@@ -117,6 +134,8 @@ export class ControlLink {
     if (this.phone.state !== "waiting" && at - this.heardAt > STATUS_TIMEOUT_MS)
       this.reset();
     if (this.pending && at - this.pending.since > RESULT_TIMEOUT_MS) {
+      if (this.pending.nav)
+        this.lastNav = { action: this.pending.nav, outcome: "unanswered" };
       this.pending = undefined;
       this.update();
     }
@@ -133,14 +152,24 @@ export class ControlLink {
       message =
         type === "result"
           ? parseCommandResult(data, this.sessionId)
-          : parseControlStatus(data, this.sessionId);
+          : type === "nav-caps"
+            ? parseNavCapabilities(data, this.sessionId)
+            : parseControlStatus(data, this.sessionId);
     } catch {
       // A malformed message from the phone changes nothing.
       return;
     }
     const at = this.now();
     if (message.type === "result") {
-      if (this.pending?.seq === message.seq) this.pending = undefined;
+      if (this.pending?.seq === message.seq) {
+        if (this.pending.nav)
+          this.lastNav = { action: this.pending.nav, outcome: message.status };
+        this.pending = undefined;
+      }
+    } else if (message.type === "nav-caps") {
+      if (message.epoch < this.epoch) return;
+      if (message.actions.join() !== this.navActions?.join())
+        this.navActions = message.actions;
     } else {
       this.heardAt = at;
       // Epochs only grow within a session. An older status is a late arrival.
@@ -148,6 +177,8 @@ export class ControlLink {
       if (message.epoch !== this.epoch) {
         this.epoch = message.epoch;
         this.settleUntil = at + SETTLE_MS;
+        if (this.pending?.nav)
+          this.lastNav = { action: this.pending.nav, outcome: "unanswered" };
         this.pending = undefined;
       }
       this.phone =
@@ -162,6 +193,8 @@ export class ControlLink {
     this.phone = { state: "waiting" };
     this.epoch = -1;
     this.pending = undefined;
+    this.navActions = undefined;
+    this.lastNav = undefined;
     this.update();
   }
 
@@ -201,6 +234,24 @@ export class ControlLink {
     return this.send(epoch, video, { type: "swipe", durationMs, points });
   }
 
+  /** True when [action] can be sent now. Needs no picture: navigation has no coordinates to map. */
+  canNavigate(action: NavAction): boolean {
+    return (
+      !this.closed &&
+      this.phone.state === "on" &&
+      this.input.readyState === "open" &&
+      !this.paused &&
+      !this.pending &&
+      !!this.navActions?.includes(action)
+    );
+  }
+
+  /** Asks the phone for Back, Home or Recents once. Never retried, even when unanswered. */
+  navigate(action: NavAction): boolean {
+    if (!this.canNavigate(action)) return false;
+    return this.transmit(this.epoch, { type: "nav", action }, action);
+  }
+
   private send(
     epoch: number,
     video: VideoSize,
@@ -208,10 +259,21 @@ export class ControlLink {
       | { type: "tap"; x: number; y: number }
       | { type: "swipe"; durationMs: number; points: NormalizedPoint[] },
   ): boolean {
-    const at = this.now();
     // One gesture at a time: input made while the phone is busy is dropped, not queued.
-    if (this.blocker(video, at) || epoch !== this.epoch || this.pending)
+    if (this.blocker(video) || epoch !== this.epoch || this.pending)
       return false;
+    return this.transmit(epoch, body);
+  }
+
+  private transmit(
+    epoch: number,
+    body:
+      | { type: "tap"; x: number; y: number }
+      | { type: "swipe"; durationMs: number; points: NormalizedPoint[] }
+      | { type: "nav"; action: NavAction },
+    nav?: NavAction,
+  ): boolean {
+    const at = this.now();
     if (this.input.bufferedAmount > BUFFER_LIMIT) return false;
     const seq = ++this.seq;
     try {
@@ -227,7 +289,8 @@ export class ControlLink {
     } catch {
       return false;
     }
-    this.pending = { seq, since: at };
+    this.pending = { seq, since: at, nav };
+    if (nav) this.lastNav = { action: nav, outcome: "sent" };
     this.update();
     return true;
   }
@@ -243,6 +306,8 @@ export class ControlLink {
     this.input.close();
     this.phone = { state: "waiting" };
     this.pending = undefined;
+    this.navActions = undefined;
+    this.lastNav = undefined;
     this.snapshot = this.compute();
     this.listeners.forEach((listener) => listener());
     this.listeners.clear();
@@ -253,6 +318,8 @@ export class ControlLink {
       epoch: this.epoch,
       busy: this.pending !== undefined,
       paused: this.paused,
+      navActions: this.navActions,
+      lastNav: this.lastNav,
     };
     if (this.closed || this.phone.state === "waiting")
       return { ...base, phase: "waiting" };
@@ -274,7 +341,9 @@ export class ControlLink {
       next.epoch === previous.epoch &&
       next.busy === previous.busy &&
       next.paused === previous.paused &&
-      next.geometry === previous.geometry
+      next.geometry === previous.geometry &&
+      next.navActions === previous.navActions &&
+      next.lastNav === previous.lastNav
     )
       return;
     this.snapshot = next;

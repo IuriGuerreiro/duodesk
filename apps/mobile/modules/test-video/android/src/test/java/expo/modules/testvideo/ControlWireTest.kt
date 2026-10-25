@@ -89,4 +89,18 @@ class ControlWireTest {
     assertEquals("stale", rejected.getString("reason"))
     assertTrue(rejected.has("reason"))
   }
+
+  @Test
+  fun parsesAndBoundsNavigation() {
+    val nav = { action: String, extra: String -> """{"v":1,"sessionId":"$session","type":"nav","epoch":3,"seq":7,"action":$action$extra}""" }
+    assertEquals(ControlWire.Command.Nav(3, 7, NavAction.HOME), ControlWire.parseCommand(nav("\"home\"", ""), session))
+    refuses(nav("\"power\"", ""))
+    refuses(nav("\"BACK\"", ""))
+    refuses(nav("1", ""))
+    refuses(nav("\"back\"", ",\"x\":0.5"))
+    val caps = JSONObject(ControlWire.navCaps(session, 4, setOf(NavAction.RECENTS, NavAction.BACK)))
+    assertEquals(setOf("v", "sessionId", "type", "epoch", "actions"), caps.keys().asSequence().toSet())
+    assertEquals("nav-caps", caps.getString("type"))
+    assertEquals("[\"back\",\"recents\"]", caps.getJSONArray("actions").toString())
+  }
 }
