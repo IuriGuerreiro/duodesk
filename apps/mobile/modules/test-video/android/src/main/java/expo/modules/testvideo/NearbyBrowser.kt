@@ -66,10 +66,17 @@ internal class NearbyBrowser(context: Context, private val emit: (Map<String, An
   private fun current(listener: NsdManager.DiscoveryListener) = synchronized(lock) { discovery === listener }
 
   private fun found(info: NsdServiceInfo, hosts: List<String>) {
-    val txt = info.attributes.orEmpty().entries
-      .filter { it.key.length <= 16 && (it.value?.size ?: 0) <= 128 }
+    // NsdServiceInfo.attributes may reuse one Entry object while iterating, so read by key
+    // instead of collecting entries.
+    val attributes = info.attributes.orEmpty()
+    val txt = attributes.keys.toList()
+      .filter { it.length <= 16 }
       .take(8)
-      .associate { it.key to (it.value?.toString(Charsets.UTF_8) ?: "") }
+      .mapNotNull { key ->
+        val value = attributes[key]
+        if ((value?.size ?: 0) > 128) null else key to (value?.toString(Charsets.UTF_8) ?: "")
+      }
+      .toMap()
     emit(mapOf("type" to "found", "instance" to info.serviceName, "hosts" to hosts, "port" to info.port, "txt" to txt))
   }
 
