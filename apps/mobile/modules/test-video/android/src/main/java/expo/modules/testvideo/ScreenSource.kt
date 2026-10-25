@@ -123,7 +123,7 @@ internal class ScreenSource(
     screenCapturer.initialize(helper, context, observer)
 
     running = true
-    screenCapturer.startCapture(dims.width, dims.height, 30)
+    screenCapturer.startCapture(dims.width, dims.height, 60)
     onResize?.invoke(dims.width, dims.height)
     onGeometry?.invoke(geometry)
 

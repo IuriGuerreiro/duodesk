@@ -103,7 +103,7 @@ export class ScreenSender {
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: 30 },
+        video: { frameRate: 60, width: { max: 1920 }, height: { max: 1080 } },
         audio: false,
       });
     } catch (error) {
@@ -138,8 +138,10 @@ export class ScreenSender {
     const parameters = transceiver.sender.getParameters();
     parameters.encodings.forEach((encoding) => {
       encoding.maxBitrate = MAX_BITRATE;
-      encoding.maxFramerate = 30;
+      encoding.maxFramerate = 60;
     });
+    // Let the encoder trade some resolution for motion instead of freezing under load.
+    parameters.degradationPreference = "balanced";
     await transceiver.sender.setParameters(parameters);
     diagnostic("encoder-configured");
     const offer = await this.peer.createOffer();
