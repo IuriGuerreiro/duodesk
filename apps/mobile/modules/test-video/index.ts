@@ -59,6 +59,8 @@ export const pairClose = async (): Promise<void> => {};
 
 export const watch = (_invitation: string): Promise<void> => unsupported();
 export const stopWatching = async (): Promise<void> => {};
+export const enterViewerMode = async (): Promise<void> => {};
+export const exitViewerMode = async (): Promise<void> => {};
 export const getViewerStatus = async (): Promise<ViewerStatus> => ({
   state: "idle",
 });

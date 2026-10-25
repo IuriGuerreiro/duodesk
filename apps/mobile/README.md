@@ -6,7 +6,7 @@ The sender can stream the bundled test clip and, on Android development builds w
 
 ## Watching the desktop screen
 
-On Android, scanning a code made by the desktop's **Share this screen** button opens `/watch`. `src/features/stream-viewer/` owns that screen. The native module answers the desktop's offer and draws the video in `StreamViewerView`, so frames stay out of JavaScript. `src/features/pairing/handoff.ts` passes the paired invitation to the screen without putting its token in a route. The same pairing flow serves both directions; the invitation's `direction` picks the sender or the viewer. iOS has no viewer yet and says so. The viewer is portrait only. Linux-to-phone sharing was confirmed working by the user on a Samsung SM_A266B on 2026-10-24; steps are in [desktop-to-phone screen sharing](../../docs/desktop-to-phone-screen-share.md).
+On Android, scanning a code made by the desktop's **Share this screen** button opens `/watch`. `src/features/stream-viewer/` owns that screen. The native module answers the desktop's offer and draws the video in `StreamViewerView`, so frames stay out of JavaScript. `src/features/pairing/handoff.ts` passes the paired invitation to the screen without putting its token in a route. The same pairing flow serves both directions; the invitation's `direction` picks the sender or the viewer. iOS has no viewer yet and says so. The viewer runs full-screen in landscape with fit/fill and pinch zoom; other screens stay portrait. Linux-to-phone sharing was confirmed working by the user on a Samsung SM_A266B on 2026-10-24; steps are in [desktop-to-phone screen sharing](../../docs/desktop-to-phone-screen-share.md).
 
 ## Development
 

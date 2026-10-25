@@ -52,6 +52,14 @@ class TestVideoModule : Module() {
       StreamViewerManager.stop(promise)
     }
 
+    AsyncFunction("enterViewerMode") {
+      appContext.currentActivity?.let { ViewerWindow.enter(it) }
+    }
+
+    AsyncFunction("exitViewerMode") {
+      appContext.currentActivity?.let { ViewerWindow.exit(it) }
+    }
+
     AsyncFunction("getViewerStatus") {
       StreamViewerManager.getStatus()
     }
