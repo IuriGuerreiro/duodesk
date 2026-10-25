@@ -61,7 +61,12 @@ export class VideoReceiver {
   private queue = Promise.resolve();
   private closed = false;
   private offered = false;
-  private previous?: { bytes: number; timestamp: number };
+  private previous?: {
+    bytes: number;
+    timestamp: number;
+    decodeTime: number;
+    framesDecoded: number;
+  };
   private previousAudio?: { bytes: number; timestamp: number };
   /** One stream for every incoming track, so the player keeps audio and video together. */
   private media?: MediaStream;
@@ -225,13 +230,19 @@ export class VideoReceiver {
             : 0,
         packetsLost: entry.packetsLost ?? 0,
         framesDropped: entry.framesDropped ?? 0,
-        decodeMs: entry.framesDecoded
-          ? ((entry.totalDecodeTime ?? 0) * 1000) / entry.framesDecoded
-          : 0,
+        // Per interval, so a recent slowdown is not hidden by the session average.
+        decodeMs:
+          (entry.framesDecoded ?? 0) > (previous?.framesDecoded ?? 0)
+            ? (((entry.totalDecodeTime ?? 0) - (previous?.decodeTime ?? 0)) *
+                1000) /
+              ((entry.framesDecoded ?? 0) - (previous?.framesDecoded ?? 0))
+            : 0,
       };
       this.previous = {
         bytes: entry.bytesReceived,
         timestamp: entry.timestamp,
+        decodeTime: entry.totalDecodeTime ?? 0,
+        framesDecoded: entry.framesDecoded ?? 0,
       };
     });
     if (stats && audio) stats.audio = audio;
