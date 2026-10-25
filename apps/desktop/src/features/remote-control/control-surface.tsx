@@ -33,6 +33,7 @@ const idle: ControlView = {
   epoch: -1,
   busy: false,
   paused: false,
+  text: false,
 };
 
 const navIcons: Record<NavAction, typeof ArrowLeft> = {
@@ -258,6 +259,8 @@ export function ControlSurface({
       }}
       onPointerCancel={() => recorder.current.cancel()}
       onLostPointerCapture={() => recorder.current.cancel()}
+      // Tapping the phone must not take focus from the typing composer.
+      onMouseDown={(event) => event.preventDefault()}
       onContextMenu={(event) => event.preventDefault()}
       aria-label="Phone screen. Click to tap, drag to swipe, use the wheel to scroll."
       role="application"

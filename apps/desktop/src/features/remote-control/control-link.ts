@@ -6,6 +6,7 @@ import {
   STATUS_TIMEOUT_MS,
   encodeInputCommand,
   parseCommandResult,
+  parseControlCaps,
   parseControlStatus,
   parseNavCapabilities,
   videoMatchesDisplay,
@@ -13,6 +14,7 @@ import {
   type DisplayGeometry,
   type NavAction,
   type NormalizedPoint,
+  type TypedKey,
 } from "@duodesk/protocol";
 
 /** After the phone's screen changes shape, ignore input until the new frames have had time to arrive. */
@@ -30,6 +32,20 @@ export type ControlPhase =
   | "syncing"
   | "active";
 
+/**
+ * How the phone answered the last text or key command. Never carries the text itself.
+ * `done` means Android handed it to the focused field, not that the field shows it: custom editors may
+ * ignore input. `unconfirmed` means no answer arrived (timeout, revocation, disconnect), so it may or may
+ * not have been typed. Everything else means nothing was typed.
+ */
+export type TypingOutcome =
+  "done" | "nofield" | "rejected" | "failed" | "unconfirmed";
+
+export interface TypingResult {
+  seq: number;
+  outcome: TypingOutcome;
+}
+
 export interface ControlView {
   phase: ControlPhase;
   reason?: ControlOffReason;
@@ -39,6 +55,10 @@ export interface ControlView {
   busy: boolean;
   /** Input is sent only when this is true. */
   paused: boolean;
+  /** The phone accepts text and key commands for the current epoch. */
+  text: boolean;
+  /** The answer to the most recent text or key command, once it is known. */
+  typing?: TypingResult;
   /** Navigation actions the phone says it can perform. Undefined until it says, as older phone apps never do. */
   navActions?: readonly NavAction[];
   /** The last navigation request and what the phone answered. `done` means Android accepted it. */
@@ -76,7 +96,16 @@ export class ControlLink {
   private heardAt = 0;
   private settleUntil = 0;
   private seq = 0;
-  private pending?: { seq: number; since: number; nav?: NavAction };
+  private pending?: {
+    seq: number;
+    epoch: number;
+    since: number;
+    typing: boolean;
+    nav?: NavAction;
+  };
+  /** Text capability, valid only for the epoch it was reported in. */
+  private textCaps = false;
+  private typing?: TypingResult;
   private navActions?: readonly NavAction[];
   private lastNav?: { action: NavAction; outcome: NavOutcome };
   private paused = false;
@@ -134,9 +163,8 @@ export class ControlLink {
     if (this.phone.state !== "waiting" && at - this.heardAt > STATUS_TIMEOUT_MS)
       this.reset();
     if (this.pending && at - this.pending.since > RESULT_TIMEOUT_MS) {
-      if (this.pending.nav)
-        this.lastNav = { action: this.pending.nav, outcome: "unanswered" };
-      this.pending = undefined;
+      // Never retried: a late text may still have been typed.
+      this.forget();
       this.update();
     }
     // The settle window ending changes what the UI may show.
@@ -152,21 +180,42 @@ export class ControlLink {
       message =
         type === "result"
           ? parseCommandResult(data, this.sessionId)
-          : type === "nav-caps"
-            ? parseNavCapabilities(data, this.sessionId)
-            : parseControlStatus(data, this.sessionId);
+          : type === "caps"
+            ? parseControlCaps(data, this.sessionId)
+            : type === "nav-caps"
+              ? parseNavCapabilities(data, this.sessionId)
+              : parseControlStatus(data, this.sessionId);
     } catch {
       // A malformed message from the phone changes nothing.
       return;
     }
     const at = this.now();
     if (message.type === "result") {
-      if (this.pending?.seq === message.seq) {
-        if (this.pending.nav)
-          this.lastNav = { action: this.pending.nav, outcome: message.status };
-        this.pending = undefined;
-      }
+      const pending = this.pending;
+      // A result for an older epoch or command was already given up on.
+      if (pending?.seq !== message.seq || pending.epoch !== message.epoch)
+        return;
+      this.pending = undefined;
+      if (pending.nav)
+        this.lastNav = { action: pending.nav, outcome: message.status };
+      if (pending.typing)
+        this.typing = {
+          seq: pending.seq,
+          outcome:
+            message.status === "done"
+              ? "done"
+              : message.status === "rejected"
+                ? message.reason === "nofield"
+                  ? "nofield"
+                  : "rejected"
+                : "failed",
+        };
+    } else if (message.type === "caps") {
+      // Capabilities describe one epoch; the status that announced it always comes first.
+      if (message.epoch !== this.epoch) return;
+      this.textCaps = message.text;
     } else if (message.type === "nav-caps") {
+      // Availability, not tied to one grant: kept across epochs, but never older than the current one.
       if (message.epoch < this.epoch) return;
       if (message.actions.join() !== this.navActions?.join())
         this.navActions = message.actions;
@@ -177,9 +226,8 @@ export class ControlLink {
       if (message.epoch !== this.epoch) {
         this.epoch = message.epoch;
         this.settleUntil = at + SETTLE_MS;
-        if (this.pending?.nav)
-          this.lastNav = { action: this.pending.nav, outcome: "unanswered" };
-        this.pending = undefined;
+        this.textCaps = false;
+        this.forget();
       }
       this.phone =
         message.state === "on"
@@ -192,10 +240,23 @@ export class ControlLink {
   private reset() {
     this.phone = { state: "waiting" };
     this.epoch = -1;
-    this.pending = undefined;
+    this.textCaps = false;
+    this.forget();
     this.navActions = undefined;
     this.lastNav = undefined;
     this.update();
+  }
+
+  /**
+   * Gives up on the command in flight. A text or key command becomes `unconfirmed` and a navigation
+   * `unanswered`, never silently lost.
+   */
+  private forget() {
+    if (this.pending?.typing)
+      this.typing = { seq: this.pending.seq, outcome: "unconfirmed" };
+    if (this.pending?.nav)
+      this.lastNav = { action: this.pending.nav, outcome: "unanswered" };
+    this.pending = undefined;
   }
 
   /** Why input cannot be sent right now, or undefined if it can. */
@@ -213,6 +274,19 @@ export class ControlLink {
       !videoMatchesDisplay(this.phone.geometry, video.width, video.height)
     )
       return "syncing";
+    return undefined;
+  }
+
+  /** Why text cannot be sent right now, or undefined if it can. Text does not depend on the picture. */
+  typeBlocker(): ControlPhase | undefined {
+    if (
+      this.closed ||
+      this.phone.state !== "on" ||
+      this.input.readyState !== "open"
+    )
+      return this.phone.state === "off" ? "off" : "waiting";
+    if (this.paused) return "paused";
+    if (!this.textCaps || this.now() < this.settleUntil) return "syncing";
     return undefined;
   }
 
@@ -234,6 +308,25 @@ export class ControlLink {
     return this.send(epoch, video, { type: "swipe", durationMs, points });
   }
 
+  /**
+   * Sends text for the focused field on the phone. Returns the command's `seq`, matched later by
+   * `getView().typing`, or undefined when nothing was sent. `text` must already satisfy `validTypedText`.
+   */
+  typeText(text: string): number | undefined {
+    return this.sendTyping({ type: "text", text });
+  }
+
+  typeKey(key: TypedKey): number | undefined {
+    return this.sendTyping({ type: "key", key });
+  }
+
+  private sendTyping(
+    body: { type: "text"; text: string } | { type: "key"; key: TypedKey },
+  ): number | undefined {
+    if (this.typeBlocker() || this.pending) return undefined;
+    return this.transmit(this.epoch, body, true);
+  }
+
   /** True when [action] can be sent now. Needs no picture: navigation has no coordinates to map. */
   canNavigate(action: NavAction): boolean {
     return (
@@ -249,7 +342,10 @@ export class ControlLink {
   /** Asks the phone for Back, Home or Recents once. Never retried, even when unanswered. */
   navigate(action: NavAction): boolean {
     if (!this.canNavigate(action)) return false;
-    return this.transmit(this.epoch, { type: "nav", action }, action);
+    return (
+      this.transmit(this.epoch, { type: "nav", action }, false, action) !==
+      undefined
+    );
   }
 
   private send(
@@ -262,7 +358,7 @@ export class ControlLink {
     // One gesture at a time: input made while the phone is busy is dropped, not queued.
     if (this.blocker(video) || epoch !== this.epoch || this.pending)
       return false;
-    return this.transmit(epoch, body);
+    return this.transmit(epoch, body, false) !== undefined;
   }
 
   private transmit(
@@ -270,11 +366,14 @@ export class ControlLink {
     body:
       | { type: "tap"; x: number; y: number }
       | { type: "swipe"; durationMs: number; points: NormalizedPoint[] }
+      | { type: "text"; text: string }
+      | { type: "key"; key: TypedKey }
       | { type: "nav"; action: NavAction },
+    typing: boolean,
     nav?: NavAction,
-  ): boolean {
+  ): number | undefined {
     const at = this.now();
-    if (this.input.bufferedAmount > BUFFER_LIMIT) return false;
+    if (this.input.bufferedAmount > BUFFER_LIMIT) return undefined;
     const seq = ++this.seq;
     try {
       this.input.send(
@@ -287,12 +386,12 @@ export class ControlLink {
         }),
       );
     } catch {
-      return false;
+      return undefined;
     }
-    this.pending = { seq, since: at, nav };
+    this.pending = { seq, epoch, since: at, typing, nav };
     if (nav) this.lastNav = { action: nav, outcome: "sent" };
     this.update();
-    return true;
+    return seq;
   }
 
   close() {
@@ -305,7 +404,8 @@ export class ControlLink {
     this.control.close();
     this.input.close();
     this.phone = { state: "waiting" };
-    this.pending = undefined;
+    this.textCaps = false;
+    this.forget();
     this.navActions = undefined;
     this.lastNav = undefined;
     this.snapshot = this.compute();
@@ -318,6 +418,8 @@ export class ControlLink {
       epoch: this.epoch,
       busy: this.pending !== undefined,
       paused: this.paused,
+      text: !this.closed && this.textCaps && this.phone.state === "on",
+      typing: this.typing,
       navActions: this.navActions,
       lastNav: this.lastNav,
     };
@@ -341,9 +443,11 @@ export class ControlLink {
       next.epoch === previous.epoch &&
       next.busy === previous.busy &&
       next.paused === previous.paused &&
-      next.geometry === previous.geometry &&
+      next.text === previous.text &&
+      next.typing === previous.typing &&
       next.navActions === previous.navActions &&
-      next.lastNav === previous.lastNav
+      next.lastNav === previous.lastNav &&
+      next.geometry === previous.geometry
     )
       return;
     this.snapshot = next;

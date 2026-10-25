@@ -103,4 +103,47 @@ class ControlWireTest {
     assertEquals("nav-caps", caps.getString("type"))
     assertEquals("[\"back\",\"recents\"]", caps.getJSONArray("actions").toString())
   }
+
+  private fun text(value: String) = JSONObject()
+    .put("v", 1).put("sessionId", session).put("type", "text").put("epoch", 1).put("seq", 2).put("text", value)
+    .toString()
+
+  @Test
+  fun parsesTextAndKeys() {
+    for (value in listOf("a", "héllo\tworld\nline", "👍🏽 👨‍👩‍👧", "مرحبا", "x".repeat(500)))
+      assertEquals(ControlWire.Command.Text(1, 2, value), ControlWire.parseCommand(text(value), session))
+    for (key in ControlWire.Key.entries) {
+      val json = """{"v":1,"sessionId":"$session","type":"key","epoch":1,"seq":2,"key":"${key.wire}"}"""
+      assertEquals(ControlWire.Command.Press(1, 2, key), ControlWire.parseCommand(json, session))
+    }
+    // Typed text never appears in a command's string form.
+    assertTrue(!ControlWire.Command.Text(1, 2, "secret").toString().contains("secret"))
+  }
+
+  @Test
+  fun refusesUntypeableTextAndUnknownKeys() {
+    for (value in listOf("", "x".repeat(501), "a\rb", "\u0000", "\u001b[A", "\u007f", "\u0085", "\ud83d", "a\ude00b"))
+      refuses(text(value))
+    refuses("""{"v":1,"sessionId":"$session","type":"text","epoch":1,"seq":2,"text":5}""")
+    refuses("""{"v":1,"sessionId":"$session","type":"text","epoch":1,"seq":2,"text":"a","x":1}""")
+    refuses("""{"v":1,"sessionId":"$session","type":"key","epoch":1,"seq":2,"key":"escape"}""")
+  }
+
+  @Test
+  fun decodesOnlyWellFormedUtf8() {
+    assertEquals("é👍", ControlWire.decodeUtf8("é👍".toByteArray(Charsets.UTF_8)))
+    assertEquals(null, ControlWire.decodeUtf8(byteArrayOf(0x61, 0xff.toByte())))
+    // An encoded lone surrogate (CESU style) is not UTF-8.
+    assertEquals(null, ControlWire.decodeUtf8(byteArrayOf(0xed.toByte(), 0xa0.toByte(), 0xbd.toByte())))
+  }
+
+  @Test
+  fun writesCapsAndNoFieldResults() {
+    val caps = JSONObject(ControlWire.caps(session, 5, true))
+    assertEquals(setOf("v", "sessionId", "type", "epoch", "text"), caps.keys().asSequence().toSet())
+    assertEquals("caps", caps.getString("type"))
+    assertTrue(caps.getBoolean("text"))
+    val result = JSONObject(ControlWire.result(session, 5, 3, "rejected", ControlWire.Rejection.NO_FIELD))
+    assertEquals("nofield", result.getString("reason"))
+  }
 }

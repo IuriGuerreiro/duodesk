@@ -1,5 +1,8 @@
 package expo.modules.testvideo
 
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -16,10 +19,17 @@ internal object ControlWire {
   const val MAX_SWIPE_POINTS = 32
   const val MIN_GESTURE_MS = 50
   const val MAX_GESTURE_MS = 2000
+  const val MAX_TEXT_UNITS = 500
   private const val MAX_COUNTER = Int.MAX_VALUE.toLong()
 
   /** Why a command was refused before it reached the touch screen. */
-  enum class Rejection(val wire: String) { STALE("stale"), OFF("off"), INVALID("invalid"), BUSY("busy") }
+  enum class Rejection(val wire: String) {
+    STALE("stale"), OFF("off"), INVALID("invalid"), BUSY("busy"),
+    /** No editable field has input focus, so nothing was typed. */
+    NO_FIELD("nofield")
+  }
+
+  enum class Key(val wire: String) { BACKSPACE("backspace"), DELETE("delete"), ENTER("enter") }
 
   sealed class Command {
     abstract val epoch: Int
@@ -32,6 +42,44 @@ internal object ControlWire {
       val points: List<Pair<Double, Double>>
     ) : Command()
     data class Nav(override val epoch: Int, override val seq: Int, val action: NavAction) : Command()
+    data class Text(override val epoch: Int, override val seq: Int, val text: String) : Command() {
+      // Typed content never reaches logs.
+      override fun toString() = "Text(epoch=$epoch, seq=$seq)"
+    }
+    data class Press(override val epoch: Int, override val seq: Int, val key: Key) : Command()
+  }
+
+  /** Decodes a received message, or returns null when it is not well-formed UTF-8. Never substitutes characters. */
+  fun decodeUtf8(bytes: ByteArray): String? = try {
+    Charsets.UTF_8.newDecoder()
+      .onMalformedInput(CodingErrorAction.REPORT)
+      .onUnmappableCharacter(CodingErrorAction.REPORT)
+      .decode(ByteBuffer.wrap(bytes))
+      .toString()
+  } catch (_: CharacterCodingException) {
+    null
+  }
+
+  /**
+   * 1 to [MAX_TEXT_UNITS] UTF-16 units, whole surrogate pairs only, and no control characters other than new
+   * line and tab. Mirrors `validTypedText` in the shared protocol package.
+   */
+  fun validText(text: String): Boolean {
+    if (text.isEmpty() || text.length > MAX_TEXT_UNITS) return false
+    var index = 0
+    while (index < text.length) {
+      val unit = text[index]
+      when {
+        unit.isHighSurrogate() -> {
+          if (index + 1 >= text.length || !text[index + 1].isLowSurrogate()) return false
+          index++
+        }
+        unit.isLowSurrogate() -> return false
+        (unit.code < 0x20 && unit != '\n' && unit != '\t') || unit.code in 0x7f..0x9f -> return false
+      }
+      index++
+    }
+    return true
   }
 
   /** Throws [IllegalArgumentException] for anything that is not exactly a version 1 tap or swipe for [sessionId]. */
@@ -66,6 +114,17 @@ internal object ControlWire {
           ?: throw IllegalArgumentException("Unknown action")
         Command.Nav(epoch, seq, action)
       }
+      "text" -> {
+        requireKeys(json, base + setOf("text"))
+        val text = json.opt("text") as? String ?: throw IllegalArgumentException("No text")
+        require(validText(text)) { "Text cannot be typed" }
+        Command.Text(epoch, seq, text)
+      }
+      "key" -> {
+        requireKeys(json, base + setOf("key"))
+        val key = Key.entries.firstOrNull { it.wire == json.opt("key") } ?: throw IllegalArgumentException("Unknown key")
+        Command.Press(epoch, seq, key)
+      }
       else -> throw IllegalArgumentException("Unknown command")
     }
   }
@@ -89,6 +148,9 @@ internal object ControlWire {
     NavAction.entries.filter { it in actions }.forEach { list.put(it.wire) }
     return base(sessionId, "nav-caps").put("epoch", epoch).put("actions", list).toString()
   }
+  /** What this phone can do beyond taps and swipes, for [epoch]. Sent after every status. */
+  fun caps(sessionId: String, epoch: Int, text: Boolean): String =
+    base(sessionId, "caps").put("epoch", epoch).put("text", text).toString()
 
   fun result(sessionId: String, epoch: Int, seq: Int, status: String, rejection: Rejection? = null): String {
     val message = base(sessionId, "result").put("epoch", epoch).put("seq", seq).put("status", status)
