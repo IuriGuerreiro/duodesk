@@ -6,6 +6,7 @@ import {
   Expand,
   LoaderCircle,
   Minimize,
+  MonitorUp,
   Play,
   RefreshCw,
   ShieldCheck,
@@ -16,18 +17,16 @@ import {
 } from "lucide-react";
 import type { Invitation, StreamState } from "@duodesk/protocol";
 import { createPairingQrPayload } from "@duodesk/protocol/pairing";
+import type { NetworkAddress } from "@/shared/host";
+import { TrustedDevices, type TrustedDevicesProps } from "./trusted-devices";
+import {
+  ControlSurface,
+  ControlStatus,
+  type ControlLink,
+} from "@/features/remote-control";
 import type { VideoStats } from "./video-receiver";
 import { Button } from "@/shared/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
-
-import { TrustedDevices, type TrustedDevicesProps } from "./trusted-devices";
-
-export type NetworkAddress = {
-  name: string;
-  address: string;
-  kind: string;
-  selectable: boolean;
-};
 
 export interface ReceiverAudio {
   /** The phone negotiated an audio track. False means the phone is sharing video only. */
@@ -57,6 +56,8 @@ export interface ReceiverWorkspaceProps {
   playbackFailed: boolean;
   onPlay: () => void;
   audio: ReceiverAudio;
+  control?: ControlLink;
+  onShareScreen: () => void;
   onStart: () => void;
   onStop: () => void;
   onFullscreen: () => void;
@@ -71,6 +72,7 @@ const CHROME_HIDE_MS = 2000;
 
 export function ReceiverWorkspace({
   audio,
+  control,
   busy,
   desktopAvailable,
   error,
@@ -81,6 +83,7 @@ export function ReceiverWorkspace({
   onIpChange,
   onPlay,
   onRefresh,
+  onShareScreen,
   onStart,
   onStop,
   pairing,
@@ -243,6 +246,10 @@ export function ReceiverWorkspace({
           aria-label="Incoming mobile video"
         />
 
+        {!playbackFailed && (
+          <ControlSurface link={control} videoRef={videoRef} />
+        )}
+
         {phase === "setup" && (
           <section className="stage-card" aria-labelledby="setup-title">
             <p className="eyebrow">Step 1 of 2</p>
@@ -268,6 +275,14 @@ export function ReceiverWorkspace({
             >
               {busy ? <LoaderCircle className="spin" /> : <Wifi />}
               {busy ? "Creating connection…" : "Create connection"}
+            </Button>
+            <Button
+              variant="ghost"
+              className="secondary-action"
+              onClick={onShareScreen}
+              disabled={busy}
+            >
+              <MonitorUp /> Share this screen
             </Button>
             {desktopAvailable && !interfaces.length && (
               <p className="hint">
@@ -377,6 +392,7 @@ export function ReceiverWorkspace({
 
         {live && (
           <div className="live-bar">
+            <ControlStatus link={control} videoRef={videoRef} />
             <span className="live-stats">
               {stats
                 ? `${stats.width} × ${stats.height} · ${stats.fps.toFixed(0)} fps`

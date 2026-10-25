@@ -9,6 +9,22 @@ export type StreamMode = "screen" | "clip";
 export type AudioState =
   "off" | "starting" | "active" | "denied" | "unsupported" | "failed";
 
+/**
+ * Whether a paired PC may tap and swipe on this phone during the current screen-sharing session.
+ * "off" with reason "service-disabled" means the Android accessibility service is not turned on.
+ */
+export interface ControlStatus {
+  state: "on" | "off";
+  reason?:
+    | "unsupported"
+    | "service-disabled"
+    | "not-allowed"
+    | "revoked"
+    | "geometry-unknown";
+  /** The accessibility service is connected, which is required but not enough to allow control. */
+  serviceEnabled: boolean;
+}
+
 export interface SenderStats {
   codec: string;
   mbps: number;
@@ -28,6 +44,22 @@ export interface SenderStatus {
   audio?: AudioState;
   /** Why audio is not active, when the user needs to know. */
   audioMessage?: string;
+  /** Present during a screen-sharing session. */
+  control?: ControlStatus;
+}
+
+export interface ViewerStats {
+  codec: string;
+  mbps: number;
+  fps: number;
+  width: number;
+  height: number;
+}
+
+export interface ViewerStatus {
+  state: StreamState;
+  message?: string;
+  stats?: ViewerStats;
 }
 
 export type SavedDesktop = {

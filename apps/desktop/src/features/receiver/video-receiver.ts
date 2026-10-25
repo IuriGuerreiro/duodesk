@@ -65,6 +65,7 @@ export class VideoReceiver {
   private previousAudio?: { bytes: number; timestamp: number };
   /** One stream for every incoming track, so the player keeps audio and video together. */
   private media?: MediaStream;
+  private attached?: { close(): void };
   private sessionId: string;
   private send: (signal: Signal) => Promise<void>;
   private onError: (message: string) => void;
@@ -75,6 +76,11 @@ export class VideoReceiver {
     onStream: (stream: MediaStream) => void,
     onError: (message: string) => void,
     onConnection: (state: RTCPeerConnectionState) => void,
+    /**
+     * Lets another feature (remote control) add its data channels before negotiation starts. What it
+     * returns is closed when the peer stops.
+     */
+    attach?: (peer: RTCPeerConnection) => { close(): void },
   ) {
     this.sessionId = sessionId;
     this.send = send;
@@ -86,6 +92,7 @@ export class VideoReceiver {
     this.peer.addTransceiver("video", { direction: "recvonly" });
     // Audio is optional: a phone that cannot or may not share sound answers video-only.
     this.peer.addTransceiver("audio", { direction: "recvonly" });
+    this.attached = attach?.(this.peer);
     this.peer.ontrack = (event) => {
       if (this.closed) return;
       const media = (this.media ??= new MediaStream());
@@ -124,7 +131,11 @@ export class VideoReceiver {
     this.queue = this.queue
       .then(async () => {
         if (this.closed) return;
-        const message = parseSignal(JSON.stringify(signal), this.sessionId);
+        const message = parseSignal(JSON.stringify(signal), {
+          sessionId: this.sessionId,
+          direction: "phone-to-desktop",
+          from: "phone",
+        });
         if (message.type === "offer") {
           if (this.offered) throw new Error("Unexpected second video offer.");
           this.offered = true;
@@ -234,6 +245,8 @@ export class VideoReceiver {
     this.peer.ontrack = null;
     this.peer.onicecandidate = null;
     this.peer.onconnectionstatechange = null;
+    // Attached features end first, so nothing can be sent while the connection winds down.
+    this.attached?.close();
     this.peer.getReceivers().forEach((receiver) => receiver.track?.stop());
     this.media?.getTracks().forEach((track) => this.media?.removeTrack(track));
     this.peer.close();

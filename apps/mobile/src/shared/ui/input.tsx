@@ -8,7 +8,7 @@ function Input({
   return (
     <TextInput
       className={cn(
-        "dark:bg-input/30 border-input bg-background text-foreground flex min-h-14 w-full min-w-0 flex-row items-center rounded-xl border px-4 py-3 text-base leading-5 shadow-sm shadow-black/5",
+        "border-input bg-surface-raised text-foreground flex min-h-12 w-full min-w-0 flex-row items-center rounded-control border px-4 py-3 text-base leading-5",
         props.editable === false &&
           cn(
             "opacity-50",

@@ -65,7 +65,10 @@ void app.whenReady().then(async () => {
     if (phase === "insecure") {
       assert.equal(initial.available, false);
       await assert.rejects(command("trust_allow", { ip, allow: true }));
-      const ordinary = await command("stream_start", { ip });
+      const ordinary = await command("stream_start", {
+        ip,
+        direction: "phone-to-desktop",
+      });
       assert.equal(ordinary.invitation.fingerprint.length, 64);
       await command("stream_stop");
       await assert.rejects(
@@ -90,6 +93,13 @@ void app.whenReady().then(async () => {
       );
       await evaluate(
         `(()=>{const select=document.querySelector('select');select.value=${JSON.stringify(ip)};select.dispatchEvent(new Event('change',{bubbles:true}));})()`,
+      );
+      await waitFor(
+        () =>
+          evaluate(
+            `[...document.querySelectorAll('button')].some(button=>button.textContent.trim()==='Create connection'&&!button.disabled)`,
+          ),
+        "Address selection failed",
       );
       await click("Create connection");
       const pairing = await waitFor(

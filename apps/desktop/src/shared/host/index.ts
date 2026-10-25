@@ -2,6 +2,12 @@ import { invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Signal, StreamState, TrustEvent } from "@duodesk/protocol";
 export type { TrustStatus } from "@duodesk/protocol";
+export type NetworkAddress = {
+  name: string;
+  address: string;
+  kind: string;
+  selectable: boolean;
+};
 export type StreamEvent =
   | TrustEvent
   | { kind: "pairingstatus"; sessionId: string; status: "used" | "locked" }

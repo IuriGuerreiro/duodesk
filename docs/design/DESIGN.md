@@ -17,36 +17,36 @@ Source of truth: `packages/design-tokens` (`index.ts` for mobile, `tokens.css` f
 
 Each color has one job.
 
-| Token | Hex | Use |
-| --- | --- | --- |
-| background | `#0A0A0B` | App canvas |
-| surface1 | `#111113` | Cards, panels |
-| surface2 | `#18181B` | Inputs, sheets |
-| surface3 | `#232327` | Hover, secondary button |
-| border | `#2A2A2F` | 1px dividers |
-| borderStrong | `#3A3A40` | Input borders |
-| text | `#FAFAFA` | Headings, body |
-| text2 | `#A1A1AA` | Descriptions |
-| text3 | `#71717A` | Hints, labels |
-| blue | `#3B82F6` | Primary action, live |
-| blueHover | `#2563EB` | Pressed / hover |
-| blueSoft | `#3B82F6` at 14% | Live pill, selection |
-| success | `#22C55E` | Step done |
-| warning | `#F59E0B` | Reconnecting |
-| danger | `#EF4444` | Stop, errors |
+| Token        | Hex              | Use                     |
+| ------------ | ---------------- | ----------------------- |
+| background   | `#0A0A0B`        | App canvas              |
+| surface1     | `#111113`        | Cards, panels           |
+| surface2     | `#18181B`        | Inputs, sheets          |
+| surface3     | `#232327`        | Hover, secondary button |
+| border       | `#2A2A2F`        | 1px dividers            |
+| borderStrong | `#3A3A40`        | Input borders           |
+| text         | `#FAFAFA`        | Headings, body          |
+| text2        | `#A1A1AA`        | Descriptions            |
+| text3        | `#71717A`        | Hints, labels           |
+| blue         | `#3B82F6`        | Primary action, live    |
+| blueHover    | `#2563EB`        | Pressed / hover         |
+| blueSoft     | `#3B82F6` at 14% | Live pill, selection    |
+| success      | `#22C55E`        | Step done               |
+| warning      | `#F59E0B`        | Reconnecting            |
+| danger       | `#EF4444`        | Stop, errors            |
 
 ## Type
 
 - **UI font:** Geist, falling back to Inter and then the system font.
 - **Mono:** Geist Mono, for pairing codes and numbers.
 
-| Style | Size / weight | Letter spacing |
-| --- | --- | --- |
-| Display | 32 / 600 | -0.9 |
-| Title | 22 / 600 | -0.4 |
-| Body | 15 / 400 | 0 |
-| Small | 13 / 400 | 0 |
-| Code | 20 / 600 mono | 0 |
+| Style   | Size / weight | Letter spacing |
+| ------- | ------------- | -------------- |
+| Display | 32 / 600      | -0.9           |
+| Title   | 22 / 600      | -0.4           |
+| Body    | 15 / 400      | 0              |
+| Small   | 13 / 400      | 0              |
+| Code    | 20 / 600 mono | 0              |
 
 ## Spacing, radius, motion
 
@@ -82,12 +82,15 @@ Desktop and phone move through the same states together.
 ## Platform notes
 
 **Desktop (Electron + React)**
+
 - Uses the CSS variables `--dd-*` from `tokens.css`.
 - The manual invitation box has a fixed height so it never grows past the window.
 
 **Mobile (Expo)**
+
 - Imports `colors`, `type` and `space` from `@duodesk/design-tokens`.
 - A single stack of screens: Home → Scan or Paste → Live. There are no tabs.
+- Mobile restores the premium-design layouts from commit `1f371d4`, before the refactor merge replaced its routes. The original native styles and controls live in `src/shared/ui/duo-ui.tsx`. Home, fullscreen Scan, and manual entry are separate routes. Share screen and Remote access use the existing design’s actions and session states.
 - While sharing, a "DuoDesk is sharing your screen" notification stays visible.
 
 ## Open issues

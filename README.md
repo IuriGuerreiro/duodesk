@@ -1,6 +1,6 @@
 # DuoDesk
 
-Electron and retained Tauri desktop hosts share a React/TypeScript/Vite receiver alongside the Expo mobile app in a pnpm + Turbo workspace. See [desktop setup, packaging, and validation](apps/desktop/README.md). Both apps import `@duodesk/protocol`. The first test-video sender and Windows receiver are implemented, with native-device validation pending. See [test-video setup and validation](docs/test-video-validation.md). iPad screen broadcasting follows after this experiment. See [architecture](docs/architecture.md) and the [approved scaffold plan](docs/scaffold-plan.md).
+Electron and retained Tauri desktop hosts share a React/TypeScript/Vite receiver alongside the Expo mobile app in a pnpm + Turbo workspace. See [desktop setup, packaging, and validation](apps/desktop/README.md). Both apps import `@duodesk/protocol`. The first test-video sender and Windows receiver are implemented, with native-device validation pending. See [test-video setup and validation](docs/test-video-validation.md). The desktop can also share its screen to an Android phone; see [desktop-to-phone screen sharing](docs/desktop-to-phone-screen-share.md). iPad screen broadcasting follows after this experiment. See [architecture](docs/architecture.md) and the [approved scaffold plan](docs/scaffold-plan.md).
 
 ## Tooling and commands
 
@@ -34,7 +34,7 @@ Use `pnpm --filter @duodesk/mobile exec expo install <package>` to add mobile de
 
 ## Android development
 
-The same streaming screen supports Android and iOS. For Android, connect a phone with USB debugging enabled and run `pnpm --filter @duodesk/mobile android` with JDK 21 and the Android SDK installed. For an installable EAS APK, run `pnpm dlx eas-cli@25.1.1 build --platform android --profile development` from `apps/mobile`. Start `pnpm dev:mobile` to serve the development client. See [test-video setup](docs/test-video-validation.md) for pairing and validation.
+The same streaming screen supports Android and iOS. For Android, connect a phone with USB debugging enabled and run `pnpm --filter @duodesk/mobile android` with JDK 21 and the Android SDK installed. For an installable EAS APK, run `pnpm dlx eas-cli@25.1.1 build --platform android --profile development` from `apps/mobile`. Start `pnpm dev:mobile` to serve the development client. See [test-video setup](docs/test-video-validation.md) for pairing and validation. On Android, the paired desktop can also tap and swipe during a screen share; see [Android tap and swipe](docs/android-remote-control.md).
 
 ## Physical iPad development
 

@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  desktopCapturer,
   ipcMain,
   session,
   protocol,
@@ -9,6 +10,8 @@ import {
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
+import { appendFileSync, mkdirSync, renameSync, statSync } from "node:fs";
+import { mayCapture, mayCheckCapture, mayRequestCapture } from "./capture.mjs";
 import { Host, validateCommand } from "./host.mjs";
 import { TrustStore } from "./trust-store.mjs";
 import { TrustBackend } from "./trust-backend.mjs";
@@ -24,14 +27,34 @@ protocol.registerSchemesAsPrivileged([
 ]);
 let window;
 let host;
-let activeSession;
 let trust;
 let commands = Promise.resolve();
 function emit(payload) {
   if (payload.kind === "trust_reconnected")
-    activeSession = payload.invitation.sessionId;
+    active = {
+      sessionId: payload.invitation.sessionId,
+      direction: "phone-to-desktop",
+    };
   if (window && !window.isDestroyed())
     window.webContents.send("duodesk:event", payload);
+}
+let active;
+let diagnosticPath;
+function diagnostic(event, data = {}) {
+  const line = JSON.stringify({
+    time: new Date().toISOString(),
+    event,
+    ...data,
+  });
+  console.info(`[duodesk-debug] ${line}`);
+  if (!diagnosticPath) return;
+  try {
+    if (statSync(diagnosticPath, { throwIfNoEntry: false })?.size > 5_000_000)
+      renameSync(diagnosticPath, `${diagnosticPath}.previous`);
+    appendFileSync(diagnosticPath, `${line}\n`, { mode: 0o600 });
+  } catch (error) {
+    console.error("Could not write diagnostics", error.message);
+  }
 }
 app.commandLine.appendSwitch(
   "force-webrtc-ip-handling-policy",
@@ -46,7 +69,7 @@ function closeHost() {
   trust?.reset();
   host?.close();
   host = undefined;
-  activeSession = undefined;
+  active = undefined;
 }
 async function open() {
   window = new BrowserWindow({
@@ -59,6 +82,10 @@ async function open() {
       nodeIntegration: false,
       webSecurity: true,
     },
+  });
+  window.webContents.on("console-message", (details) => {
+    if (details.message.startsWith("[screen-debug] "))
+      diagnostic("sender", { message: details.message.slice(15, 16015) });
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
@@ -76,6 +103,20 @@ async function open() {
 app
   .whenReady()
   .then(async () => {
+    app.setAppLogsPath();
+    mkdirSync(app.getPath("logs"), { recursive: true });
+    diagnosticPath = path.join(app.getPath("logs"), "screen-share.jsonl");
+    diagnostic("environment", {
+      logPath: diagnosticPath,
+      platform: process.platform,
+      arch: process.arch,
+      versions: process.versions,
+      sessionType: process.env.XDG_SESSION_TYPE,
+      desktop: process.env.XDG_CURRENT_DESKTOP,
+      display: process.env.DISPLAY,
+      waylandDisplay: process.env.WAYLAND_DISPLAY,
+      gpu: app.getGPUFeatureStatus(),
+    });
     const store = new TrustStore(
       path.join(app.getPath("userData"), "trusted-devices.enc"),
       safeStorage,
@@ -85,20 +126,66 @@ app
     session.defaultSession.setPermissionRequestHandler(
       (contents, permission, callback, details) =>
         callback(
-          permission === "fullscreen" &&
+          (permission === "fullscreen" &&
             contents === window?.webContents &&
             contents.getURL() === entry &&
             details.isMainFrame &&
-            details.requestingUrl === entry,
+            details.requestingUrl === entry) ||
+            mayRequestCapture(permission, contents, details, {
+              window,
+              entry,
+              active,
+            }),
         ),
     );
     session.defaultSession.setPermissionCheckHandler(
       (contents, permission, _origin, details) =>
-        permission === "fullscreen" &&
-        contents === window?.webContents &&
-        contents?.getURL() === entry &&
-        details.isMainFrame &&
-        details.requestingUrl === entry,
+        (permission === "fullscreen" &&
+          contents === window?.webContents &&
+          contents?.getURL() === entry &&
+          details.isMainFrame &&
+          details.requestingUrl === entry) ||
+        (!!contents &&
+          mayCheckCapture(permission, contents, details, {
+            window,
+            entry,
+            active,
+          })),
+    );
+    session.defaultSession.setDisplayMediaRequestHandler(
+      async (request, callback) => {
+        const allowed = mayCapture(request, { window, entry, active });
+        diagnostic("capture-request", {
+          allowed,
+          direction: active?.direction,
+          video: request.videoRequested,
+          audio: request.audioRequested,
+          gesture: request.userGesture,
+          mainFrame: request.frame === window?.webContents.mainFrame,
+        });
+        if (!allowed) return callback(null);
+        try {
+          const sources = await desktopCapturer.getSources({
+            types: ["screen"],
+          });
+          diagnostic("capture-sources", {
+            count: sources.length,
+            sources: sources.map((source) => ({
+              id: source.id,
+              displayId: source.display_id,
+            })),
+          });
+          callback(sources[0] ? { video: sources[0] } : null);
+        } catch (error) {
+          diagnostic("capture-error", {
+            name: error.name,
+            message: error.message,
+            stack: error.stack,
+          });
+          callback(null);
+        }
+      },
+      { useSystemPicker: false },
     );
     // Renderer assets are local; signaling belongs exclusively to the Rust host.
     session.defaultSession.webRequest.onBeforeRequest((details, callback) =>
@@ -148,7 +235,7 @@ app
         event.senderFrame.url !== entry
       )
         throw new Error("Untrusted sender");
-      validateCommand(method, args);
+      validateCommand(method, args, active?.direction);
       const command = async () => {
         if (!host) {
           const binary = path.join(
@@ -167,13 +254,13 @@ app
               trust.reset();
               host = undefined;
               trust.changed();
-              if (activeSession && window && !window.isDestroyed())
+              if (active && window && !window.isDestroyed())
                 window.webContents.send("duodesk:event", {
                   kind: "state",
-                  sessionId: activeSession,
+                  sessionId: active.sessionId,
                   state: "failed",
                 });
-              activeSession = undefined;
+              active = undefined;
             },
           );
           host = nextHost;
@@ -186,8 +273,11 @@ app
         if (owner !== host || owner.closed)
           throw new Error("Desktop host stopped");
         if (method === "stream_start")
-          activeSession = result.invitation.sessionId;
-        if (method === "stream_stop") activeSession = undefined;
+          active = {
+            sessionId: result.invitation.sessionId,
+            direction: args.direction,
+          };
+        if (method === "stream_stop") active = undefined;
         return result;
       };
       const result = commands.then(command);

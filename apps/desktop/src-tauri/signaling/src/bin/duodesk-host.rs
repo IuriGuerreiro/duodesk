@@ -1,6 +1,6 @@
 //! Private bounded JSON-lines transport. stdout is protocol only; EOF drops the session.
 use duodesk_signaling::{
-    Event, Identity, Session, Signal,
+    Direction, Event, Identity, Session, Signal,
     trust::{Listener, Reconnect, Trust},
 };
 use serde_json::{Value, json};
@@ -49,7 +49,7 @@ async fn main() {
                     let trust = trust.as_ref().ok_or("Trust unavailable")?;
                     if !trust.accepts(&reconnect) { return Err("Revoked or disabled".into()); }
                     let next = duodesk_signaling::start_with_identity(
-                        trusted_ip.clone().ok_or("Listener disabled")?, emit.clone(), trust.identity.clone(), Some(trust.clone())
+                        trusted_ip.clone().ok_or("Listener disabled")?, Direction::PhoneToDesktop, emit.clone(), trust.identity.clone(), Some(trust.clone())
                     ).await?;
                     if !trust.accepts(&reconnect) { return Err("Revoked or disabled".into()); }
                     let invitation = next.invitation.clone();
@@ -146,16 +146,20 @@ async fn main() {
                 Some("stream_start") => {
                     session.take();
                     let ip = request["args"]["ip"].as_str().ok_or("Missing IP")?;
+                    let direction: Direction =
+                        serde_json::from_value(request["args"]["direction"].clone())
+                            .map_err(|_| "Invalid direction")?;
                     let next = if let Some(trust) = &trust {
                         duodesk_signaling::start_with_identity(
                             ip.into(),
+                            direction,
                             emit.clone(),
                             trust.identity.clone(),
                             Some(trust.clone()),
                         )
                         .await?
                     } else {
-                        duodesk_signaling::start(ip.into(), emit.clone()).await?
+                        duodesk_signaling::start(ip.into(), direction, emit.clone()).await?
                     };
                     let invitation =
                         json!({"invitation": next.invitation, "address": next.pairing_address});

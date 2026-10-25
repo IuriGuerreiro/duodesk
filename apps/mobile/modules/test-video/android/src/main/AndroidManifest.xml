@@ -14,5 +14,18 @@
       android:enabled="true"
       android:exported="false"
       android:foregroundServiceType="mediaProjection" />
+    <!-- Disabled until the phone owner turns it on in Accessibility settings. Gestures only. -->
+    <service
+      android:name=".ControlAccessibilityService"
+      android:exported="true"
+      android:label="@string/duodesk_control_service_label"
+      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+      <intent-filter>
+        <action android:name="android.accessibilityservice.AccessibilityService" />
+      </intent-filter>
+      <meta-data
+        android:name="android.accessibilityservice"
+        android:resource="@xml/duodesk_control_service" />
+    </service>
   </application>
 </manifest>

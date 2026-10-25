@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="duodesk_control_service_label">DuoDesk remote control</string>
+  <string name="duodesk_control_service_description">Lets your paired PC tap and swipe on this phone, only while you have allowed control in DuoDesk for the current screen-sharing session. DuoDesk cannot read what is on your screen through this service.</string>
+</resources>

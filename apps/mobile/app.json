@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "duodesk",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.duodesk.mobile",
@@ -19,7 +19,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#2855D9",
+        "backgroundColor": "#0A0A0B",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
@@ -35,7 +35,7 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#F3F5F9",
+          "backgroundColor": "#0A0A0B",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }

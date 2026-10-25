@@ -2,12 +2,12 @@ import { useEffect } from "react";
 import { router } from "expo-router";
 import { ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useSharedSenderSession } from "@/features/stream-sender";
+import { useSenderConnection } from "@/features/stream-sender";
 import { SavedDesktopsPanel } from "@/features/trusted-desktops";
 import { Action, styles } from "@/shared/ui/duo-ui";
 
 export default function SavedDesktops() {
-  const session = useSharedSenderSession();
+  const session = useSenderConnection();
   useEffect(() => {
     if (session.status.state === "ready") router.back();
   }, [session.status.state]);

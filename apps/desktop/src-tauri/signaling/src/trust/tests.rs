@@ -133,6 +133,7 @@ impl Fixture {
         assert!(self.trust.accepts(&handoff));
         let session = crate::start_with_identity(
             self.listener.address.split(':').next().unwrap().into(),
+            crate::Direction::PhoneToDesktop,
             Arc::new(|_| {}),
             self.trust.identity.clone(),
             Some(self.trust.clone()),
@@ -263,6 +264,7 @@ async fn real_tls_enrollment_requires_pairing_approval_and_current_persisted_key
     .unwrap();
     let session = crate::start_with_identity(
         interfaces()[0].clone(),
+        crate::Direction::PhoneToDesktop,
         emit,
         trust.identity.clone(),
         Some(trust.clone()),

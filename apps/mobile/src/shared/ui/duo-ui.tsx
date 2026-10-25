@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Pressable, StyleSheet, Text } from "react-native";
 import { colors, radius, space } from "@duodesk/design-tokens";
 
@@ -12,13 +13,21 @@ export function Action({
   disabled?: boolean;
   variant?: "primary" | "secondary" | "ghost" | "danger";
 }) {
+  const [pressed, setPressed] = useState(false);
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
       accessibilityState={{ disabled }}
-      style={[styles.action, styles[variant], disabled && styles.disabled]}
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
+      style={[
+        styles.action,
+        styles[variant],
+        pressed && styles.pressed,
+        disabled && styles.disabled,
+      ]}
     >
       <Text
         style={[

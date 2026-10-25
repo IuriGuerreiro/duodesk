@@ -4,11 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.hardware.display.DisplayManager
 import android.media.projection.MediaProjection
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.Display
-import android.view.WindowManager
 import org.webrtc.CapturerObserver
 import org.webrtc.EglBase
 import org.webrtc.ScreenCapturerAndroid
@@ -51,6 +49,8 @@ internal class ScreenSource(
   private val resultData: Intent,
   private val queue: Executor,
   private val onResize: ((width: Int, height: Int) -> Unit)? = null,
+  /** The captured display's real size and rotation, on start and after every change. `null` if unreadable. */
+  private val onGeometry: ((Geometry?) -> Unit)? = null,
   private val onFailure: (String) -> Unit
 ) {
   @Volatile
@@ -96,8 +96,10 @@ internal class ScreenSource(
       if (displayId == Display.DEFAULT_DISPLAY) {
         queue.execute {
           if (running) {
-            val (w, h) = getDisplayDimensions()
-            handleResize(w, h)
+            val geometry = readDisplayGeometry(context)
+            // Control learns about the change first, so input for the old size is refused before frames follow.
+            onGeometry?.invoke(geometry)
+            if (geometry != null) handleResize(geometry.width, geometry.height)
           }
         }
       }
@@ -106,8 +108,8 @@ internal class ScreenSource(
 
   fun start() {
     check(capturer == null) { "Screen capture already started" }
-    val (displayWidth, displayHeight) = getDisplayDimensions()
-    val dims = computeCaptureDimensions(displayWidth, displayHeight)
+    val geometry = readDisplayGeometry(context)
+    val dims = if (geometry != null) computeCaptureDimensions(geometry.width, geometry.height) else computeCaptureDimensions(0, 0)
     currentWidth = dims.width
     currentHeight = dims.height
 
@@ -123,6 +125,7 @@ internal class ScreenSource(
     running = true
     screenCapturer.startCapture(dims.width, dims.height, 30)
     onResize?.invoke(dims.width, dims.height)
+    onGeometry?.invoke(geometry)
 
     val dm = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
     dm?.registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
@@ -155,17 +158,6 @@ internal class ScreenSource(
       onResize?.invoke(dims.width, dims.height)
     }.onFailure {
       onFailure("Failed to resize screen capture: ${it.message}")
-    }
-  }
-
-  private fun getDisplayDimensions(): Pair<Int, Int> {
-    val wm = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && wm != null) {
-      val bounds = wm.currentWindowMetrics.bounds
-      Pair(bounds.width(), bounds.height())
-    } else {
-      val dm = context.resources.displayMetrics
-      Pair(dm.widthPixels, dm.heightPixels)
     }
   }
 }

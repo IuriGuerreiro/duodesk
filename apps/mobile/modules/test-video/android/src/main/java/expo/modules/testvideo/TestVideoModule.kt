@@ -2,12 +2,15 @@ package expo.modules.testvideo
 
 import android.content.Context
 import android.os.Build
+import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
 class TestVideoModule : Module() {
+  @Volatile
+  private var controlSettingsOpen = false
   private val pairing = PairingTransport()
   private val reconnect = TrustedReconnectTransport()
   private val trustQueue = java.util.concurrent.Executors.newSingleThreadExecutor()
@@ -22,6 +25,12 @@ class TestVideoModule : Module() {
   }
   private val pairingQueue = java.util.concurrent.Executors.newSingleThreadExecutor()
 
+  private var nearby: NearbyBrowser? = null
+
+  private fun nearby(): NearbyBrowser = nearby ?: NearbyBrowser(requireNotNull(appContext.reactContext).applicationContext) {
+    sendEvent("onNearby", it)
+  }.also { nearby = it }
+
   private fun sender(): VideoSender {
     val context = requireNotNull(appContext.reactContext).applicationContext
     return VideoSenderManager.getOrCreateSender(context)
@@ -30,12 +39,33 @@ class TestVideoModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("DuoDeskTestVideo")
     Constant("supportsScreenSharing") { true }
+    Constant("supportsViewing") { true }
+    Constant("supportsRemoteControl") { true }
     Constant("supportsPlaybackAudio") { Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q }
     Constant("supportsTrustedDevices") { true }
-    Events("onStatus")
+    Constant("supportsNearby") { true }
+    Events("onStatus", "onViewerStatus", "onNearby")
 
     OnCreate {
       VideoSenderManager.setStatusListener { sendEvent("onStatus", it) }
+      StreamViewerManager.setStatusListener { sendEvent("onViewerStatus", it) }
+    }
+
+    View(StreamViewerView::class) {
+      OnViewDestroys { view: StreamViewerView -> view.release() }
+    }
+
+    AsyncFunction("watch") { invitation: String, promise: Promise ->
+      val context = requireNotNull(appContext.reactContext).applicationContext
+      StreamViewerManager.getOrCreate(context).submit(promise) { connect(invitation) }
+    }
+
+    AsyncFunction("stopWatching") { promise: Promise ->
+      StreamViewerManager.stop(promise)
+    }
+
+    AsyncFunction("getViewerStatus") {
+      StreamViewerManager.getStatus()
     }
 
     AsyncFunction("pairRequest") { address: String, message: String, fresh: Boolean, promise: Promise ->
@@ -46,6 +76,9 @@ class TestVideoModule : Module() {
       }
     }
     AsyncFunction("pairClose") { pairing.close() }
+
+    AsyncFunction("nearbyStart") { nearby().start() }
+    AsyncFunction("nearbyStop") { nearby?.stop() }
 
     AsyncFunction("connect") { invitation: String, promise: Promise ->
       sender().submit(promise) { connect(invitation) }
@@ -97,10 +130,39 @@ class TestVideoModule : Module() {
 
       val request = VideoSenderManager.prepareScreenConsent(bitrateMbps, shareAudio, promise) ?: return@AsyncFunction
       try {
-        val captureIntent = mediaProjectionManager.createScreenCaptureIntent()
+        // Remote control maps pointer positions onto the whole display, so a capture of a single app is not offered.
+        // Before Android 14 the system only captures the whole display anyway.
+        val captureIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+          mediaProjectionManager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay())
+        } else {
+          mediaProjectionManager.createScreenCaptureIntent()
+        }
         activity.startActivityForResult(captureIntent, request.requestCode)
       } catch (error: Exception) {
         VideoSenderManager.abortConsent(request.id, "ERR_PROJECTION", "Failed to launch screen capture dialog: ${error.message}", error)
+      }
+    }
+
+    AsyncFunction("allowControl") { promise: Promise ->
+      sender().controlAction(promise) { allow() }
+    }
+
+    AsyncFunction("revokeControl") { promise: Promise ->
+      sender().controlAction(promise) { revoke(); null }
+    }
+
+    AsyncFunction("isControlServiceEnabled") {
+      ControlAccessibilityService.injector() != null
+    }
+
+    AsyncFunction("openAccessibilitySettings") {
+      val context = requireNotNull(appContext.reactContext)
+      controlSettingsOpen = true
+      try {
+        context.startActivity(ControlAccessibilityService.settingsIntent())
+      } catch (error: Exception) {
+        controlSettingsOpen = false
+        throw error
       }
     }
 
@@ -117,7 +179,7 @@ class TestVideoModule : Module() {
     AsyncFunction("background") { promise: Promise ->
       pairing.close()
       reconnect.close()
-      VideoSenderManager.background()
+      if (!controlSettingsOpen) VideoSenderManager.background()
       promise.resolve()
     }
 
@@ -132,17 +194,24 @@ class TestVideoModule : Module() {
     }
 
     OnActivityEntersBackground {
-      pairing.close()
-      reconnect.close()
-      VideoSenderManager.background()
+      nearby?.stop()
+      StreamViewerManager.stop()
+      // The sender screen handles backgrounding with its system-prompt guard.
+      // Activity pause alone also fires for audio and screen-capture permission dialogs.
+    }
+
+    OnActivityEntersForeground {
+      controlSettingsOpen = false
     }
 
     OnDestroy {
       pairing.close()
       reconnect.destroy()
       trustQueue.shutdownNow()
+      nearby?.destroy()
       pairingQueue.shutdownNow()
       VideoSenderManager.setStatusListener(null)
+      StreamViewerManager.setStatusListener(null)
     }
   }
 }

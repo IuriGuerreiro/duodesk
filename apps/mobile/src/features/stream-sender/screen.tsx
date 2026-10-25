@@ -2,19 +2,19 @@ import { useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Platform,
-  Switch,
   Pressable,
+  ScrollView,
+  Switch,
   Text,
   View,
 } from "react-native";
 import { router } from "expo-router";
-import { useCameraPermissions } from "expo-camera";
 import { useKeepAwake } from "expo-keep-awake";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { colors } from "@duodesk/design-tokens";
-import * as sender from "../../../modules/test-video";
+import { colors, space } from "@duodesk/design-tokens";
 import { Action, styles } from "@/shared/ui/duo-ui";
-import { useSharedSenderSession } from "./context";
+import { NearbyList } from "@/features/pairing";
+import { useSenderConnection } from "./session-context";
 
 const QUALITY = [
   { label: "Saver", mbps: 6 },
@@ -28,33 +28,43 @@ function PreventSleep() {
 }
 
 export default function SenderScreen() {
-  const session = useSharedSenderSession();
-  const { status, busy, bitrate, error, setError } = session;
-  const [permission, requestPermission] = useCameraPermissions();
+  const connection = useSenderConnection();
+  const status = connection.status;
   const [details, setDetails] = useState(false);
-  async function openScanner() {
-    setError("");
-    if (
-      permission?.granted ||
-      (await session.guardPrompt(requestPermission)).granted
-    ) {
-      session.openScanner();
-      router.push("/scan");
-    } else
-      setError("Camera access is off. Enter the address and code instead.");
-  }
+  const idle = connection.canPair;
+  const working = connection.busy;
+  const busy =
+    connection.busy || connection.remoteAccessBusy || connection.controlBusy;
+  const bitrate = Number(connection.bitrate);
+  const receiver = connection.receiver || "your PC";
+  const starting =
+    connection.operation === "screen" ||
+    connection.operation === "start" ||
+    connection.negotiatingVideo;
+  const message =
+    connection.error || (status.state === "failed" ? status.message : "");
+  const screen = status.mode === "screen";
+  const controlling = status.control?.state === "on";
 
-  const idle =
-    status.state === "idle" ||
-    status.state === "failed" ||
-    status.state === "stopped";
-  const message = error || (status.state === "failed" ? status.message : "");
-  const working = busy;
+  function openScanner() {
+    connection.openScanner();
+    router.push("/scan");
+  }
+  function openManual() {
+    connection.setError("");
+    connection.setMode("manual");
+    router.push("/paste");
+  }
 
   return (
     <SafeAreaView style={styles.safe}>
-      {!idle && sender.available && <PreventSleep />}
-      <View style={styles.content}>
+      {!idle && connection.available && status.mode !== "screen" && (
+        <PreventSleep />
+      )}
+      <ScrollView
+        contentContainerStyle={[styles.content, { flexGrow: 1 }]}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.header}>
           <View style={styles.brand}>
             <View style={styles.brandMark} />
@@ -63,11 +73,8 @@ export default function SenderScreen() {
           <StatusPill state={status.state} busy={working} />
         </View>
 
-        {session.trustNotice ? (
-          <Text style={styles.lead}>{session.trustNotice}</Text>
-        ) : null}
-        {session.audioNotice ? (
-          <Text style={styles.lead}>{session.audioNotice}</Text>
+        {connection.trustNotice ? (
+          <Text style={styles.lead}>{connection.trustNotice}</Text>
         ) : null}
         {idle && !working && (
           <>
@@ -81,7 +88,7 @@ export default function SenderScreen() {
                 Open DuoDesk on your computer, press Create connection, then
                 scan the code.
               </Text>
-              {!sender.available && (
+              {!connection.available && (
                 <Text style={styles.error}>
                   {Platform.OS === "ios" || Platform.OS === "android"
                     ? "Rebuild and install the DuoDesk development client to enable streaming."
@@ -90,7 +97,7 @@ export default function SenderScreen() {
               )}
               {message ? <Text style={styles.error}>{message}</Text> : null}
             </View>
-            {session.supportsTrustedDevices && (
+            {connection.supportsTrustedDevices && (
               <View
                 style={{
                   flexDirection: "row",
@@ -100,52 +107,56 @@ export default function SenderScreen() {
               >
                 <Text style={styles.lead}>Remember this desktop</Text>
                 <Switch
-                  value={session.remember}
-                  onValueChange={session.setRemember}
+                  value={connection.remember}
+                  onValueChange={connection.setRemember}
                   accessibilityLabel="Remember this desktop"
                 />
               </View>
             )}
-            {(session.savedDesktops.length > 0 || session.trustError) && (
+            {(connection.savedDesktops.length > 0 ||
+              connection.trustError) && (
               <Action
                 variant="secondary"
                 label="Saved desktops"
                 onPress={() => router.push("/saved")}
               />
             )}
+            <NearbyList
+              connection={connection}
+              onSelect={() => router.push("/paste")}
+            />
             <Action
               label="Scan code"
-              disabled={!sender.available}
-              onPress={() => void openScanner()}
+              disabled={!connection.available}
+              onPress={openScanner}
             />
             <Action
               variant="ghost"
               label="Enter address and code"
-              disabled={!sender.available}
-              onPress={() => {
-                setError("");
-
-                router.push("/paste");
-              }}
+              disabled={!connection.available}
+              onPress={openManual}
             />
           </>
         )}
 
-        {(busy || status.state === "connecting") &&
-          status.state !== "ready" && (
+        {(working || status.state === "connecting") &&
+          status.state !== "streaming" && (
             <View style={styles.hero}>
-              <Text style={styles.title}>Connecting</Text>
-              <Text style={styles.lead}>
-                to {session.receiver || session.address || "your computer"}
+              <Text style={styles.title}>
+                {starting ? "Starting your stream" : "Connecting"}
               </Text>
+              <Text style={styles.lead}>to {receiver}</Text>
               <Steps
                 items={[
                   { label: "Computer found", done: true },
-                  { label: "Securing the link", done: false, active: true },
-                  { label: "Ready to stream", done: false },
+                  {
+                    label: "Securing the link",
+                    done: starting,
+                    active: !starting,
+                  },
+                  { label: "Ready to stream", done: false, active: starting },
                 ]}
               />
-              <Action variant="ghost" label="Cancel" onPress={session.stop} />
             </View>
           )}
 
@@ -153,29 +164,24 @@ export default function SenderScreen() {
           <>
             <View style={styles.hero}>
               <Text style={styles.title}>Connected</Text>
-              <Text style={styles.lead}>
-                to {session.receiver || session.address || "your computer"}
-              </Text>
+              <Text style={styles.lead}>to {receiver}</Text>
               <Text style={styles.label}>Quality</Text>
               <View style={styles.segment}>
                 {QUALITY.map((option) => (
                   <Pressable
                     key={option.mbps}
-                    onPress={() => session.setBitrate(String(option.mbps))}
+                    onPress={() => connection.setBitrate(String(option.mbps))}
                     style={[
                       styles.segmentItem,
-                      Number(bitrate) === option.mbps && styles.segmentActive,
+                      bitrate === option.mbps && styles.segmentActive,
                     ]}
                     accessibilityRole="button"
-                    accessibilityState={{
-                      selected: Number(bitrate) === option.mbps,
-                    }}
+                    accessibilityState={{ selected: bitrate === option.mbps }}
                   >
                     <Text
                       style={[
                         styles.segmentText,
-                        Number(bitrate) === option.mbps &&
-                          styles.segmentTextActive,
+                        bitrate === option.mbps && styles.segmentTextActive,
                       ]}
                     >
                       {option.label}
@@ -183,44 +189,63 @@ export default function SenderScreen() {
                   </Pressable>
                 ))}
               </View>
+              {connection.remoteAccessStep === "settings" && (
+                <Text style={[styles.lead, { marginTop: space.md }]}>
+                  Enable DuoDesk in Accessibility settings, then return here.
+                </Text>
+              )}
               {message ? <Text style={styles.error}>{message}</Text> : null}
             </View>
-            <Action
-              label={
-                session.supportsScreenSharing
-                  ? "Share screen"
-                  : "Start streaming"
-              }
-              onPress={
-                session.supportsScreenSharing
-                  ? session.startScreen
-                  : session.start
-              }
-            />
-            {session.supportsScreenSharing && (
-              <Action
-                variant="secondary"
-                label="Play test video"
-                onPress={session.start}
-              />
-            )}
-            {session.supportsPlaybackAudio && (
+            {connection.supportsPlaybackAudio && (
               <View
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
                   justifyContent: "space-between",
+                  paddingVertical: space.sm,
                 }}
               >
                 <Text style={styles.lead}>Share phone audio</Text>
                 <Switch
                   accessibilityLabel="Share phone audio"
-                  value={session.shareAudio}
-                  onValueChange={session.setShareAudio}
+                  value={connection.shareAudio}
+                  onValueChange={connection.setShareAudio}
+                  trackColor={{ false: colors.surface3, true: colors.blue }}
+                  thumbColor={colors.text}
+                  ios_backgroundColor={colors.surface3}
                 />
               </View>
             )}
-            <Action variant="ghost" label="Disconnect" onPress={session.stop} />
+            {connection.supportsScreenSharing && (
+              <Action
+                label="Share screen"
+                disabled={busy}
+                onPress={connection.startScreen}
+              />
+            )}
+            {connection.supportsRemoteControl && (
+              <Action
+                variant="secondary"
+                label={
+                  connection.remoteAccessBusy
+                    ? "Starting remote access…"
+                    : "Remote access"
+                }
+                disabled={busy}
+                onPress={connection.requestRemoteAccess}
+              />
+            )}
+            <Action
+              variant="ghost"
+              label="Start test video"
+              disabled={busy}
+              onPress={connection.start}
+            />
+            <Action
+              variant="ghost"
+              label="Disconnect"
+              onPress={connection.stop}
+            />
           </>
         )}
 
@@ -230,11 +255,32 @@ export default function SenderScreen() {
               <View style={styles.liveRing}>
                 <View style={styles.liveDot} />
               </View>
-              <Text style={styles.title}>You’re live</Text>
-              <Text style={styles.lead}>
-                Streaming to{" "}
-                {session.receiver || session.address || "your computer"}
+              <Text style={styles.title}>
+                {controlling ? "Remote access is on" : "You’re live"}
               </Text>
+              <Text style={styles.lead}>Streaming to {receiver}</Text>
+              {screen && (
+                <Text
+                  style={[
+                    styles.lead,
+                    { textAlign: "center", marginTop: space.sm },
+                  ]}
+                >
+                  {controlling
+                    ? "Your PC can tap and swipe."
+                    : "Your screen is being shared."}
+                </Text>
+              )}
+              {screen && (connection.audioNotice || status.audioMessage) ? (
+                <Text
+                  style={[
+                    styles.lead,
+                    { textAlign: "center", marginTop: space.sm },
+                  ]}
+                >
+                  {connection.audioNotice || status.audioMessage}
+                </Text>
+              ) : null}
               <Pressable
                 onPress={() => setDetails((value) => !value)}
                 style={styles.chip}
@@ -263,21 +309,40 @@ export default function SenderScreen() {
                 </View>
               )}
             </View>
+            {screen && connection.supportsRemoteControl && (
+              <Action
+                variant="secondary"
+                label={
+                  controlling
+                    ? "Stop remote access"
+                    : connection.remoteAccessBusy
+                      ? "Starting remote access…"
+                      : "Remote access"
+                }
+                disabled={busy}
+                onPress={
+                  controlling
+                    ? connection.stopControl
+                    : connection.requestRemoteAccess
+                }
+              />
+            )}
+            {message ? <Text style={styles.error}>{message}</Text> : null}
             <Action
               variant="danger"
               label="Stop streaming"
               disabled={busy}
-              onPress={session.pause}
+              onPress={connection.pause}
             />
             <Action
               variant="ghost"
               label="Disconnect"
               disabled={busy}
-              onPress={session.stop}
+              onPress={connection.stop}
             />
           </>
         )}
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }

@@ -104,7 +104,10 @@ test(
       const port = await availablePort(ip);
       await store.save({ ...store.data, port });
       await backend.beforeStart(host, ip);
-      const { invitation } = await host.request("stream_start", { ip });
+      const { invitation } = await host.request("stream_start", {
+        ip,
+        direction: "phone-to-desktop",
+      });
       const ws = await openPinnedWebSocket(
         invitation.url,
         invitation.fingerprint,
@@ -313,7 +316,10 @@ test(
       ).address;
       await runtime.backend.beforeStart(runtime.host, ip);
       assert.equal(runtime.backend.status().available, false);
-      const result = await runtime.host.request("stream_start", { ip });
+      const result = await runtime.host.request("stream_start", {
+        ip,
+        direction: "phone-to-desktop",
+      });
       assert.ok(result.invitation.token);
       assert.deepEqual(await readFile(file), bytes);
       const blocked = path.join(dir, "not-a-directory");
@@ -327,7 +333,12 @@ test(
       await diskBackend.beforeStart(runtime.host, ip);
       assert.equal(diskBackend.status().available, false);
       assert.ok(
-        (await runtime.host.request("stream_start", { ip })).invitation.token,
+        (
+          await runtime.host.request("stream_start", {
+            ip,
+            direction: "phone-to-desktop",
+          })
+        ).invitation.token,
       );
       assert.equal(store.fingerprint(), fingerprint);
     } finally {
@@ -354,7 +365,10 @@ test(
       await store.initialize(() => host.request("identity_generate"));
       await store.save({ ...store.data, port: await availablePort(ip) });
       await backend.command(host, "trust_allow", { ip, allow: true });
-      const { invitation } = await host.request("stream_start", { ip });
+      const { invitation } = await host.request("stream_start", {
+        ip,
+        direction: "phone-to-desktop",
+      });
       ws = await openPinnedWebSocket(invitation.url, invitation.fingerprint);
       ws.send({
         v: 1,
