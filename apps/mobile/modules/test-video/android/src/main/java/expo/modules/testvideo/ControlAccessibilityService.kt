@@ -4,13 +4,15 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Intent
 import android.graphics.Path
+import android.os.Build
 import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
 import java.util.concurrent.CopyOnWriteArraySet
 
 /**
- * Lets an allowed DuoDesk session perform taps and swipes. It declares no event types and cannot read window
- * content: its only capability is `canPerformGestures`. The phone owner turns it on in Android's Accessibility
+ * Lets an allowed DuoDesk session tap, swipe and, on Android 13+, type into the focused field. It declares no
+ * event types and cannot read window content: its capabilities are `canPerformGestures` and the accessibility
+ * input method (`flagInputMethodEditor`), which can write into a field but not read it. The phone owner turns it on in Android's Accessibility
  * settings; being on does not allow control by itself, each session needs its own Allow.
  */
 class ControlAccessibilityService : AccessibilityService() {
@@ -20,6 +22,13 @@ class ControlAccessibilityService : AccessibilityService() {
     private val listeners = CopyOnWriteArraySet<() -> Unit>()
 
     internal fun injector(): GestureInjector? = connected?.injector
+
+    /** Null before Android 13, while the service is off, or until its input method is available. */
+    internal fun typist(): TextInjector? {
+      if (Build.VERSION.SDK_INT < 33) return null
+      val typist = connected?.typist as? ImeTypist ?: return null
+      return if (typist.available()) typist else null
+    }
 
     internal fun addListener(listener: () -> Unit) { listeners.add(listener) }
     internal fun removeListener(listener: () -> Unit) { listeners.remove(listener) }
@@ -31,6 +40,9 @@ class ControlAccessibilityService : AccessibilityService() {
       listeners.forEach { it() }
     }
   }
+
+  // Typed as Any so that ImeTypist, which uses Android 13 classes, is only loaded on Android 13+.
+  private val typist: Any? by lazy { if (Build.VERSION.SDK_INT >= 33) ImeTypist(this) else null }
 
   private val injector = object : GestureInjector {
     override fun dispatch(points: List<Pair<Int, Int>>, durationMs: Int, onDone: (GestureOutcome) -> Unit): Boolean {

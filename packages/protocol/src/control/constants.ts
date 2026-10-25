@@ -19,3 +19,5 @@ export const STATUS_HEARTBEAT_MS = 1000;
 export const STATUS_TIMEOUT_MS = 4000;
 /** The desktop forgets an unanswered command after this long. Must exceed `MAX_GESTURE_MS`. */
 export const RESULT_TIMEOUT_MS = 3500;
+/** Most UTF-16 code units one `text` command may carry. Keeps every command far below `MAX_CONTROL_BYTES`. */
+export const MAX_TEXT_UNITS = 500;
