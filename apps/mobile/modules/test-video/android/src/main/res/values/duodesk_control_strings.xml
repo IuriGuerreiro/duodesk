@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
   <string name="duodesk_control_service_label">DuoDesk remote control</string>
-  <string name="duodesk_control_service_description">Lets your paired PC tap, swipe and type text into the selected field on this phone, only while you have allowed control in DuoDesk for the current screen-sharing session. Typing needs Android 13 or later. DuoDesk cannot read what is on your screen or in your fields through this service.</string>
+  <string name="duodesk_control_service_description">Lets your paired PC tap, swipe, press Back, Home and Recents, and type text into the selected field on this phone, only while you have allowed control in DuoDesk for the current screen-sharing session. Typing needs Android 13 or later. DuoDesk cannot read what is on your screen or in your fields through this service.</string>
 </resources>

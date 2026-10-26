@@ -10,9 +10,10 @@ import android.view.accessibility.AccessibilityEvent
 import java.util.concurrent.CopyOnWriteArraySet
 
 /**
- * Lets an allowed DuoDesk session tap, swipe and, on Android 13+, type into the focused field. It declares no
- * event types and cannot read window content: its capabilities are `canPerformGestures` and the accessibility
- * input method (`flagInputMethodEditor`), which can write into a field but not read it. The phone owner turns it on in Android's Accessibility
+ * Lets an allowed DuoDesk session tap, swipe, press Back / Home / Recents and, on Android 13+, type into the
+ * focused field. It declares no event types and cannot read window content: its capabilities are
+ * `canPerformGestures` and the accessibility input method (`flagInputMethodEditor`), which can write into a field
+ * but not read it. Global actions need no capability. The phone owner turns it on in Android's Accessibility
  * settings; being on does not allow control by itself, each session needs its own Allow.
  */
 class ControlAccessibilityService : AccessibilityService() {
@@ -62,6 +63,21 @@ class ControlAccessibilityService : AccessibilityService() {
       }
       return dispatchGesture(gesture, callback, null)
     }
+
+    override fun navActions(): Set<NavAction> {
+      // Before Android 11 there is no availability list; these three actions exist on every supported version.
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return NavAction.entries.toSet()
+      val ids = systemActions.map { it.id }.toSet()
+      return NavAction.entries.filter { globalId(it) in ids }.toSet()
+    }
+
+    override fun navigate(action: NavAction): Boolean = performGlobalAction(globalId(action))
+  }
+
+  private fun globalId(action: NavAction) = when (action) {
+    NavAction.BACK -> GLOBAL_ACTION_BACK
+    NavAction.HOME -> GLOBAL_ACTION_HOME
+    NavAction.RECENTS -> GLOBAL_ACTION_RECENTS
   }
 
   override fun onServiceConnected() {

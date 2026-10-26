@@ -554,3 +554,17 @@ details summary:hover {
   opacity: 0;
   pointer-events: none;
 }
+/* Navigation buttons make the bar wider; on a narrow window it wraps inside the dock. */
+.live-bar:has(.control-nav) {
+  flex-wrap: wrap;
+  justify-content: center;
+  border-radius: 20px;
+}
+.control-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.control-nav-result:empty {
+  display: none;
+}
