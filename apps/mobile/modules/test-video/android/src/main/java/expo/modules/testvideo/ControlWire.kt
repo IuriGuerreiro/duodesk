@@ -41,6 +41,7 @@ internal object ControlWire {
       val durationMs: Int,
       val points: List<Pair<Double, Double>>
     ) : Command()
+    data class Nav(override val epoch: Int, override val seq: Int, val action: NavAction) : Command()
     data class Text(override val epoch: Int, override val seq: Int, val text: String) : Command() {
       // Typed content never reaches logs.
       override fun toString() = "Text(epoch=$epoch, seq=$seq)"
@@ -107,6 +108,12 @@ internal object ControlWire {
         }
         Command.Swipe(epoch, seq, duration.toInt(), points)
       }
+      "nav" -> {
+        requireKeys(json, base + setOf("action"))
+        val action = NavAction.entries.firstOrNull { it.wire == json.opt("action") }
+          ?: throw IllegalArgumentException("Unknown action")
+        Command.Nav(epoch, seq, action)
+      }
       "text" -> {
         requireKeys(json, base + setOf("text"))
         val text = json.opt("text") as? String ?: throw IllegalArgumentException("No text")
@@ -135,6 +142,12 @@ internal object ControlWire {
     return message.toString()
   }
 
+  /** Its own message type, so desktops that predate navigation drop it instead of misreading a status. */
+  fun navCaps(sessionId: String, epoch: Int, actions: Set<NavAction>): String {
+    val list = JSONArray()
+    NavAction.entries.filter { it in actions }.forEach { list.put(it.wire) }
+    return base(sessionId, "nav-caps").put("epoch", epoch).put("actions", list).toString()
+  }
   /** What this phone can do beyond taps and swipes, for [epoch]. Sent after every status. */
   fun caps(sessionId: String, epoch: Int, text: Boolean): String =
     base(sessionId, "caps").put("epoch", epoch).put("text", text).toString()

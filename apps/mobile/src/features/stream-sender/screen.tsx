@@ -242,8 +242,8 @@ export default function SenderScreen() {
                   {controlling
                     ? Platform.OS === "android" &&
                       Number(Platform.Version) >= 33
-                      ? "Your PC can tap, swipe and type."
-                      : "Your PC can tap and swipe."
+                      ? "Your PC can tap, swipe, type, and press Back, Home and Recents."
+                      : "Your PC can tap, swipe, and press Back, Home and Recents."
                     : "Your screen is being shared."}
                 </Text>
               )}

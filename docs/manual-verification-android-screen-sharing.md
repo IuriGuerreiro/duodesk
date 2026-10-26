@@ -169,14 +169,15 @@ Design and safety rules: [android-remote-control.md](android-remote-control.md).
 
 1. **Service off.** Start Share screen. The phone offers "Remote access", and the desktop toolbar shows "View only". Clicking the video does nothing. Tap Remote access and confirm that Accessibility settings open.
 2. **Service on, not allowed.** Turn on DuoDesk in Settings → Accessibility (on Android 13+ allow restricted settings first). The phone offers "Remote access". The desktop stays in view-only mode.
-3. **Remote access.** Tap "Remote access". With accessibility off, enable DuoDesk in the opened settings and return. Sharing and control start automatically. With accessibility already enabled, control starts without a second Allow action. The desktop floating toolbar shows "Remote access" and the video has no decorative control outline. The notification reads "Your PC can tap, swipe and type on this phone" with a "Stop control" action.
+3. **Remote access.** Tap "Remote access". With accessibility off, enable DuoDesk in the opened settings and return. Sharing and control start automatically. With accessibility already enabled, control starts without a second Allow action. The desktop floating toolbar shows "Remote access" and the video has no decorative control outline. The notification reads "Your PC can tap, swipe, type and press Back, Home, Recents" with a "Stop control" action.
 4. **Tap and swipe.** Click an app icon on the desktop: it opens. Click-drag up or down on a list: it scrolls. A drag that leaves the picture still ends at its edge. Right-click and a long press without moving do nothing.
-5. **Letterbox.** Resize the window so black bars show. Clicks on the bars do nothing; clicks at the picture's corners hit the phone's corners. Repeat in fullscreen.
-6. **Rotation.** Rotate the phone with an auto-rotating app open. The desktop briefly says "syncing", then clicks land correctly in the new orientation.
-7. **Stop paths.** Each must stop input at once, and the desktop must say control is off: "Stop remote access" in the app; "Stop control" in the notification; turn the accessibility service off; stop sharing; disconnect from the desktop. After each, a new session starts with control **off**.
-8. **Pause.** "Pause" on the desktop stops sending; the phone stays allowed.
-9. **Protected screens.** Open the lock screen or a payment screen. Gestures may be ignored; the desktop must not report success when Android cancelled them.
-10. **Media.** Throughout, video keeps flowing, and with audio on, sound continues.
+5. **Back, Home, Recents (Samsung first).** Open Settings, go two screens deep, press desktop Back twice: each returns one level and the toolbar says "Back accepted by the phone". Press Home: the launcher appears. Press Recents: the overview opens; press again or Back to leave it. Repeat Back and Recents after rotating to landscape. Try with gesture navigation and with the three-button bar. Pause on the desktop, Stop control on the phone, and Share screen (view only): the buttons are disabled or hidden and nothing happens. On the lock screen, Home and Recents must not unlock or reveal anything; whatever Android does, the desktop must not claim more than "accepted".
+6. **Letterbox.** Resize the window so black bars show. Clicks on the bars do nothing; clicks at the picture's corners hit the phone's corners. Repeat in fullscreen.
+7. **Rotation.** Rotate the phone with an auto-rotating app open. The desktop briefly says "syncing", then clicks land correctly in the new orientation.
+8. **Stop paths.** Each must stop input at once, and the desktop must say control is off: "Stop remote access" in the app; "Stop control" in the notification; turn the accessibility service off; stop sharing; disconnect from the desktop. After each, a new session starts with control **off**.
+9. **Pause.** "Pause" on the desktop stops sending; the phone stays allowed.
+10. **Protected screens.** Open the lock screen or a payment screen. Gestures may be ignored; the desktop must not report success when Android cancelled them.
+11. **Media.** Throughout, video keeps flowing, and with audio on, sound continues.
 
 ### Typing (Android 13+, not yet run on a device)
 

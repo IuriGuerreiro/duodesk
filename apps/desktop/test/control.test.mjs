@@ -9,6 +9,7 @@ import {
   TAP_MAX_MS,
   simplify,
 } from "../src/features/remote-control/gesture.ts";
+import { navBlocked, navSummary } from "../src/features/remote-control/copy.ts";
 import { TypingQueue, keyFor } from "../src/features/remote-control/typing.ts";
 
 const sessionId = "a".repeat(32);
@@ -348,6 +349,109 @@ test("simplify keeps both ends and the order", () => {
     out,
   );
   assert.deepEqual(simplify([1, 2, 3], 5), [1, 2, 3]);
+});
+
+const caps = (t, actions = ["back", "home", "recents"], epoch = 1) =>
+  t.phone({ type: "nav-caps", epoch, actions });
+
+test("navigation is never sent to a phone that did not advertise it", () => {
+  const t = setup();
+  t.on(1);
+  t.settled();
+  assert.equal(t.link.navigate("back"), false, "older phone app");
+  assert.match(navBlocked(t.link.getView(), "back"), /Update DuoDesk/);
+  caps(t, ["back", "home"]);
+  assert.equal(t.link.navigate("recents"), false);
+  assert.match(navBlocked(t.link.getView(), "recents"), /isn't available/);
+  assert.equal(t.input.sent.length, 0);
+});
+
+test("a navigation button sends one command for the current epoch", () => {
+  const t = setup();
+  t.on(2);
+  caps(t, undefined, 2);
+  // No coordinates to map, so the settle window does not block it.
+  assert.equal(t.link.navigate("home"), true);
+  assert.deepEqual(t.input.sent[0], {
+    v: 1,
+    sessionId,
+    epoch: 2,
+    seq: 1,
+    type: "nav",
+    action: "home",
+  });
+  assert.equal(t.link.getView().lastNav.outcome, "sent");
+  assert.equal(
+    navBlocked(t.link.getView(), "back"),
+    "Waiting for the phone to answer.",
+  );
+  assert.equal(t.link.navigate("back"), false, "busy");
+  assert.equal(t.link.tap([0.5, 0.5], 2, video), false, "busy");
+  t.phone({ type: "result", epoch: 2, seq: 1, status: "done" });
+  assert.equal(t.link.getView().lastNav.outcome, "done");
+  assert.equal(navSummary(t.link.getView()), "Home accepted by the phone.");
+  assert.equal(navBlocked(t.link.getView(), "back"), undefined);
+});
+
+test("a failed or rejected navigation is reported, never retried", () => {
+  const t = setup();
+  t.on(1);
+  caps(t);
+  t.link.navigate("recents");
+  t.phone({ type: "result", epoch: 1, seq: 1, status: "failed" });
+  assert.equal(t.link.getView().lastNav.outcome, "failed");
+  t.link.navigate("back");
+  t.phone({
+    type: "result",
+    epoch: 1,
+    seq: 2,
+    status: "rejected",
+    reason: "busy",
+  });
+  assert.equal(t.link.getView().lastNav.outcome, "rejected");
+  t.link.navigate("home");
+  t.advance(3600);
+  assert.equal(t.link.getView().lastNav.outcome, "unanswered");
+  assert.equal(t.input.sent.length, 3);
+});
+
+test("navigation stops with pause, revocation, an epoch change or a lost link", () => {
+  const t = setup();
+  t.on(1);
+  caps(t);
+  t.link.setPaused(true);
+  assert.equal(t.link.navigate("back"), false);
+  assert.match(navBlocked(t.link.getView(), "back"), /paused/);
+  t.link.setPaused(false);
+  t.link.navigate("back");
+  // The grant changed before the answer: the old command is abandoned, not resent.
+  t.on(2);
+  assert.equal(t.link.getView().lastNav.outcome, "unanswered");
+  t.off(3);
+  assert.equal(t.link.navigate("back"), false);
+  caps(t, ["back"], 2);
+  t.on(4);
+  assert.deepEqual(
+    t.link.getView().navActions,
+    ["back", "home", "recents"],
+    "older caps ignored",
+  );
+  t.channels["duodesk-control"].onclose();
+  assert.equal(t.link.getView().navActions, undefined);
+  assert.equal(t.link.navigate("back"), false);
+  assert.equal(t.input.sent.length, 1);
+});
+
+test("malformed navigation capabilities change nothing", () => {
+  const t = setup();
+  t.on(1);
+  caps(t, ["back", "power"]);
+  caps(t, ["back", "back"]);
+  t.phone({ type: "nav-caps", epoch: 1, actions: ["back"], extra: 1 });
+  assert.equal(t.link.getView().navActions, undefined);
+  // A current phone that reports nothing available is told apart from an older app.
+  caps(t, []);
+  assert.match(navBlocked(t.link.getView(), "home"), /isn't available/);
 });
 
 test("text needs the phone's caps for the current epoch, and old phones never get text", () => {

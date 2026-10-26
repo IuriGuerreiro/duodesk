@@ -8,9 +8,11 @@ import {
   parseCommandResult,
   parseControlCaps,
   parseControlStatus,
+  parseNavCapabilities,
   videoMatchesDisplay,
   type ControlOffReason,
   type DisplayGeometry,
+  type NavAction,
   type NormalizedPoint,
   type TypedKey,
 } from "@duodesk/protocol";
@@ -57,7 +59,20 @@ export interface ControlView {
   text: boolean;
   /** The answer to the most recent text or key command, once it is known. */
   typing?: TypingResult;
+  /** Navigation actions the phone says it can perform. Undefined until it says, as older phone apps never do. */
+  navActions?: readonly NavAction[];
+  /** The last navigation request and what the phone answered. `done` means Android accepted it. */
+  lastNav?: { action: NavAction; outcome: NavOutcome };
 }
+
+export type NavOutcome =
+  | "sent"
+  | "done"
+  | "cancelled"
+  | "failed"
+  | "rejected"
+  /** The phone did not answer in time. It may or may not have acted, so nothing is retried. */
+  | "unanswered";
 
 export interface VideoSize {
   width: number;
@@ -86,10 +101,13 @@ export class ControlLink {
     epoch: number;
     since: number;
     typing: boolean;
+    nav?: NavAction;
   };
   /** Text capability, valid only for the epoch it was reported in. */
   private textCaps = false;
   private typing?: TypingResult;
+  private navActions?: readonly NavAction[];
+  private lastNav?: { action: NavAction; outcome: NavOutcome };
   private paused = false;
   private closed = false;
   private listeners = new Set<() => void>();
@@ -164,7 +182,9 @@ export class ControlLink {
           ? parseCommandResult(data, this.sessionId)
           : type === "caps"
             ? parseControlCaps(data, this.sessionId)
-            : parseControlStatus(data, this.sessionId);
+            : type === "nav-caps"
+              ? parseNavCapabilities(data, this.sessionId)
+              : parseControlStatus(data, this.sessionId);
     } catch {
       // A malformed message from the phone changes nothing.
       return;
@@ -176,6 +196,8 @@ export class ControlLink {
       if (pending?.seq !== message.seq || pending.epoch !== message.epoch)
         return;
       this.pending = undefined;
+      if (pending.nav)
+        this.lastNav = { action: pending.nav, outcome: message.status };
       if (pending.typing)
         this.typing = {
           seq: pending.seq,
@@ -192,6 +214,11 @@ export class ControlLink {
       // Capabilities describe one epoch; the status that announced it always comes first.
       if (message.epoch !== this.epoch) return;
       this.textCaps = message.text;
+    } else if (message.type === "nav-caps") {
+      // Availability, not tied to one grant: kept across epochs, but never older than the current one.
+      if (message.epoch < this.epoch) return;
+      if (message.actions.join() !== this.navActions?.join())
+        this.navActions = message.actions;
     } else {
       this.heardAt = at;
       // Epochs only grow within a session. An older status is a late arrival.
@@ -215,13 +242,20 @@ export class ControlLink {
     this.epoch = -1;
     this.textCaps = false;
     this.forget();
+    this.navActions = undefined;
+    this.lastNav = undefined;
     this.update();
   }
 
-  /** Gives up on the command in flight. A text or key command becomes `unconfirmed`, never silently lost. */
+  /**
+   * Gives up on the command in flight. A text or key command becomes `unconfirmed` and a navigation
+   * `unanswered`, never silently lost.
+   */
   private forget() {
     if (this.pending?.typing)
       this.typing = { seq: this.pending.seq, outcome: "unconfirmed" };
+    if (this.pending?.nav)
+      this.lastNav = { action: this.pending.nav, outcome: "unanswered" };
     this.pending = undefined;
   }
 
@@ -293,6 +327,27 @@ export class ControlLink {
     return this.transmit(this.epoch, body, true);
   }
 
+  /** True when [action] can be sent now. Needs no picture: navigation has no coordinates to map. */
+  canNavigate(action: NavAction): boolean {
+    return (
+      !this.closed &&
+      this.phone.state === "on" &&
+      this.input.readyState === "open" &&
+      !this.paused &&
+      !this.pending &&
+      !!this.navActions?.includes(action)
+    );
+  }
+
+  /** Asks the phone for Back, Home or Recents once. Never retried, even when unanswered. */
+  navigate(action: NavAction): boolean {
+    if (!this.canNavigate(action)) return false;
+    return (
+      this.transmit(this.epoch, { type: "nav", action }, false, action) !==
+      undefined
+    );
+  }
+
   private send(
     epoch: number,
     video: VideoSize,
@@ -312,8 +367,10 @@ export class ControlLink {
       | { type: "tap"; x: number; y: number }
       | { type: "swipe"; durationMs: number; points: NormalizedPoint[] }
       | { type: "text"; text: string }
-      | { type: "key"; key: TypedKey },
+      | { type: "key"; key: TypedKey }
+      | { type: "nav"; action: NavAction },
     typing: boolean,
+    nav?: NavAction,
   ): number | undefined {
     const at = this.now();
     if (this.input.bufferedAmount > BUFFER_LIMIT) return undefined;
@@ -331,7 +388,8 @@ export class ControlLink {
     } catch {
       return undefined;
     }
-    this.pending = { seq, epoch, since: at, typing };
+    this.pending = { seq, epoch, since: at, typing, nav };
+    if (nav) this.lastNav = { action: nav, outcome: "sent" };
     this.update();
     return seq;
   }
@@ -348,6 +406,8 @@ export class ControlLink {
     this.phone = { state: "waiting" };
     this.textCaps = false;
     this.forget();
+    this.navActions = undefined;
+    this.lastNav = undefined;
     this.snapshot = this.compute();
     this.listeners.forEach((listener) => listener());
     this.listeners.clear();
@@ -360,6 +420,8 @@ export class ControlLink {
       paused: this.paused,
       text: !this.closed && this.textCaps && this.phone.state === "on",
       typing: this.typing,
+      navActions: this.navActions,
+      lastNav: this.lastNav,
     };
     if (this.closed || this.phone.state === "waiting")
       return { ...base, phase: "waiting" };
@@ -383,6 +445,8 @@ export class ControlLink {
       next.paused === previous.paused &&
       next.text === previous.text &&
       next.typing === previous.typing &&
+      next.navActions === previous.navActions &&
+      next.lastNav === previous.lastNav &&
       next.geometry === previous.geometry
     )
       return;
