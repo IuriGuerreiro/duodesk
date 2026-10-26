@@ -155,7 +155,9 @@ Object.assign(window, {
         toolbar.top + toolbar.height / 2,
       );
       if (!target?.closest(".live-bar"))
-        throw new Error(`Control layer blocks the floating toolbar: ${target?.outerHTML.slice(0, 120)} ${JSON.stringify(toolbar.toJSON())}`);
+        throw new Error(
+          `Control layer blocks the floating toolbar: ${target?.outerHTML.slice(0, 120)} ${JSON.stringify(toolbar.toJSON())}`,
+        );
       if (
         getComputedStyle(document.querySelector(".control-surface")!)
           .outlineStyle !== "none"
@@ -176,9 +178,9 @@ Object.assign(window, {
         "Control layer did not follow resize",
       );
       check();
-      // Typing composer: shown only after the phone advertises text for this epoch.
-      if (document.querySelector(".text-composer"))
-        throw new Error("Composer shown without text caps");
+      // Phone keyboard: shown only after the phone advertises text for this epoch, then on by default.
+      if (document.querySelector(".phone-keyboard"))
+        throw new Error("Keyboard shown without text caps");
       channels[0].dispatchEvent(
         new MessageEvent("message", {
           data: JSON.stringify({
@@ -191,27 +193,29 @@ Object.assign(window, {
         }),
       );
       await until(
-        () => !!document.querySelector(".text-composer.collapsed button"),
-        "Composer did not appear after caps",
+        () => document.activeElement?.className === "phone-keyboard-field",
+        "Keyboard did not take focus after caps",
       );
-      document
-        .querySelector<HTMLButtonElement>(".text-composer.collapsed button")!
-        .click();
-      await until(
-        () => document.activeElement?.tagName === "TEXTAREA",
-        "Composer did not take focus",
-      );
-      const composer = document
-        .querySelector(".text-composer")!
+      const keyboard = document
+        .querySelector(".phone-keyboard")!
         .getBoundingClientRect();
       const bar = document.querySelector(".live-bar")!.getBoundingClientRect();
-      if (composer.bottom > bar.top)
+      if (keyboard.bottom > bar.top)
         throw new Error(
-          `Composer overlaps the toolbar: ${JSON.stringify({ composer: composer.toJSON(), bar: bar.toJSON() })}`,
+          `Keyboard overlaps the toolbar: ${JSON.stringify({ keyboard: keyboard.toJSON(), bar: bar.toJSON() })}`,
         );
-      // Clicking the phone picture must not steal focus from the composer.
+      // Clicking the phone picture keeps keys going to the phone.
       const surface = document.querySelector(".control-surface")!;
       const rect = surface.getBoundingClientRect();
+      (document.activeElement as HTMLElement).blur();
+      surface.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+          clientX: rect.left + 10,
+          clientY: rect.top + 10,
+        }),
+      );
       surface.dispatchEvent(
         new MouseEvent("mousedown", {
           bubbles: true,
@@ -220,11 +224,11 @@ Object.assign(window, {
           clientY: rect.top + 10,
         }),
       );
-      if (document.activeElement?.tagName !== "TEXTAREA")
-        throw new Error("Tapping the picture stole composer focus");
+      if (document.activeElement?.className !== "phone-keyboard-field")
+        throw new Error("Tapping the picture did not focus the keyboard");
       return {
         passed: true,
-        composer: true,
+        keyboard: true,
         offsetStage: true,
         letterboxing: true,
         resize: true,

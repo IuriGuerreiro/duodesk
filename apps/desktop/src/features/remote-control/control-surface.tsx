@@ -244,7 +244,7 @@ export function ControlSurface({
       }}
       onPointerCancel={() => recorder.current.cancel()}
       onLostPointerCapture={() => recorder.current.cancel()}
-      // Tapping the phone must not take focus from the typing composer.
+      // Tapping the phone must not take focus from the phone keyboard.
       onMouseDown={(event) => event.preventDefault()}
       onContextMenu={(event) => event.preventDefault()}
       aria-label="Phone screen. Click to tap, drag to swipe, use the wheel to scroll."

@@ -21,7 +21,7 @@ import type { NetworkAddress } from "@/shared/host";
 import {
   ControlSurface,
   ControlStatus,
-  TextComposer,
+  PhoneKeyboard,
   type ControlLink,
 } from "@/features/remote-control";
 import type { VideoStats } from "./video-receiver";
@@ -375,7 +375,7 @@ export function ReceiverWorkspace({
 
         {live && (
           <div className="live-dock">
-            <TextComposer link={control} />
+            <PhoneKeyboard link={control} />
             <div className="live-bar">
               <ControlStatus link={control} videoRef={videoRef} />
               <span className="live-stats">

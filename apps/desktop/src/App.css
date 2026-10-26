@@ -475,7 +475,7 @@ details summary:hover {
   color: var(--dd-text-2);
 }
 
-/* The typing composer sits above the toolbar, which may wrap, and stays visible while it has focus. */
+/* The phone keyboard bar sits above the toolbar, which may wrap. */
 .live-dock {
   position: absolute;
   left: 50%;
@@ -497,60 +497,40 @@ details summary:hover {
   transform: none;
   max-width: 100%;
 }
-.text-composer {
+.phone-keyboard {
+  position: relative;
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 6px;
-  width: min(560px, 100%);
-  padding: 8px;
+  max-width: min(560px, 100%);
+  padding: 2px 12px 2px 2px;
   border: 1px solid var(--dd-border);
-  border-radius: 14px;
+  border-radius: 999px;
   background: rgba(17, 17, 19, 0.92);
   backdrop-filter: blur(12px);
   transition: opacity var(--dd-base) ease;
 }
-.text-composer.collapsed {
-  width: auto;
-  padding: 2px;
-  border-radius: 999px;
-}
-.text-composer textarea {
-  width: 100%;
-  min-height: 52px;
-  max-height: 160px;
-  resize: vertical;
-  padding: 6px 8px;
-  border: 1px solid var(--dd-border);
-  border-radius: 8px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 14px;
-}
-.text-composer-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.composer-count,
-.composer-status {
-  font-size: 12px;
-  color: var(--dd-text-3);
-}
-.composer-count {
-  font-family: var(--dd-mono);
-}
-.composer-count.over {
-  color: var(--dd-danger);
-}
-.composer-status {
-  flex: 1;
+.phone-keyboard-status {
   min-width: 0;
   overflow: hidden;
+  font-size: 12px;
+  color: var(--dd-text-3);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.chrome-hidden .text-composer:not(:focus-within) {
+/* Catches keys for the phone. Focusable, but never seen. */
+.phone-keyboard-field {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  overflow: hidden;
+  resize: none;
+  pointer-events: none;
+}
+.chrome-hidden .phone-keyboard {
   opacity: 0;
   pointer-events: none;
 }

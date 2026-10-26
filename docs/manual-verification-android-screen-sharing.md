@@ -182,14 +182,14 @@ Design and safety rules: [android-remote-control.md](android-remote-control.md).
 
 Use the Samsung phone. None of these checks has been run yet; record results here.
 
-1. **Flag update.** Install the build over one whose service was already on. If "Type on phone" never appears on the desktop, turn the DuoDesk accessibility service off and on again, then confirm it appears. The Accessibility description mentions typing.
-2. **Fields.** Tap a text field on the phone through the desktop, keep typing in the composer, press Enter: the text appears. Try a search box, a chat box, a URL bar, and a multi-line note. Text inserts at the cursor and replaces a selection.
-3. **Unicode.** Emoji with skin tones and family sequences, accented letters, Arabic or Hebrew (right-to-left), Japanese from a desktop IME. Enter while composing in the desktop IME must not send. Backspace removes a whole emoji.
-4. **Keys.** The Backspace, Del and Enter buttons. Enter runs the field's action in search and chat fields (search, send, next) and adds a line in multi-line notes.
-5. **No field.** With no field focused, Send says "Nothing typed" and the draft stays.
+1. **Flag update.** Install the build over one whose service was already on. If "Keyboard on" never appears on the desktop, turn the DuoDesk accessibility service off and on again, then confirm it appears. The Accessibility description mentions typing.
+2. **Fields.** Tap a text field on the phone through the desktop, type on the desktop keyboard: each key appears as it is typed. Type fast and confirm nothing is lost or reordered. Try a search box, a chat box, a URL bar, and a multi-line note. Text inserts at the cursor and replaces a selection.
+3. **Unicode.** Emoji with skin tones and family sequences, accented letters, Arabic or Hebrew (right-to-left), Japanese from a desktop IME. Enter while composing in the desktop IME must not reach the phone; only the finished characters do. Backspace removes a whole emoji.
+4. **Keys.** Backspace, Delete, Enter and Tab. Ctrl+C and other shortcuts must not reach the phone; Esc turns the keyboard off. Enter runs the field's action in search and chat fields (search, send, next) and adds a line in multi-line notes.
+5. **No field.** With no field focused, typing says "Tap a text field on the phone first" and nothing waits to be sent.
 6. **Password and lock screen.** A password field and the lock screen PIN. Android may refuse; the desktop must not claim success when nothing was handed to an editor. Some custom editors (games, terminals, web canvases) may ignore input even when the desktop says "Sent".
-7. **Long paste.** Paste more than 500 characters: the composer refuses with a count, nothing is sent. Paste text with Windows line endings: lines arrive as single new lines.
-8. **Revocation and disconnect.** Stop control or disconnect while a send is in flight: the desktop says "Not confirmed", keeps the draft, and never resends by itself.
-9. **Older Android.** On Android 12 or older, "Type on phone" never appears and taps and swipes still work.
+7. **Long paste.** Paste more than 500 characters: the desktop says it is too long and nothing is sent. Paste text with Windows line endings: lines arrive as single new lines.
+8. **Revocation and disconnect.** Stop control or disconnect while a send is in flight: the desktop says a key was not confirmed, drops waiting keys, and never resends.
+9. **Older Android.** On Android 12 or older, the phone keyboard never appears and taps and swipes still work.
 
 Also verify that Remote access from the connected, non-streaming state survives the Accessibility settings round trip without re-pairing. Return without enabling the service and confirm that no share or control starts. Stop streaming, start Share screen, and confirm control stays off.

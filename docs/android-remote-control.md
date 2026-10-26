@@ -43,7 +43,7 @@ Android 13 (API 33) added an input method for accessibility services (`FLAG_INPU
 
 - **Phone.** `ImeTypist` loads only on API 33+. A field counts as focused only when `getCurrentInputStarted()` is true and `getCurrentInputConnection()` is not null; otherwise the result is `rejected` / `nofield`. Text goes through `commitText(text, 1, null)`, which returns nothing, so `done` means "handed to the editor", not "shown". Backspace and Delete send `KEYCODE_DEL` / `KEYCODE_FORWARD_DEL` down and up, so the editor removes whole characters and never splits an emoji. Enter follows the field: with `IME_FLAG_NO_ENTER_ACTION` a multi-line field gets a new line and a single-line field gets an Enter key; otherwise a declared action (search, send, next…) runs through `performEditorAction`; otherwise multi-line fields get a new line and the rest an Enter key.
 - **Same gates as gestures.** Allowed, current epoch, increasing `seq`, one command in flight (a gesture and a text share it). Typing finishes before the phone answers, so it never stays in flight.
-- **Desktop.** "Type on phone" appears only while `caps.text` is true. Text is sent only on Send or Enter. Shift+Enter adds a line; Enter that confirms an IME composition does nothing. Send is disabled while any command is in flight. The draft stays until the phone answers `done`; edits made while sending are kept. If the answer never comes (timeout, revocation, disconnect), the composer says "Not confirmed. Check the phone before sending again." and never resends. Clicking the phone picture does not take focus from the composer. Escape in the composer only leaves it.
+- **Desktop.** The phone keyboard appears only while `caps.text` is true and is on by default. While on, a hidden field takes focus, and clicking the phone picture or pressing a key with nothing focused returns focus to it. Text goes to the phone as it is typed; desktop input methods deliver finished characters on `compositionend`. Backspace, Delete and Enter become `key` commands, and Tab is sent as text. Ctrl, Alt and Meta shortcuts are not sent, but a paste is sent as text (up to 500 characters). Esc turns the keyboard off. One command is in flight at a time; keys typed meanwhile wait in order in `TypingQueue`, with adjacent text merged into one command and split at 500 units without breaking a surrogate pair. Any answer other than `done`, including no answer, drops the waiting keys and shows a short message. Nothing is resent.
 - **Privacy.** Text and keys are never logged, stored, or echoed in results. Results report only the outcome.
 - **Limits.** Custom editors (games, terminals, some web canvases) may ignore input. Android may refuse password and lock screen fields. A service enabled by an older build may need to be turned off and on again before Android grants the input method flag.
 
@@ -63,18 +63,18 @@ Android 13 (API 33) added an input method for accessibility services (`FLAG_INPU
 
 ## Code map
 
-| Where                                                                       | What                                                                      |
-| --------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `packages/protocol/src/control/`                                            | Messages, validators, mapping helpers                                     |
-| `apps/mobile/modules/test-video/android/.../ControlWire.kt`                 | Strict parsing and message writers                                        |
-| `.../RemoteControl.kt`                                                      | Per-session grant, epoch, gating (no Android types)                       |
-| `.../ControlAccessibilityService.kt`, `res/xml/duodesk_control_service.xml` | Gesture and typing service and its declaration                            |
-| `.../ImeTypist.kt`                                                          | API 33+ typing through the accessibility input method                     |
-| `.../DisplayGeometry.kt`, `ScreenSource.kt`                                 | Display size and rotation                                                 |
-| `.../VideoSender.kt`                                                        | Channels, heartbeat, teardown ordering                                    |
-| `.../ScreenCaptureService.kt`                                               | Notification text and "Stop control" action                               |
-| `apps/mobile/src/features/stream-sender/`                                   | Settings / Allow / Stop UI                                                |
-| `apps/desktop/src/features/remote-control/`                                 | `ControlLink`, gesture recorder, click layer, status bar, typing composer |
+| Where                                                                       | What                                                                     |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `packages/protocol/src/control/`                                            | Messages, validators, mapping helpers                                    |
+| `apps/mobile/modules/test-video/android/.../ControlWire.kt`                 | Strict parsing and message writers                                       |
+| `.../RemoteControl.kt`                                                      | Per-session grant, epoch, gating (no Android types)                      |
+| `.../ControlAccessibilityService.kt`, `res/xml/duodesk_control_service.xml` | Gesture and typing service and its declaration                           |
+| `.../ImeTypist.kt`                                                          | API 33+ typing through the accessibility input method                    |
+| `.../DisplayGeometry.kt`, `ScreenSource.kt`                                 | Display size and rotation                                                |
+| `.../VideoSender.kt`                                                        | Channels, heartbeat, teardown ordering                                   |
+| `.../ScreenCaptureService.kt`                                               | Notification text and "Stop control" action                              |
+| `apps/mobile/src/features/stream-sender/`                                   | Settings / Allow / Stop UI                                               |
+| `apps/desktop/src/features/remote-control/`                                 | `ControlLink`, gesture recorder, click layer, status bar, phone keyboard |
 
 The accessibility service is declared in the module's own manifest and resources, merged by Gradle like the existing capture service, so no config plugin is needed and `android/` stays generated.
 
@@ -93,8 +93,8 @@ The accessibility service is declared in the module's own manifest and resources
 | arm64 Android debug APK builds                                                                         | pass                               |
 | Samsung screen sharing with remote access enabled                                                      | owner confirmed; diagnostics below |
 | Real-device rotation, fullscreen, audible playback and lock screen                                     | still need verification            |
-| Typing: protocol, desktop link and composer helpers, Kotlin wire / gating / Enter choice               | pass                               |
-| Typing: Electron loopback (caps, text, key, revoke) and composer overlay smoke                         | pass                               |
+| Typing: protocol, desktop link and typing queue, Kotlin wire / gating / Enter choice                   | pass                               |
+| Typing: Electron loopback (caps, text, key, revoke) and keyboard overlay smoke                         | pass                               |
 | Typing on a real phone (Samsung checks in the manual steps)                                            | not run                            |
 
 ### Wheel scrolling device checklist (Samsung, not yet run)

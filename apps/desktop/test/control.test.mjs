@@ -9,11 +9,7 @@ import {
   TAP_MAX_MS,
   simplify,
 } from "../src/features/remote-control/gesture.ts";
-import {
-  isSendKey,
-  prepareText,
-  settleDraft,
-} from "../src/features/remote-control/typing.ts";
+import { TypingQueue, keyFor } from "../src/features/remote-control/typing.ts";
 
 const sessionId = "a".repeat(32);
 const geometry = { width: 1080, height: 2400, rotation: 0 };
@@ -461,35 +457,46 @@ test("paused control sends no text", () => {
   assert.equal(t.input.sent.length, 0);
 });
 
-test("composer helpers: Enter sends, IME Enter and Shift+Enter do not, drafts survive", () => {
+test("typing queue: keeps order, merges text, splits long text whole", () => {
+  const queue = new TypingQueue();
+  assert.equal(queue.pushText("h"), true);
+  queue.pushText("i\r\n");
+  queue.pushKey("backspace");
+  queue.pushText("!");
+  assert.deepEqual(queue.take(), { kind: "text", text: "hi\n" });
+  assert.deepEqual(queue.take(), { kind: "key", key: "backspace" });
+  assert.deepEqual(queue.take(), { kind: "text", text: "!" });
+  assert.equal(queue.take(), undefined);
+
+  assert.equal(queue.pushText("\u001b"), false);
+  assert.equal(queue.pushText("👍".slice(0, 1)), false);
+  assert.equal(queue.pushText("x".repeat(501)), false);
+  assert.equal(queue.size, 0);
+
+  // 499 units then an emoji: the pair is never split across commands.
+  queue.pushText("x".repeat(499));
+  queue.pushText("👍a");
+  assert.equal(queue.take().text, "x".repeat(499));
+  assert.deepEqual(queue.take(), { kind: "text", text: "👍a" });
+  queue.pushText("a");
+  queue.clear();
+  assert.equal(queue.take(), undefined);
+});
+
+test("keyFor: editing keys only, never shortcuts or IME keys", () => {
   const key = {
     key: "Enter",
-    shiftKey: false,
     ctrlKey: false,
     altKey: false,
     metaKey: false,
     isComposing: false,
     keyCode: 13,
   };
-  assert.equal(isSendKey(key), true);
-  assert.equal(isSendKey({ ...key, shiftKey: true }), false);
-  assert.equal(isSendKey({ ...key, isComposing: true }), false);
-  assert.equal(isSendKey({ ...key, keyCode: 229 }), false);
-  assert.equal(isSendKey({ ...key, key: "a" }), false);
-
-  assert.deepEqual(prepareText("a\r\nb"), { text: "a\nb" });
-  assert.equal(prepareText(""), undefined);
-  assert.ok("error" in prepareText("x".repeat(501)));
-  assert.ok("error" in prepareText("\u001b"));
-  assert.ok("error" in prepareText("👍".slice(0, 1)));
-
-  assert.deepEqual(settleDraft("hello world", "hello"), {
-    draft: " world",
-    edited: false,
-  });
-  assert.deepEqual(settleDraft("hello", "hello"), { draft: "", edited: false });
-  assert.deepEqual(settleDraft("help", "hello"), {
-    draft: "help",
-    edited: true,
-  });
+  assert.equal(keyFor(key), "enter");
+  assert.equal(keyFor({ ...key, key: "Backspace" }), "backspace");
+  assert.equal(keyFor({ ...key, key: "Delete" }), "delete");
+  assert.equal(keyFor({ ...key, key: "a" }), undefined);
+  assert.equal(keyFor({ ...key, ctrlKey: true }), undefined);
+  assert.equal(keyFor({ ...key, isComposing: true }), undefined);
+  assert.equal(keyFor({ ...key, keyCode: 229 }), undefined);
 });
