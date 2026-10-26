@@ -6,6 +6,7 @@ import {
   ScrollView,
   Switch,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { router } from "expo-router";
@@ -15,6 +16,12 @@ import { colors, space } from "@duodesk/design-tokens";
 import { Action, styles } from "@/shared/ui/duo-ui";
 import { NearbyList } from "@/features/pairing";
 import { useSenderConnection } from "./session-context";
+
+const SETTINGS_FIELDS = [
+  { key: "maxLongSide", label: "Max width" },
+  { key: "maxShortSide", label: "Max height" },
+  { key: "frameRate", label: "Max fps" },
+] as const;
 
 const QUALITY = [
   { label: "Saver", mbps: 6 },
@@ -190,9 +197,37 @@ export default function SenderScreen() {
               </View>
             )}
             {connection.supportsScreenSharing && (
+              <View style={{ gap: space.sm, paddingVertical: space.sm }}>
+                <Text style={styles.label}>Screen picture (max)</Text>
+                <View style={{ flexDirection: "row", gap: space.sm }}>
+                  {SETTINGS_FIELDS.map((field) => (
+                    <TextInput
+                      key={field.key}
+                      style={[styles.input, { flex: 1 }]}
+                      value={connection.streamSettings[field.key]}
+                      onChangeText={(text) =>
+                        connection.setStreamSettings({ [field.key]: text })
+                      }
+                      keyboardType="number-pad"
+                      placeholder={field.label}
+                      placeholderTextColor={colors.text3}
+                      accessibilityLabel={field.label}
+                      editable={!busy}
+                    />
+                  ))}
+                </View>
+                <Text
+                  style={connection.settingsError ? styles.error : styles.lead}
+                >
+                  {connection.settingsError ||
+                    "Width × height × fps. Your screen is scaled down to fit, keeping its shape; portrait swaps width and height."}
+                </Text>
+              </View>
+            )}
+            {connection.supportsScreenSharing && (
               <Action
                 label="Share screen"
-                disabled={busy}
+                disabled={busy || !!connection.settingsError}
                 onPress={connection.startScreen}
               />
             )}
@@ -266,7 +301,7 @@ export default function SenderScreen() {
               {details && status.stats && (
                 <View style={styles.stats}>
                   <Stat
-                    label="Resolution"
+                    label="Sending"
                     value={`${status.stats.width} × ${status.stats.height}`}
                   />
                   <Stat
@@ -278,6 +313,18 @@ export default function SenderScreen() {
                     value={`${Number(status.stats.mbps).toFixed(1)} Mbps`}
                   />
                   <Stat label="Codec" value={status.stats.codec} />
+                  {status.requested && (
+                    <Stat
+                      label="Requested"
+                      value={`≤ ${status.requested.maxLongSide} × ${status.requested.maxShortSide} · ${status.requested.frameRate} fps`}
+                    />
+                  )}
+                  {status.capture && (
+                    <Stat
+                      label="Capturing"
+                      value={`${status.capture.width} × ${status.capture.height}`}
+                    />
+                  )}
                   <Stat label="Limited by" value={status.stats.qualityLimit} />
                 </View>
               )}

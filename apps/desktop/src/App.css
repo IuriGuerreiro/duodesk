@@ -474,3 +474,37 @@ details summary:hover {
   font-size: 12px;
   color: var(--dd-text-2);
 }
+.stream-settings {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 12px;
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius-control);
+  text-align: left;
+}
+.stream-settings legend {
+  padding: 0 4px;
+  color: var(--dd-text-2);
+  font-size: 13px;
+}
+.stream-settings label {
+  display: grid;
+  gap: 4px;
+  color: var(--dd-text-2);
+  font-size: 12px;
+}
+.stream-settings input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--dd-border-strong);
+  border-radius: 6px;
+  background: var(--dd-surface-2);
+  color: var(--dd-text);
+  font-family: var(--dd-mono);
+}
+.stream-settings .hint {
+  grid-column: 1 / -1;
+  margin: 0;
+}

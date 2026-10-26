@@ -1,4 +1,4 @@
-import type { StreamState } from "@duodesk/protocol";
+import type { StreamSettings, StreamState } from "@duodesk/protocol";
 
 export type StreamMode = "screen" | "clip";
 
@@ -46,6 +46,10 @@ export interface SenderStatus {
   audioMessage?: string;
   /** Present during a screen-sharing session. */
   control?: ControlStatus;
+  /** Screen sharing only: the user's chosen limits, as the phone accepted them. */
+  requested?: StreamSettings;
+  /** Screen sharing only: the capture size applied to this display. `stats` holds what is really sent. */
+  capture?: { width: number; height: number };
 }
 
 export interface ViewerStats {

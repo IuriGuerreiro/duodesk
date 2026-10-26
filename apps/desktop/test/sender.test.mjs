@@ -15,6 +15,7 @@ class FakeTrack {
   getSettings() {
     return { width: 1920, height: 1080, frameRate: 30 };
   }
+  async applyConstraints() {}
   stop() {
     this.stopped = true;
   }
@@ -176,4 +177,48 @@ test("a denied capture leaves the session ready to try again", async () => {
   navigator.mediaDevices.getDisplayMedia = original;
   await sender.start();
   assert.equal(requests.length, 1);
+});
+test("fits the capture into the chosen box at the display's shape and caps the encoder rate", async () => {
+  const { peer, track, requests } = setup();
+  const constraints = [];
+  let size = { width: 1440, height: 2560, frameRate: 60 };
+  track.getSettings = () => size;
+  track.applyConstraints = async (value) => {
+    constraints.push(value);
+    size = { width: value.width.max, height: value.height.max, frameRate: 30 };
+  };
+  const sender = new ScreenSender(sessionId, async () => {}, () => {}, () => {}, {
+    maxLongSide: 1280,
+    maxShortSide: 720,
+    frameRate: 30,
+  });
+  await sender.start();
+  assert.deepEqual(requests.at(-1).video, { frameRate: { max: 30 } });
+  // A portrait monitor gets a portrait box.
+  assert.deepEqual(constraints, [
+    { width: { max: 720 }, height: { max: 1280 }, frameRate: { max: 30 } },
+  ]);
+  assert.equal(FakePeer.latest.parameters.encodings[0].maxFramerate, 30);
+  assert.notEqual(FakePeer.latest, peer);
+  FakePeer.latest.getStats = async () => new Map([
+    ["v", { type: "outbound-rtp", kind: "video", timestamp: 1, bytesSent: 0, frameWidth: 720, frameHeight: 1280, framesPerSecond: 24, qualityLimitationReason: "bandwidth" }],
+  ]);
+  const stats = await sender.stats();
+  assert.deepEqual(stats.requested, { maxLongSide: 1280, maxShortSide: 720, frameRate: 30 });
+  assert.deepEqual(stats.capture, { width: 720, height: 1280, frameRate: 30 });
+  assert.equal(stats.fps, 24);
+  assert.equal(stats.qualityLimit, "bandwidth");
+});
+test("a capture that rejects the chosen size fails clearly and releases the screen", async () => {
+  const { track } = setup();
+  track.applyConstraints = async () => {
+    throw new Error("Overconstrained");
+  };
+  const sender = new ScreenSender(sessionId, async () => {}, () => {}, () => {}, {
+    maxLongSide: 1280,
+    maxShortSide: 720,
+    frameRate: 30,
+  });
+  await assert.rejects(sender.start(), /1280 × 720 and 30 fps.*smaller/);
+  assert.equal(track.stopped, true);
 });
