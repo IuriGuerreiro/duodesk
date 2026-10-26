@@ -65,7 +65,9 @@ Viewer controls only change your local view. They never control the desktop.
 - Fit screen / Fill screen: fit shows the whole desktop; fill covers the screen and crops edges.
 - Pinch: zoom 1–4×. Drag: move when zoomed or in fill. Double tap or Reset zoom: back to the start.
 
-### Samsung checklist (not yet run on hardware)
+### Samsung checklist
+
+The user confirmed the landscape viewer working on a Samsung SM_A266B from Linux on 2026-10-26.
 
 1. Open `/watch` from a desktop **Share this screen** QR. The phone turns landscape before video starts.
 2. Video fills the screen in fit mode, with black bars only at the sides. No stretching.
