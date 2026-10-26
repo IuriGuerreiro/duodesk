@@ -52,6 +52,8 @@ declare class TestVideoNative extends NativeModule<Events> {
   watch?(invitation: string): Promise<void>;
   stopWatching?(): Promise<void>;
   getViewerStatus?(): Promise<ViewerStatus>;
+  enterViewerMode?(): Promise<void>;
+  exitViewerMode?(): Promise<void>;
 }
 
 const native = requireOptionalNativeModule<TestVideoNative>("DuoDeskTestVideo");
@@ -196,6 +198,14 @@ export const watch = async (invitation: string): Promise<void> => {
 export const stopWatching = async (): Promise<void> => {
   if (native && typeof native.stopWatching === "function")
     await native.stopWatching();
+};
+
+/** Locks landscape and hides system bars for the viewer; restores the prior state on exit. */
+export const enterViewerMode = async (): Promise<void> => {
+  await native?.enterViewerMode?.();
+};
+export const exitViewerMode = async (): Promise<void> => {
+  await native?.exitViewerMode?.();
 };
 
 export const getViewerStatus = async (): Promise<ViewerStatus> => {

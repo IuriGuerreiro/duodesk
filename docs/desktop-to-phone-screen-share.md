@@ -52,12 +52,31 @@ You need a development build of the mobile app and the Linux desktop on the same
 3. Choose **Share this screen**. Pick the Wi-Fi or Ethernet address on your phone's network, not a Tailscale or Docker one. Choose **Create connection**.
 4. On the phone open DuoDesk, tap **Scan QR code**, and scan the QR on the desktop pairing screen. Or enter the address and six-digit code. Allow local network access if asked.
 5. The phone should open a screen titled "Connected." The desktop should start sharing automatically.
-6. The phone should show the desktop screen, with codec, size and fps beneath it. The desktop toolbar shows the same from the sender side.
+6. The phone should turn landscape and show the desktop screen full-screen. Tap to show controls with size, fps and bitrate. The desktop toolbar shows the same from the sender side.
 7. Stop from either side. The other side should end within a few seconds.
 
 Please report: the codec shown on the phone, fps, whether the picture is black or garbled, and how it feels when you move a window. If pairing times out, check the desktop firewall, VPNs and guest Wi-Fi isolation. If the phone says "Video connection lost", try again and note the desktop's message.
 
-The viewer is portrait only for now. The picture is small on a phone held upright.
+The viewer runs in landscape with the system bars hidden. Only `/watch` does this; it locks sensor landscape at runtime and restores the previous orientation when you leave by Stop, Back, disconnect or error. The rest of the app stays portrait (`app.json`).
+
+Viewer controls only change your local view. They never control the desktop.
+
+- Tap: show or hide controls. They hide after a few seconds.
+- Fit screen / Fill screen: fit shows the whole desktop; fill covers the screen and crops edges.
+- Pinch: zoom 1–4×. Drag: move when zoomed or in fill. Double tap or Reset zoom: back to the start.
+
+### Samsung checklist
+
+The user confirmed the landscape viewer working on a Samsung SM_A266B from Linux on 2026-10-26.
+
+1. Open `/watch` from a desktop **Share this screen** QR. The phone turns landscape before video starts.
+2. Video fills the screen in fit mode, with black bars only at the sides. No stretching.
+3. Status and navigation bars are hidden. Swiping from an edge shows them briefly. Controls avoid the camera cutout.
+4. Fill screen crops top and bottom. Fit screen restores the whole desktop.
+5. Pinch zooms around your fingers and stops at 4×. Dragging stops at the picture edges. Double tap and Reset zoom return to the start.
+6. Turn the phone 180°. The picture flips and stays correct.
+7. Stop watching, hardware Back, stopping on the desktop, and turning off Wi-Fi each end the session. After leaving, the home screen is portrait with system bars back.
+8. Pairing and phone-to-desktop sharing screens stay portrait.
 
 ## Collect screen-sharing diagnostics
 
