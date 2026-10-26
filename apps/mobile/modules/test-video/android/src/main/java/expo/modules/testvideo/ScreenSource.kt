@@ -58,6 +58,10 @@ internal class ScreenSource(
   private var running = false
   private var capturer: ScreenCapturerAndroid? = null
   private var surfaceTextureHelper: SurfaceTextureHelper? = null
+  private var refresh: IdleRefresh? = null
+  /** Frames caused by real screen changes so far; idle repeats are excluded. Read on the texture thread's behalf. */
+  val changedFrames: Long
+    get() = refresh?.changedFrames ?: 0L
   /**
    * The projection WebRTC created from the consent result. Android 14+ allows one projection per consent
    * result, so playback audio capture borrows this instance instead of creating its own.
@@ -121,7 +125,14 @@ internal class ScreenSource(
 
     val screenCapturer = ScreenCapturerAndroid(resultData, mediaProjectionCallback)
     capturer = screenCapturer
-    screenCapturer.initialize(helper, context, observer)
+    val idle = IdleRefresh(
+      downstream = observer,
+      intervalMs = IdleRefresh.intervalFor(settings.frameRate),
+      force = { helper.forceFrame() },
+      schedule = { delay, task -> helper.handler.postDelayed(task, delay) }
+    )
+    refresh = idle
+    screenCapturer.initialize(helper, context, idle)
 
     running = true
     screenCapturer.startCapture(dims.width, dims.height, settings.frameRate)
@@ -138,6 +149,7 @@ internal class ScreenSource(
 
     val dm = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
     runCatching { dm?.unregisterDisplayListener(displayListener) }
+    refresh?.stop()
 
     runCatching { capturer?.stopCapture() }
     runCatching { capturer?.dispose() }
@@ -145,6 +157,7 @@ internal class ScreenSource(
 
     runCatching { surfaceTextureHelper?.dispose() }
     surfaceTextureHelper = null
+    refresh = null
   }
 
   private fun fit(width: Int, height: Int) = computeCaptureDimensions(width, height, settings.maxLongSide, settings.maxShortSide)

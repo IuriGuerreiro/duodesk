@@ -34,6 +34,8 @@ export interface SenderStats {
   qualityLimit: string;
   /** Opus audio bitrate in kbit/s, present once audio is flowing. */
   audioKbps?: number;
+  /** Screen sharing only: frames where the screen actually changed. `fps` also counts idle refresh frames. */
+  screenFps?: number;
 }
 
 export interface SenderStatus {

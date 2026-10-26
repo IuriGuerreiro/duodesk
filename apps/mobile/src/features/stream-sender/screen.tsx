@@ -308,6 +308,16 @@ export default function SenderScreen() {
                     label="Frame rate"
                     value={`${Number(status.stats.fps).toFixed(0)} fps`}
                   />
+                  {status.stats.screenFps !== undefined && (
+                    <Stat
+                      label="Screen changes"
+                      value={
+                        status.stats.screenFps > 0
+                          ? `${Number(status.stats.screenFps).toFixed(0)} fps`
+                          : "Screen idle"
+                      }
+                    />
+                  )}
                   <Stat
                     label="Bitrate"
                     value={`${Number(status.stats.mbps).toFixed(1)} Mbps`}

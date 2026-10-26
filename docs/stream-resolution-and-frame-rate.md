@@ -48,6 +48,18 @@ WebRTC may still send less than requested. Both senders use the `balanced` degra
 CPU or bandwidth pressure the encoder lowers resolution and frame rate rather than freezing. The "Limited by"
 value tells you why. Nothing here invents numbers: a field that a platform does not report is not shown.
 
+## Idle screens (phone to desktop)
+
+Screen capture only makes a frame when the screen changes, so a still screen used to send nothing, and the
+first frame after a pause hit a cold link and lagged. The Android sender now repeats the last frame about
+5 times a second while idle (`IdleRefresh.kt`). Repeats stay on the GPU via `SurfaceTextureHelper.forceFrame`
+and get fresh timestamps so the encoder does not drop them. Real changes are never delayed.
+
+- Phone Details: **Frame rate** is everything sent, including repeats. **Screen changes** counts only real
+  changes and shows "Screen idle" at 0.
+- Desktop viewer bar: **buffer** is the average time frames waited in the playback buffer each second.
+  If lag after a pause remains and this number is high, the next step is a lower `jitterBufferTarget`.
+
 ## Remote control
 
 Remote control maps pointer positions in 0 to 1 space onto the real display size (`DisplayGeometry.kt`), not

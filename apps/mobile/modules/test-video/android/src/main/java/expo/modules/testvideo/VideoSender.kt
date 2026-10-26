@@ -73,6 +73,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
 
   private var previousBytes = 0.0
   private var previousTime = 0.0
+  private var previousChanged = 0L
   private var previousAudioBytes = 0.0
   private var previousAudioTime = 0.0
 
@@ -567,6 +568,11 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
             "qualityLimit" to (values["qualityLimitationReason"] ?: "unknown")
           )
           audioKbps?.let { currentStats["audioKbps"] = it }
+          // WebRTC's fps includes idle repeats; this counts only frames where the screen really changed.
+          screen?.changedFrames?.let { changed ->
+            currentStats["screenFps"] = maxOf(0L, changed - previousChanged)
+            previousChanged = changed
+          }
           lastStats = currentStats
           val map = mutableMapOf<String, Any>(
             "state" to state,
@@ -629,7 +635,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     audioTrack?.dispose(); audioTrack = null; audioSource?.dispose(); audioSource = null
     audioState = AudioStatus.OFF; audioMessage = null; silence.reset()
     previousAudioBytes = 0.0; previousAudioTime = 0.0
-    candidates.clear(); acceptingAnswer = false; previousBytes = 0.0; previousTime = 0.0
+    candidates.clear(); acceptingAnswer = false; previousBytes = 0.0; previousTime = 0.0; previousChanged = 0L
     mode = null
   }
 
