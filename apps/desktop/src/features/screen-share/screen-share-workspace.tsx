@@ -8,7 +8,11 @@ import {
   Square,
   Wifi,
 } from "lucide-react";
-import type { Invitation, StreamState } from "@duodesk/protocol";
+import type {
+  Invitation,
+  StreamState,
+  RecoveryStatus,
+} from "@duodesk/protocol";
 import { createPairingQrPayload } from "@duodesk/protocol/pairing";
 import type { ScreenStats } from "./screen-sender";
 import type { NetworkAddress } from "@/shared/host";
@@ -25,6 +29,8 @@ export interface ScreenShareWorkspaceProps {
   /** Supplied by the shared session. This component never creates codes. */
   pairing?: { address: string; code: string; status: string };
   state: StreamState;
+  recovery?: RecoveryStatus;
+  onReconnect?: () => void;
   error: string;
   stats?: ScreenStats;
   sharing: boolean;
@@ -38,6 +44,8 @@ export interface ScreenShareWorkspaceProps {
 
 export function ScreenShareWorkspace({
   busy,
+  recovery,
+  onReconnect,
   desktopAvailable,
   error,
   interfaces,
@@ -55,26 +63,31 @@ export function ScreenShareWorkspace({
   state,
   stats,
 }: ScreenShareWorkspaceProps) {
+  const recovering = state === "interrupted" || state === "reconnecting";
   const live = state === "streaming";
   const phase = live
     ? "live"
-    : state === "ready"
+    : recovering || state === "ready"
       ? "connecting"
       : invitation
         ? "pair"
         : "setup";
-  const label = live
-    ? "Sharing your screen"
-    : sharing
-      ? "Starting screen sharing"
-      : invitation
-        ? "Waiting for phone"
-        : state === "stopped"
-          ? "Session ended"
-          : "Ready to share";
+  const label = recovering
+    ? state === "reconnecting"
+      ? "Reconnecting"
+      : "Connection interrupted"
+    : live
+      ? "Sharing your screen"
+      : sharing
+        ? "Starting screen sharing"
+        : invitation
+          ? "Waiting for phone"
+          : state === "stopped"
+            ? "Session ended"
+            : "Ready to share";
   const tone = live
     ? "live"
-    : state === "failed"
+    : state === "failed" || state === "disconnected"
       ? "danger"
       : invitation
         ? "busy"
@@ -139,7 +152,7 @@ export function ScreenShareWorkspace({
         {error && (
           <Alert variant="destructive" className="error-notice">
             <CircleHelp />
-            <AlertTitle>Screen sharing could not start</AlertTitle>
+            <AlertTitle>Screen sharing needs attention</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
@@ -158,7 +171,11 @@ export function ScreenShareWorkspace({
               disabled={!desktopAvailable || !ip || busy}
             >
               {busy ? <LoaderCircle className="spin" /> : <Wifi />}
-              {busy ? "Creating connection…" : "Create connection"}
+              {busy
+                ? "Creating connection…"
+                : state === "disconnected"
+                  ? "Pair again"
+                  : "Create connection"}
             </Button>
             <Button
               variant="ghost"
@@ -219,7 +236,26 @@ export function ScreenShareWorkspace({
             </Button>
           </section>
         )}
-        {phase === "connecting" && (
+        {recovering && (
+          <section className="stage-card" aria-live="polite">
+            <h1>
+              {state === "reconnecting"
+                ? "Reconnecting"
+                : "Connection interrupted"}
+            </h1>
+            <p className="lead">
+              Keep both devices on the same Wi-Fi. Recovery attempt{" "}
+              {recovery?.attempt ?? 0} of 2.
+            </p>
+            <Button onClick={onReconnect} disabled={!recovery?.canReconnect}>
+              Reconnect
+            </Button>
+            <Button variant="destructive" onClick={onStop}>
+              Stop session
+            </Button>
+          </section>
+        )}
+        {phase === "connecting" && !recovering && (
           <section className="stage-card" aria-labelledby="starting-title">
             <h1 id="starting-title">
               {error ? "Try sharing again" : "Starting screen sharing"}

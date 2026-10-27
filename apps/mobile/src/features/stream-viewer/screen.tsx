@@ -25,6 +25,21 @@ const copy = {
     title: "Your PC screen.",
     detail: "Live over your local network. Audio is not shared.",
   },
+  interrupted: {
+    title: "Connection interrupted.",
+    detail:
+      "Keep both devices on the same Wi-Fi. Your PC will retry. You can also click Reconnect on your PC.",
+  },
+  reconnecting: {
+    title: "Reconnecting to your PC.",
+    detail:
+      "Recovery is limited to 25 seconds. You can stop watching at any time.",
+  },
+  disconnected: {
+    title: "Pair again.",
+    detail:
+      "Create a new connection on your PC, then return to scan its new code.",
+  },
   stopped: {
     title: "Session ended.",
     detail: "Create a new connection on your PC to watch again.",
@@ -47,7 +62,11 @@ export default function StreamViewerScreen() {
   const stats = status.stats;
   const live = status.state === "streaming";
   const watching =
-    status.state === "connecting" || status.state === "ready" || live;
+    status.state === "connecting" ||
+    status.state === "ready" ||
+    status.state === "interrupted" ||
+    status.state === "reconnecting" ||
+    live;
   return (
     <SafeAreaView className="flex-1 bg-background">
       {watching && <KeepAwake />}
@@ -72,7 +91,10 @@ export default function StreamViewerScreen() {
             {!live && (
               <View className="absolute inset-0 items-center justify-center bg-black px-6">
                 <Text className="text-center text-base text-white">
-                  Waiting for your PC to start sharing…
+                  {status.state === "interrupted" ||
+                  status.state === "reconnecting"
+                    ? "Connection interrupted. Waiting for recovery…"
+                    : "Waiting for your PC to start sharing…"}
                 </Text>
               </View>
             )}
@@ -109,7 +131,13 @@ export default function StreamViewerScreen() {
           className="mb-4"
           onPress={session.stop}
         >
-          <Text>{watching ? "Stop watching" : "Back"}</Text>
+          <Text>
+            {watching
+              ? "Stop watching"
+              : status.state === "disconnected"
+                ? "Pair again"
+                : "Back"}
+          </Text>
         </Button>
       </View>
     </SafeAreaView>

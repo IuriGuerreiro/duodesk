@@ -47,6 +47,7 @@ declare class TestVideoNative extends NativeModule<Events> {
   isControlServiceEnabled?(): Promise<boolean>;
   pause?(): Promise<void>;
   stop(): Promise<void>;
+  reconnect?(): Promise<void>;
   background?(): Promise<void>;
   getStatus?(): Promise<SenderStatus>;
   watch?(invitation: string): Promise<void>;
@@ -142,6 +143,13 @@ export const openAccessibilitySettings = (): Promise<void> =>
 /** Ends the video but keeps the desktop paired. */
 export const pause = async (): Promise<void> => {
   await native?.pause?.();
+};
+
+export const reconnect = async (): Promise<void> => {
+  const mod = module();
+  if (!mod.reconnect)
+    throw new Error("Update the app to reconnect, or pair again.");
+  await mod.reconnect();
 };
 
 export const stop = async (): Promise<void> => {

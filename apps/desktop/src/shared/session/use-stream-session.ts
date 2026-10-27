@@ -4,6 +4,7 @@ import type {
   Invitation,
   Signal,
   StreamState,
+  RecoveryStatus,
 } from "@duodesk/protocol";
 import {
   createPairingServer,
@@ -20,6 +21,7 @@ export interface SessionControl {
   /** Ends the session and shows `message`. */
   fail: (message: string) => void;
   setState: (state: StreamState) => void;
+  recover: (status: RecoveryStatus) => void;
 }
 
 export interface StreamSessionOptions {
@@ -46,6 +48,8 @@ export function useStreamSession(options: StreamSessionOptions) {
   const [ip, setIp] = useState("");
   const [invitation, setInvitation] = useState<Invitation>();
   const [state, setState] = useState<StreamState>("idle");
+  const [recovery, setRecovery] = useState<RecoveryStatus>();
+  const generation = useRef(0);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [remaining, setRemaining] = useState(0);
@@ -57,6 +61,8 @@ export function useStreamSession(options: StreamSessionOptions) {
   });
 
   async function stop() {
+    generation.current++;
+    setRecovery(undefined);
     current.current = undefined;
     pairing.current = undefined;
     setCode("");
@@ -129,15 +135,21 @@ export function useStreamSession(options: StreamSessionOptions) {
           setCode("");
           handlers.current.onReady?.();
         }
-        if (payload.state === "stopped" || payload.state === "failed") {
+        if (
+          payload.state === "stopped" ||
+          payload.state === "failed" ||
+          payload.state === "disconnected"
+        ) {
           handlers.current.onEnded();
           pairing.current = undefined;
           setCode("");
           current.current = undefined;
           setInvitation(undefined);
-          if (payload.state === "failed")
+          setRecovery(undefined);
+          if (payload.state !== "stopped")
             setError(
-              "Session expired or disconnected. Check Wi-Fi/firewall and create a new connection.",
+              payload.message ??
+                "Connection lost. Check Wi-Fi and firewall, then pair again.",
             );
         }
       }
@@ -181,36 +193,49 @@ export function useStreamSession(options: StreamSessionOptions) {
   async function start() {
     setBusy(true);
     setError("");
+    await stop();
+    const epoch = generation.current;
     try {
-      await stop();
       const nextCode = verificationCode();
       const handler = await createPairingServer(nextCode);
+      if (epoch !== generation.current || !mounted.current) return;
       const connection = await invoke<{
         invitation: Invitation;
         address: string;
       }>("stream_start", { ip, direction: handlers.current.direction });
       const next = connection.invitation;
+      if (!mounted.current || epoch !== generation.current) {
+        await invoke("stream_stop");
+        return;
+      }
       pairing.current = handler;
       setCode(nextCode);
       setPairingStatus("");
       setAddress(connection.address);
-      if (!mounted.current) {
-        await invoke("stream_stop");
-        return;
-      }
       current.current = next;
       handlers.current.onStarted(next, {
         fail: (message) => {
+          if (current.current !== next) return;
           setError(message);
           void stop();
-          setState("failed");
+          setState("disconnected");
         },
-        setState,
+        setState: (state) => {
+          if (current.current !== next) return;
+          if (state === "streaming") setRecovery(undefined);
+          setState(state);
+        },
+        recover: (status) => {
+          if (current.current !== next) return;
+          setRecovery(status);
+          setState(status.state);
+        },
       });
       setInvitation(next);
       setRemaining(120);
       setState("connecting");
     } catch (cause) {
+      if (!mounted.current || epoch !== generation.current) return;
       await stop();
       setState("failed");
       setError(String(cause));
@@ -228,6 +253,7 @@ export function useStreamSession(options: StreamSessionOptions) {
     invitation,
     pairing: invitation ? { address, code, status: pairingStatus } : undefined,
     state,
+    recovery,
     setState,
     error,
     setError,

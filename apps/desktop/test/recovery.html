@@ -1,0 +1,107 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>DuoDesk recovery check</title>
+<video autoplay muted playsinline></video>
+<script type="module">
+  import { ScreenSender } from "/src/features/screen-share/screen-sender.ts";
+  import { VideoReceiver } from "/src/features/receiver/video-receiver.ts";
+
+  window.runRecovery = async () => {
+    const errors = [],
+      states = [];
+    const video = document.querySelector("video");
+    const canvas = document.createElement("canvas");
+    canvas.width = 640;
+    canvas.height = 360;
+    const context = canvas.getContext("2d");
+    let frame = 0,
+      captures = 0;
+    const drawing = setInterval(() => {
+      context.fillStyle = `hsl(${frame++ % 360} 70% 35%)`;
+      context.fillRect(0, 0, 640, 360);
+    }, 33);
+    const stream = canvas.captureStream(30);
+    navigator.mediaDevices.getDisplayMedia = async () => {
+      captures++;
+      return stream;
+    };
+    const id = "d".repeat(32);
+    const sender = new ScreenSender(
+      id,
+      async (signal) => {
+        void receiver.receive(signal);
+      },
+      (error) => errors.push(error),
+      (state) => states.push(state),
+      (state) => states.push(state.state),
+    );
+    const receiver = new VideoReceiver(
+      id,
+      async (signal) => {
+        void sender.receive(signal);
+      },
+      (media) => {
+        video.srcObject = media;
+        void video.play();
+      },
+      (error) => errors.push(error),
+      () => {},
+    );
+    const wait = async (predicate) => {
+      for (let i = 0; i < 200; i++) {
+        if (errors.length) throw new Error(errors.join("; "));
+        if (predicate()) return;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      throw new Error("Recovery check timed out");
+    };
+    try {
+      await sender.start();
+      await wait(
+        () =>
+          video.getVideoPlaybackQuality().totalVideoFrames > 5 &&
+          states.includes("connected"),
+      );
+      const before = sender.peer.localDescription.sdp.match(
+        /a=ice-ufrag:([^\r\n]+)/,
+      )[1];
+      const frames = video.getVideoPlaybackQuality().totalVideoFrames;
+      // Inject only the outage notification. SDP, ICE, encoding and decoding remain real Chromium APIs.
+      Object.defineProperty(sender.peer, "connectionState", {
+        configurable: true,
+        value: "disconnected",
+      });
+      sender.peer.dispatchEvent(new Event("connectionstatechange"));
+      delete sender.peer.connectionState;
+      sender.reconnect();
+      await wait(
+        () =>
+          sender.peer.localDescription.sdp.match(
+            /a=ice-ufrag:([^\r\n]+)/,
+          )[1] !== before && sender.peer.signalingState === "stable",
+      );
+      await wait(
+        () => video.getVideoPlaybackQuality().totalVideoFrames > frames + 5,
+      );
+      if (captures !== 1 || stream.getVideoTracks()[0].readyState !== "live")
+        throw new Error("Recovery replaced or stopped capture");
+      await wait(() => states.at(-1) === "connected");
+      const offers = states.filter((state) => state === "reconnecting").length;
+      if (offers !== 1)
+        throw new Error("Expected exactly one recovery attempt");
+      return {
+        passed: true,
+        captures,
+        decodedAfterRestart:
+          video.getVideoPlaybackQuality().totalVideoFrames - frames,
+        states,
+      };
+    } finally {
+      sender.stop();
+      receiver.stop();
+      clearInterval(drawing);
+      stream.getTracks().forEach((track) => track.stop());
+      video.srcObject = null;
+    }
+  };
+</script>

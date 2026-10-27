@@ -86,6 +86,9 @@ export class RemoteAccessRequest {
     if (this.cancelled) return;
     if (
       status.state === "failed" ||
+      status.state === "disconnected" ||
+      status.state === "interrupted" ||
+      status.state === "reconnecting" ||
       status.state === "stopped" ||
       status.state === "idle"
     ) {

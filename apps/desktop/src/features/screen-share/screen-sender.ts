@@ -1,4 +1,10 @@
-import { parseSignal, type Signal } from "@duodesk/protocol";
+import { gatherIce } from "../../shared/session/ice-gathering.ts";
+import {
+  ConnectionRecovery,
+  parseSignal,
+  type RecoveryStatus,
+  type Signal,
+} from "@duodesk/protocol";
 
 export interface ScreenStats {
   codec: string;
@@ -35,6 +41,12 @@ export class ScreenSender {
   private closed = false;
   private started = false;
   private answered = false;
+  private connected = false;
+  private restarting = false;
+  private negotiation = new AbortController();
+  private initialTimeout?: ReturnType<typeof setTimeout>;
+  private recovery: ConnectionRecovery;
+  private connectionChanged: () => void;
   private stream?: MediaStream;
   private previous?: { bytes: number; timestamp: number };
   private sessionId: string;
@@ -46,6 +58,7 @@ export class ScreenSender {
     send: (signal: Signal) => Promise<void>,
     onError: (message: string) => void,
     onConnection: (state: RTCPeerConnectionState) => void,
+    onRecovery: (status: RecoveryStatus) => void = () => {},
   ) {
     this.sessionId = sessionId;
     this.send = send;
@@ -54,8 +67,14 @@ export class ScreenSender {
       iceServers: [],
       bundlePolicy: "max-bundle",
     });
+    this.recovery = new ConnectionRecovery({
+      changed: onRecovery,
+      exhausted: () =>
+        this.fail(new Error("Connection could not be recovered. Pair again.")),
+      restart: () => void this.restart().catch((error) => this.fail(error)),
+    });
     this.peer.onicecandidate = (event) => {
-      if (!event.candidate || this.closed) return;
+      if (!event.candidate || this.closed || this.restarting) return;
       const candidate = event.candidate;
       void this.emit({
         v: 1,
@@ -66,30 +85,38 @@ export class ScreenSender {
         sdpMLineIndex: candidate.sdpMLineIndex ?? 0,
       });
     };
-    this.peer.oniceconnectionstatechange = () =>
-      diagnostic("ice-state", {
-        state: this.peer.iceConnectionState,
-        gathering: this.peer.iceGatheringState,
-      });
     this.peer.onsignalingstatechange = () =>
       diagnostic("signaling-state", { state: this.peer.signalingState });
     this.peer.onicecandidateerror = (event) =>
       diagnostic("ice-error", { code: event.errorCode, text: event.errorText });
-    this.peer.onconnectionstatechange = () => {
-      diagnostic("connection-state", { state: this.peer.connectionState });
+    this.connectionChanged = () => {
       if (this.closed) return;
-      onConnection(this.peer.connectionState);
-      if (
-        this.peer.connectionState === "failed" ||
-        this.peer.connectionState === "disconnected"
-      ) {
-        this.fail(
-          new Error(
-            "Screen connection lost. Create a new connection to reconnect.",
-          ),
-        );
+      const ice = this.peer.iceConnectionState;
+      const state =
+        ice === "disconnected" || ice === "failed"
+          ? ice
+          : this.restarting && ice !== "connected" && ice !== "completed"
+            ? "connecting"
+            : this.peer.connectionState;
+      diagnostic("connection-state", { state });
+      if (state === "connected" && this.answered) {
+        clearTimeout(this.initialTimeout);
+        this.connected = true;
+        this.recovery.connected();
+        onConnection("connected");
+      } else if (state === "failed" || state === "disconnected") {
+        onConnection(state);
+        if (this.connected) this.recovery.interrupt();
+        else
+          this.fail(
+            new Error(
+              "Phone unreachable. Check Wi-Fi and firewall, then pair again.",
+            ),
+          );
       }
     };
+    this.peer.onconnectionstatechange = this.connectionChanged;
+    this.peer.oniceconnectionstatechange = this.connectionChanged;
   }
 
   /** Starts capture for the paired desktop share session. */
@@ -144,6 +171,15 @@ export class ScreenSender {
     parameters.degradationPreference = "balanced";
     await transceiver.sender.setParameters(parameters);
     diagnostic("encoder-configured");
+    this.initialTimeout = setTimeout(
+      () =>
+        this.fail(
+          new Error(
+            "Phone unreachable. Check Wi-Fi and firewall, then pair again.",
+          ),
+        ),
+      20_000,
+    );
     const offer = await this.peer.createOffer();
     await this.peer.setLocalDescription(offer);
     if (!this.closed)
@@ -153,6 +189,35 @@ export class ScreenSender {
         type: "offer",
         sdp: offer.sdp ?? "",
       });
+  }
+
+  reconnect() {
+    this.recovery.reconnect();
+  }
+
+  private async restart() {
+    if (this.closed) return;
+    if (this.peer.signalingState !== "stable")
+      throw new Error(
+        "The peer did not answer recovery. Pair again, and update both apps if needed.",
+      );
+    this.restarting = true;
+    this.answered = false;
+    this.pending = [];
+    this.negotiation.abort();
+    this.negotiation = new AbortController();
+    const signal = this.negotiation.signal;
+    const offer = await this.peer.createOffer({ iceRestart: true });
+    if (signal.aborted) return;
+    await this.peer.setLocalDescription(offer);
+    await gatherIce(this.peer, signal);
+    if (signal.aborted || this.closed) return;
+    await this.emit({
+      v: 1,
+      sessionId: this.sessionId,
+      type: "offer",
+      sdp: this.peer.localDescription?.sdp ?? "",
+    });
   }
 
   /** The host rejects bursts of concurrent requests, and the offer must precede its candidates. */
@@ -175,6 +240,11 @@ export class ScreenSender {
         diagnostic("signal-received", { type: message.type });
         if (message.type === "answer") {
           if (this.answered) throw new Error("Unexpected second video answer.");
+          if (
+            this.restarting &&
+            this.peer.signalingState !== "have-local-offer"
+          )
+            throw new Error("Unexpected recovery answer. Pair again.");
           this.answered = true;
           await this.peer.setRemoteDescription({
             type: "answer",
@@ -184,7 +254,9 @@ export class ScreenSender {
           for (const candidate of this.pending)
             await this.peer.addIceCandidate(candidate);
           this.pending = [];
+          this.connectionChanged();
         } else if (message.type === "candidate") {
+          if (this.restarting) return;
           if (this.pending.length >= 128)
             throw new Error("Too many pending candidates.");
           const candidate = {
@@ -260,6 +332,9 @@ export class ScreenSender {
     if (this.closed) return;
     diagnostic("stop");
     this.closed = true;
+    clearTimeout(this.initialTimeout);
+    this.recovery.close();
+    this.negotiation.abort();
     this.pending = [];
     this.peer.oniceconnectionstatechange = null;
     this.peer.onsignalingstatechange = null;

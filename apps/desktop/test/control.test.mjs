@@ -348,3 +348,41 @@ test("simplify keeps both ends and the order", () => {
   );
   assert.deepEqual(simplify([1, 2, 3], 5), [1, 2, 3]);
 });
+
+test("interruption drops pending input and requires a newer phone grant", () => {
+  const t = setup();
+  t.on(3);
+  t.settled();
+  t.link.tap([0.5, 0.5], 3, video);
+  t.link.interrupt();
+  assert.equal(t.link.getView().busy, false);
+  assert.equal(t.link.tap([0.5, 0.5], 3, video), false);
+  t.on(3);
+  t.link.resume();
+  t.on(3);
+  t.settled();
+  assert.equal(t.link.getView().phase, "waiting");
+  t.off(4);
+  assert.equal(t.link.getView().phase, "off");
+  t.on(5);
+  t.settled();
+  assert.equal(t.link.tap([0.5, 0.5], 3, video), false);
+  assert.equal(t.link.tap([0.5, 0.5], 5, video), true);
+  assert.equal(t.input.sent.length, 2);
+});
+
+test("a second interruption cannot lower the required control epoch", () => {
+  const t = setup();
+  t.on(8);
+  t.settled();
+  t.link.interrupt();
+  t.link.resume();
+  t.link.interrupt();
+  t.link.resume();
+  t.on(8);
+  t.settled();
+  assert.equal(t.link.getView().phase, "waiting");
+  assert.equal(t.link.tap([0.5, 0.5], 8, video), false);
+  t.off(9);
+  assert.equal(t.link.getView().phase, "off");
+});

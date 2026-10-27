@@ -1,11 +1,18 @@
-import { test } from "node:test";
+import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import {
   VideoReceiver,
   preferStereoOpus,
 } from "../src/features/receiver/video-receiver.ts";
 
+const peers = [];
+afterEach(() => {
+  for (const peer of peers.splice(0)) peer.stop();
+});
 class FakePeer {
+  signalingState = "stable";
+  iceGatheringState = "complete";
+  localDescription = null;
   static latest;
   remoteDescription = null;
   candidates = [];
@@ -23,6 +30,7 @@ class FakePeer {
   }
   async setRemoteDescription(description) {
     this.remoteDescription = description;
+    this.signalingState = "have-remote-offer";
     this.calls.push("remote");
   }
   async addIceCandidate(candidate) {
@@ -32,7 +40,9 @@ class FakePeer {
   async createAnswer() {
     return { type: "answer", sdp: "test-answer" };
   }
-  async setLocalDescription() {
+  async setLocalDescription(description) {
+    this.localDescription = description;
+    this.signalingState = "stable";
     this.calls.push("local");
   }
   getReceivers() {
@@ -57,9 +67,10 @@ function setup() {
     (error) => errors.push(error),
     () => {},
   );
+  peers.push(receiver);
   return { receiver, peer: FakePeer.latest, sent, errors };
 }
-test("queues early ICE, answers once, then rejects renegotiation", async () => {
+test("queues early ICE, answers once, then rejects an offer without new ICE credentials", async () => {
   const { receiver, peer, sent, errors } = setup();
   await receiver.receive(
     message({
@@ -157,4 +168,26 @@ test("stereo Opus is requested in the answer", () => {
   const video =
     "m=video 9 UDP/TLS/RTP/SAVPF 102\r\na=fmtp:102 level-asymmetry-allowed=1\r\n";
   assert.equal(preferStereoOpus(video), video);
+});
+
+test("answers an ICE restart on the existing peer and ignores old trickle candidates", async () => {
+  const { receiver, peer, sent, errors } = setup();
+  await receiver.receive(
+    message({ type: "offer", sdp: "v=0\r\na=ice-ufrag:old\r\n" }),
+  );
+  await receiver.receive(
+    message({ type: "offer", sdp: "v=0\r\na=ice-ufrag:new\r\n" }),
+  );
+  await receiver.receive(
+    message({
+      type: "candidate",
+      candidate: "old-candidate",
+      sdpMid: "0",
+      sdpMLineIndex: 0,
+    }),
+  );
+  assert.equal(FakePeer.latest, peer);
+  assert.equal(sent.filter((s) => s.type === "answer").length, 2);
+  assert.deepEqual(peer.candidates, []);
+  assert.deepEqual(errors, []);
 });

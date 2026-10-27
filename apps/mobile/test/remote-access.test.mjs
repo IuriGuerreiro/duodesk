@@ -157,3 +157,14 @@ test("remote access waits for the screen size before allowing control", async ()
   await Promise.resolve();
   assert.deepEqual(calls, ["share", "allow"]);
 });
+
+for (const state of ["interrupted", "reconnecting", "disconnected"]) {
+  test(`pending remote access is cancelled on ${state}`, async () => {
+    const t = setup();
+    await t.request.start();
+    t.status({ state });
+    t.status(streaming);
+    await Promise.resolve();
+    assert.deepEqual(t.calls, ["share"]);
+  });
+}
