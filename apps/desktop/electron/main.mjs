@@ -42,10 +42,8 @@ function diagnostic(event, data = {}) {
     console.error("Could not write diagnostics", error.message);
   }
 }
-app.commandLine.appendSwitch(
-  "force-webrtc-ip-handling-policy",
-  "default_public_and_private_interfaces",
-);
+// Gather every interface, not just the default route, so VPN overlays such as Tailscale can connect.
+app.commandLine.appendSwitch("force-webrtc-ip-handling-policy", "default");
 // Send real LAN addresses instead of .local names, which Android senders behind NAT (emulators) cannot resolve.
 app.commandLine.appendSwitch(
   "disable-features",

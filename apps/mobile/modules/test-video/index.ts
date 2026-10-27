@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import type { ViewProps } from "react-native";
+import type { StreamSettings } from "@duodesk/protocol";
 import type { SenderStatus, ViewerStatus } from "./types";
 
 export type {
@@ -30,6 +31,7 @@ export const start = (_bitrateMbps: number): Promise<void> => unsupported();
 export const startScreen = (
   _bitrateMbps: number,
   _shareAudio: boolean,
+  _settings: StreamSettings,
 ): Promise<void> => unsupported();
 export const isControlServiceEnabled = async (): Promise<boolean> => false;
 export const allowControl = (): Promise<void> => unsupported();
@@ -59,6 +61,8 @@ export const pairClose = async (): Promise<void> => {};
 
 export const watch = (_invitation: string): Promise<void> => unsupported();
 export const stopWatching = async (): Promise<void> => {};
+export const enterViewerMode = async (): Promise<void> => {};
+export const exitViewerMode = async (): Promise<void> => {};
 export const getViewerStatus = async (): Promise<ViewerStatus> => ({
   state: "idle",
 });

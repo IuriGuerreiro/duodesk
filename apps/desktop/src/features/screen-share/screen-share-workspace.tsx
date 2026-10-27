@@ -15,6 +15,12 @@ import type { NetworkAddress } from "@/shared/host";
 import { Button } from "@/shared/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 
+export interface StreamSettingsText {
+  maxLongSide: string;
+  maxShortSide: string;
+  frameRate: string;
+}
+
 export interface ScreenShareWorkspaceProps {
   desktopAvailable: boolean;
   interfaces: NetworkAddress[];
@@ -30,6 +36,10 @@ export interface ScreenShareWorkspaceProps {
   sharing: boolean;
   busy: boolean;
   remaining: number;
+  /** Raw form text; the session validates it and blocks starting while `settingsError` is set. */
+  settings: StreamSettingsText;
+  settingsError: string;
+  onSettingsChange: (next: Partial<StreamSettingsText>) => void;
   onReceive: () => void;
   onStart: () => void;
   onStop: () => void;
@@ -51,6 +61,9 @@ export function ScreenShareWorkspace({
   onStop,
   pairing,
   remaining,
+  settings,
+  settingsError,
+  onSettingsChange,
   sharing,
   state,
   stats,
@@ -151,11 +164,42 @@ export function ScreenShareWorkspace({
               Create a connection and scan its code with DuoDesk on your phone.
               Sharing starts automatically when it connects.
             </p>
+            <fieldset className="stream-settings" disabled={busy}>
+              <legend>Picture sent to the phone</legend>
+              <label>
+                Max width
+                <input
+                  inputMode="numeric"
+                  value={settings.maxLongSide}
+                  onChange={(e) => onSettingsChange({ maxLongSide: e.target.value })}
+                />
+              </label>
+              <label>
+                Max height
+                <input
+                  inputMode="numeric"
+                  value={settings.maxShortSide}
+                  onChange={(e) => onSettingsChange({ maxShortSide: e.target.value })}
+                />
+              </label>
+              <label>
+                Max fps
+                <input
+                  inputMode="numeric"
+                  value={settings.frameRate}
+                  onChange={(e) => onSettingsChange({ frameRate: e.target.value })}
+                />
+              </label>
+              <p className="hint" role={settingsError ? "alert" : undefined}>
+                {settingsError ||
+                  "Your screen is scaled down to fit, keeping its shape. Portrait screens swap width and height. The real size and frame rate show once sharing starts."}
+              </p>
+            </fieldset>
             <Button
               size="lg"
               className="primary-action"
               onClick={onStart}
-              disabled={!desktopAvailable || !ip || busy}
+              disabled={!desktopAvailable || !ip || busy || !!settingsError}
             >
               {busy ? <LoaderCircle className="spin" /> : <Wifi />}
               {busy ? "Creating connection…" : "Create connection"}
@@ -267,8 +311,18 @@ export function ScreenShareWorkspace({
             <div className="live-bar">
               <span className="live-stats">
                 {stats
-                  ? `${stats.width} × ${stats.height} · ${stats.fps.toFixed(0)} fps · ${stats.codec.replace("video/", "")} · ${stats.mbps.toFixed(1)} Mbps`
+                  ? `Sending ${stats.width} × ${stats.height} · ${stats.fps.toFixed(0)} fps · ${stats.codec.replace("video/", "")} · ${stats.mbps.toFixed(1)} Mbps`
                   : "Sharing your screen"}
+              </span>
+              <span className="live-stats">
+                {stats &&
+                  `Requested up to ${stats.requested.maxLongSide} × ${stats.requested.maxShortSide} at ${stats.requested.frameRate} fps` +
+                    (stats.capture
+                      ? ` · capturing ${stats.capture.width} × ${stats.capture.height}`
+                      : "") +
+                    (stats.qualityLimit !== "none"
+                      ? ` · reduced by ${stats.qualityLimit}`
+                      : "")}
               </span>
             </div>
           </>

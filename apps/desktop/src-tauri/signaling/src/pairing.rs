@@ -30,7 +30,9 @@ impl NetworkAddress {
         ]
         .iter()
         .any(|s| lower.contains(s));
-        let selectable = ip.is_private() || ip.is_link_local();
+        // 100.64.0.0/10 is carrier-grade NAT space, used by Tailscale and similar private overlays.
+        let shared = ip.octets()[0] == 100 && (ip.octets()[1] & 0xc0) == 64;
+        let selectable = ip.is_private() || ip.is_link_local() || shared;
         let kind = if ip.is_loopback() {
             "loopback"
         } else if virtual_adapter {
@@ -165,6 +167,10 @@ mod tests {
         );
         assert!(!NetworkAddress::new("lo".into(), Ipv4Addr::LOCALHOST).selectable);
         assert!(!NetworkAddress::new("Ethernet".into(), Ipv4Addr::new(8, 8, 8, 8)).selectable);
+        let tailnet = NetworkAddress::new("tailscale0".into(), Ipv4Addr::new(100, 102, 220, 47));
+        assert!(tailnet.selectable);
+        assert_eq!(tailnet.kind, "virtual");
+        assert!(!NetworkAddress::new("Ethernet".into(), Ipv4Addr::new(100, 128, 0, 1)).selectable);
     }
     fn info(expires_at: u64) -> Invitation {
         Invitation {

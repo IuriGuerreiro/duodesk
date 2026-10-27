@@ -380,7 +380,7 @@ export function ReceiverWorkspace({
               <ControlStatus link={control} videoRef={videoRef} />
               <span className="live-stats">
                 {stats
-                  ? `${stats.width} × ${stats.height} · ${stats.fps.toFixed(0)} fps`
+                  ? `${stats.width} × ${stats.height} · ${stats.fps.toFixed(0)} fps · buffer ${stats.bufferMs.toFixed(0)} ms`
                   : "Receiving video"}
               </span>
               <div

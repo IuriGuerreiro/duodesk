@@ -5,6 +5,7 @@ import {
   requireNativeView,
   requireOptionalNativeModule,
 } from "expo";
+import type { StreamSettings } from "@duodesk/protocol";
 import type { SenderStatus, ViewerStatus } from "./types";
 
 export type {
@@ -40,7 +41,13 @@ declare class TestVideoNative extends NativeModule<Events> {
   pairClose(): Promise<void>;
   connect(invitation: string): Promise<void>;
   start(bitrateMbps: number): Promise<void>;
-  startScreen?(bitrateMbps: number, shareAudio: boolean): Promise<void>;
+  startScreen?(
+    bitrateMbps: number,
+    shareAudio: boolean,
+    maxLongSide: number,
+    maxShortSide: number,
+    frameRate: number,
+  ): Promise<void>;
   allowControl?(): Promise<void>;
   revokeControl?(): Promise<void>;
   openAccessibilitySettings?(): Promise<void>;
@@ -52,6 +59,8 @@ declare class TestVideoNative extends NativeModule<Events> {
   watch?(invitation: string): Promise<void>;
   stopWatching?(): Promise<void>;
   getViewerStatus?(): Promise<ViewerStatus>;
+  enterViewerMode?(): Promise<void>;
+  exitViewerMode?(): Promise<void>;
 }
 
 const native = requireOptionalNativeModule<TestVideoNative>("DuoDeskTestVideo");
@@ -97,6 +106,7 @@ export const start = (bitrateMbps: number): Promise<void> =>
 export const startScreen = async (
   bitrateMbps: number,
   shareAudio: boolean,
+  settings: StreamSettings,
 ): Promise<void> => {
   const mod = module();
   if (!supportsScreenSharing || typeof mod.startScreen !== "function") {
@@ -104,7 +114,13 @@ export const startScreen = async (
       "Screen sharing requires an updated Android development build. Rebuild and install the app.",
     );
   }
-  return mod.startScreen(bitrateMbps, shareAudio && supportsPlaybackAudio);
+  return mod.startScreen(
+    bitrateMbps,
+    shareAudio && supportsPlaybackAudio,
+    settings.maxLongSide,
+    settings.maxShortSide,
+    settings.frameRate,
+  );
 };
 
 const controlModule = (): TestVideoNative => {
@@ -196,6 +212,14 @@ export const watch = async (invitation: string): Promise<void> => {
 export const stopWatching = async (): Promise<void> => {
   if (native && typeof native.stopWatching === "function")
     await native.stopWatching();
+};
+
+/** Locks landscape and hides system bars for the viewer; restores the prior state on exit. */
+export const enterViewerMode = async (): Promise<void> => {
+  await native?.enterViewerMode?.();
+};
+export const exitViewerMode = async (): Promise<void> => {
+  await native?.exitViewerMode?.();
 };
 
 export const getViewerStatus = async (): Promise<ViewerStatus> => {

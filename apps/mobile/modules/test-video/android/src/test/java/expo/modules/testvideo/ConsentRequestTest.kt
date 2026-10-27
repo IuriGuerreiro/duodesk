@@ -183,7 +183,7 @@ class ConsentRequestTest {
   @Test
   fun testPrepareScreenConsentWithoutActiveSenderRejectsPromise() {
     val promise = MockPromise()
-    val request = VideoSenderManager.prepareScreenConsent(12, true, promise)
+    val request = VideoSenderManager.prepareScreenConsent(12, true, StreamSettings.DEFAULT, promise)
     assertNull(request)
     assertTrue(promise.rejected)
     assertEquals("ERR_STREAM", promise.rejectedCode)

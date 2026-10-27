@@ -52,6 +52,14 @@ class TestVideoModule : Module() {
       StreamViewerManager.stop(promise)
     }
 
+    AsyncFunction("enterViewerMode") {
+      appContext.currentActivity?.let { ViewerWindow.enter(it) }
+    }
+
+    AsyncFunction("exitViewerMode") {
+      appContext.currentActivity?.let { ViewerWindow.exit(it) }
+    }
+
     AsyncFunction("getViewerStatus") {
       StreamViewerManager.getStatus()
     }
@@ -76,7 +84,7 @@ class TestVideoModule : Module() {
       sender().submit(promise) { start(bitrateMbps) }
     }
 
-    AsyncFunction("startScreen") { bitrateMbps: Int, shareAudio: Boolean, promise: Promise ->
+    AsyncFunction("startScreen") { bitrateMbps: Int, shareAudio: Boolean, maxLongSide: Int, maxShortSide: Int, frameRate: Int, promise: Promise ->
       val s = sender()
       if (!s.isReady()) {
         promise.reject("ERR_STREAM", "Connect to the desktop before starting", null)
@@ -84,6 +92,13 @@ class TestVideoModule : Module() {
       }
       if (bitrateMbps !in 2..30) {
         promise.reject("ERR_STREAM", "Choose a bitrate between 2 and 30 Mbps", null)
+        return@AsyncFunction
+      }
+      val settings = StreamSettings(maxLongSide, maxShortSide, frameRate)
+      // Checked before asking for consent, so an unusable choice never shows the system capture dialog.
+      val unsupported = settings.problem() ?: encoderProblem(readDisplayGeometry(requireNotNull(appContext.reactContext).applicationContext), settings, hardwareAvcCheck)
+      if (unsupported != null) {
+        promise.reject("ERR_SETTINGS", unsupported, null)
         return@AsyncFunction
       }
       val activity = appContext.currentActivity ?: run {
@@ -95,7 +110,7 @@ class TestVideoModule : Module() {
         return@AsyncFunction
       }
 
-      val request = VideoSenderManager.prepareScreenConsent(bitrateMbps, shareAudio, promise) ?: return@AsyncFunction
+      val request = VideoSenderManager.prepareScreenConsent(bitrateMbps, shareAudio, settings, promise) ?: return@AsyncFunction
       try {
         // Remote control maps pointer positions onto the whole display, so a capture of a single app is not offered.
         // Before Android 14 the system only captures the whole display anyway.
