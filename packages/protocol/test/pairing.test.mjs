@@ -108,9 +108,10 @@ test("only literal private IPv4 endpoints and six ASCII digits are accepted", as
     "192.168.1.2:80/",
     "192.168.001.2:80",
     "169.255.1.1:80",
+    "100.128.0.1:80",
   ])
     assert.throws(() => parseDesktopAddress(address));
-  for (const address of ["10.1.2.3:1234", "172.31.2.3:65535", "169.254.1.2:12"])
+  for (const address of ["10.1.2.3:1234", "172.31.2.3:65535", "169.254.1.2:12", "100.102.220.47:39871"])
     assert.equal(parseDesktopAddress(address), address);
   assert.throws(() => createPairingClient("12345", "192.168.1.2:1234"));
   assert.throws(() => createPairingClient("123456\n", "192.168.1.2:1234"));
