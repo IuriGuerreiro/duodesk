@@ -27,7 +27,7 @@ internal class PairingTransport {
       require(parts.size == 2)
       val octets = parts[0].split('.').map { it.toInt() }
       require(octets.size == 4 && octets.all { it in 0..255 })
-      require(octets[0] == 10 || octets[0] == 172 && octets[1] in 16..31 || octets[0] == 192 && octets[1] == 168 || octets[0] == 169 && octets[1] == 254) { "Use a private LAN address" }
+      require(octets[0] == 10 || octets[0] == 172 && octets[1] in 16..31 || octets[0] == 192 && octets[1] == 168 || octets[0] == 169 && octets[1] == 254 || octets[0] == 100 && octets[1] in 64..127) { "Use a private LAN address" }
       val port = parts[1].toInt()
       require(port in 1..65535 && address == octets.joinToString(".") + ":" + port)
       val next = Socket()
