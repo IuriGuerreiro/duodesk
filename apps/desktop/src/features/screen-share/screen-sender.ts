@@ -1,6 +1,16 @@
-import { parseSignal, type Signal } from "@duodesk/protocol";
+import {
+  DEFAULT_STREAM_SETTINGS,
+  fitCapture,
+  parseSignal,
+  type Signal,
+  type StreamSettings,
+} from "@duodesk/protocol";
 
+/** What the user asked for next to what capture actually delivers; `width`/`height`/`fps` are measured. */
 export interface ScreenStats {
+  requested: StreamSettings;
+  /** The capture size and frame-rate cap the browser applied, or `undefined` if it did not report them. */
+  capture?: { width: number; height: number; frameRate?: number };
   codec: string;
   width: number;
   height: number;
@@ -36,6 +46,8 @@ export class ScreenSender {
   private started = false;
   private answered = false;
   private stream?: MediaStream;
+  private capture?: ScreenStats["capture"];
+  private settings: StreamSettings;
   private previous?: { bytes: number; timestamp: number };
   private sessionId: string;
   private send: (signal: Signal) => Promise<void>;
@@ -46,7 +58,9 @@ export class ScreenSender {
     send: (signal: Signal) => Promise<void>,
     onError: (message: string) => void,
     onConnection: (state: RTCPeerConnectionState) => void,
+    settings: StreamSettings = DEFAULT_STREAM_SETTINGS,
   ) {
+    this.settings = settings;
     this.sessionId = sessionId;
     this.send = send;
     this.onError = onError;
@@ -103,7 +117,7 @@ export class ScreenSender {
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: 60, width: { max: 1920 }, height: { max: 1080 } },
+        video: { frameRate: { max: this.settings.frameRate } },
         audio: false,
       });
     } catch (error) {
@@ -126,6 +140,8 @@ export class ScreenSender {
       state: track.readyState,
       muted: track.muted,
     });
+    await this.fit(track);
+    if (this.closed) return;
     track.onmute = () => diagnostic("track-muted");
     track.onunmute = () => diagnostic("track-unmuted");
     track.contentHint = "detail";
@@ -138,7 +154,7 @@ export class ScreenSender {
     const parameters = transceiver.sender.getParameters();
     parameters.encodings.forEach((encoding) => {
       encoding.maxBitrate = MAX_BITRATE;
-      encoding.maxFramerate = 60;
+      encoding.maxFramerate = this.settings.frameRate;
     });
     // Let the encoder trade some resolution for motion instead of freezing under load.
     parameters.degradationPreference = "balanced";
@@ -153,6 +169,43 @@ export class ScreenSender {
         type: "offer",
         sdp: offer.sdp ?? "",
       });
+  }
+
+  /**
+   * Scales the capture into the chosen box at the display's own aspect ratio. Chromium reports the display's
+   * size only after capture starts, so the box is applied here rather than in the capture request.
+   */
+  private async fit(track: MediaStreamTrack) {
+    const native = track.getSettings();
+    if (!native.width || !native.height) {
+      this.capture = undefined;
+      diagnostic("capture-size-unknown");
+      return;
+    }
+    const target = fitCapture(native.width, native.height, this.settings);
+    const refused = await track
+      .applyConstraints({
+        width: { max: target.width },
+        height: { max: target.height },
+        frameRate: { max: this.settings.frameRate },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => (error instanceof Error ? error.message : String(error)),
+      );
+    if (refused !== undefined) {
+      this.stream?.getTracks().forEach((each) => each.stop());
+      throw new Error(
+        `This screen could not be captured at ${target.width} × ${target.height} and ${this.settings.frameRate} fps: ${refused}. Choose a smaller size or frame rate.`,
+      );
+    }
+    const applied = track.getSettings();
+    this.capture = {
+      width: applied.width ?? target.width,
+      height: applied.height ?? target.height,
+      frameRate: applied.frameRate,
+    };
+    diagnostic("capture-fit", { native, target, applied });
   }
 
   /** The host rejects bursts of concurrent requests, and the offer must precede its candidates. */
@@ -212,6 +265,8 @@ export class ScreenSender {
       const previous = this.previous;
       const elapsed = previous ? entry.timestamp - previous.timestamp : 0;
       stats = {
+        requested: this.settings,
+        capture: this.capture,
         codec: codec?.mimeType ?? "negotiating",
         width: entry.frameWidth ?? 0,
         height: entry.frameHeight ?? 0,

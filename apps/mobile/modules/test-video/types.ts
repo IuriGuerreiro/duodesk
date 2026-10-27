@@ -1,4 +1,4 @@
-import type { StreamState } from "@duodesk/protocol";
+import type { StreamSettings, StreamState } from "@duodesk/protocol";
 
 export type StreamMode = "screen" | "clip";
 
@@ -34,6 +34,8 @@ export interface SenderStats {
   qualityLimit: string;
   /** Opus audio bitrate in kbit/s, present once audio is flowing. */
   audioKbps?: number;
+  /** Screen sharing only: frames where the screen actually changed. `fps` also counts idle refresh frames. */
+  screenFps?: number;
 }
 
 export interface SenderStatus {
@@ -46,6 +48,10 @@ export interface SenderStatus {
   audioMessage?: string;
   /** Present during a screen-sharing session. */
   control?: ControlStatus;
+  /** Screen sharing only: the user's chosen limits, as the phone accepted them. */
+  requested?: StreamSettings;
+  /** Screen sharing only: the capture size applied to this display. `stats` holds what is really sent. */
+  capture?: { width: number; height: number };
 }
 
 export interface ViewerStats {

@@ -24,6 +24,9 @@ Background and measurements are in the [capture spike](linux-to-mobile-spike.md)
 - On Android, `StreamViewer` answers the offer and renders into `StreamViewerView` (a `SurfaceViewRenderer`) in the existing native module. The viewer and sender share `PinnedSignaling`, process initialization, and an EGL context. The sender uses a separate `PeerConnectionFactory` for its playback-audio device module. Frames never go through JavaScript.
 - Scanning a pairing QR on the phone's home screen routes by the invitation's direction: sender for `phone-to-desktop`, the viewer at `/watch` for `desktop-to-phone`.
 
+Before creating the connection you can set the maximum size and frame rate. See
+[stream-resolution-and-frame-rate.md](stream-resolution-and-frame-rate.md).
+
 ## What was verified
 
 On 2026-10-24, the user confirmed Linux-to-phone sharing working on a connected Samsung SM_A266B after installing the current Android debug build.

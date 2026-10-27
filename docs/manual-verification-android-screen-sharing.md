@@ -103,6 +103,9 @@ This guide provides procedures to verify Android live screen sharing against a l
 6. Rotate the device back to portrait orientation.
 7. Confirm that the video aspect ratio returns to portrait.
 
+Also repeat this step at a custom size and frame rate. See
+[stream-resolution-and-frame-rate.md](stream-resolution-and-frame-rate.md#manual-device-checklist).
+
 ## Step 7: Verify stop and teardown scenarios
 
 Test each stop scenario independently with a fresh desktop invitation.

@@ -48,6 +48,7 @@ internal class ScreenSource(
   private val observer: CapturerObserver,
   private val resultData: Intent,
   private val queue: Executor,
+  private val settings: StreamSettings = StreamSettings.DEFAULT,
   private val onResize: ((width: Int, height: Int) -> Unit)? = null,
   /** The captured display's real size and rotation, on start and after every change. `null` if unreadable. */
   private val onGeometry: ((Geometry?) -> Unit)? = null,
@@ -57,6 +58,10 @@ internal class ScreenSource(
   private var running = false
   private var capturer: ScreenCapturerAndroid? = null
   private var surfaceTextureHelper: SurfaceTextureHelper? = null
+  private var refresh: IdleRefresh? = null
+  /** Frames caused by real screen changes so far; idle repeats are excluded. Read on the texture thread's behalf. */
+  val changedFrames: Long
+    get() = refresh?.changedFrames ?: 0L
   /**
    * The projection WebRTC created from the consent result. Android 14+ allows one projection per consent
    * result, so playback audio capture borrows this instance instead of creating its own.
@@ -109,7 +114,7 @@ internal class ScreenSource(
   fun start() {
     check(capturer == null) { "Screen capture already started" }
     val geometry = readDisplayGeometry(context)
-    val dims = if (geometry != null) computeCaptureDimensions(geometry.width, geometry.height) else computeCaptureDimensions(0, 0)
+    val dims = fit(geometry?.width ?: 0, geometry?.height ?: 0)
     currentWidth = dims.width
     currentHeight = dims.height
 
@@ -120,10 +125,17 @@ internal class ScreenSource(
 
     val screenCapturer = ScreenCapturerAndroid(resultData, mediaProjectionCallback)
     capturer = screenCapturer
-    screenCapturer.initialize(helper, context, observer)
+    val idle = IdleRefresh(
+      downstream = observer,
+      intervalMs = IdleRefresh.intervalFor(settings.frameRate),
+      force = { helper.forceFrame() },
+      schedule = { delay, task -> helper.handler.postDelayed(task, delay) }
+    )
+    refresh = idle
+    screenCapturer.initialize(helper, context, idle)
 
     running = true
-    screenCapturer.startCapture(dims.width, dims.height, 60)
+    screenCapturer.startCapture(dims.width, dims.height, settings.frameRate)
     onResize?.invoke(dims.width, dims.height)
     onGeometry?.invoke(geometry)
 
@@ -137,6 +149,7 @@ internal class ScreenSource(
 
     val dm = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
     runCatching { dm?.unregisterDisplayListener(displayListener) }
+    refresh?.stop()
 
     runCatching { capturer?.stopCapture() }
     runCatching { capturer?.dispose() }
@@ -144,17 +157,20 @@ internal class ScreenSource(
 
     runCatching { surfaceTextureHelper?.dispose() }
     surfaceTextureHelper = null
+    refresh = null
   }
+
+  private fun fit(width: Int, height: Int) = computeCaptureDimensions(width, height, settings.maxLongSide, settings.maxShortSide)
 
   private fun handleResize(newWidth: Int, newHeight: Int) {
     if (!running || newWidth <= 0 || newHeight <= 0) return
-    val dims = computeCaptureDimensions(newWidth, newHeight)
+    val dims = fit(newWidth, newHeight)
     if (dims.width == currentWidth && dims.height == currentHeight) return
     currentWidth = dims.width
     currentHeight = dims.height
 
     runCatching {
-      capturer?.changeCaptureFormat(dims.width, dims.height, 30)
+      capturer?.changeCaptureFormat(dims.width, dims.height, settings.frameRate)
       onResize?.invoke(dims.width, dims.height)
     }.onFailure {
       onFailure("Failed to resize screen capture: ${it.message}")
