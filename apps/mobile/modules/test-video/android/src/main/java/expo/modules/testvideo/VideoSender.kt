@@ -301,6 +301,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       sessionId = sessionId,
       supported = supported,
       injector = { ControlAccessibilityService.injector() },
+      typist = { ControlAccessibilityService.typist() },
       send = { text -> sendControl(text) },
       post = { block -> dispatch { if (generation == epoch) block() } },
       changed = {
@@ -335,7 +336,9 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       override fun onMessage(buffer: DataChannel.Buffer) {
         if (buffer.binary || buffer.data.remaining() > ControlWire.MAX_BYTES) return
         val bytes = ByteArray(buffer.data.remaining()).also { buffer.data.get(it) }
-        dispatch { if (generation == epoch) control?.onCommand(String(bytes, Charsets.UTF_8)) }
+        // Malformed UTF-8 is dropped, never repaired into different text.
+        val text = ControlWire.decodeUtf8(bytes) ?: return
+        dispatch { if (generation == epoch) control?.onCommand(text) }
       }
       override fun onStateChange() = dispatch {
         if (generation != epoch) return@dispatch

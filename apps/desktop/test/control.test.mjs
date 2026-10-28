@@ -9,6 +9,8 @@ import {
   TAP_MAX_MS,
   simplify,
 } from "../src/features/remote-control/gesture.ts";
+import { navBlocked, navSummary } from "../src/features/remote-control/copy.ts";
+import { TypingQueue, keyFor } from "../src/features/remote-control/typing.ts";
 
 const sessionId = "a".repeat(32);
 const geometry = { width: 1080, height: 2400, rotation: 0 };
@@ -347,4 +349,258 @@ test("simplify keeps both ends and the order", () => {
     out,
   );
   assert.deepEqual(simplify([1, 2, 3], 5), [1, 2, 3]);
+});
+
+const caps = (t, actions = ["back", "home", "recents"], epoch = 1) =>
+  t.phone({ type: "nav-caps", epoch, actions });
+
+test("navigation is never sent to a phone that did not advertise it", () => {
+  const t = setup();
+  t.on(1);
+  t.settled();
+  assert.equal(t.link.navigate("back"), false, "older phone app");
+  assert.match(navBlocked(t.link.getView(), "back"), /Update DuoDesk/);
+  caps(t, ["back", "home"]);
+  assert.equal(t.link.navigate("recents"), false);
+  assert.match(navBlocked(t.link.getView(), "recents"), /isn't available/);
+  assert.equal(t.input.sent.length, 0);
+});
+
+test("a navigation button sends one command for the current epoch", () => {
+  const t = setup();
+  t.on(2);
+  caps(t, undefined, 2);
+  // No coordinates to map, so the settle window does not block it.
+  assert.equal(t.link.navigate("home"), true);
+  assert.deepEqual(t.input.sent[0], {
+    v: 1,
+    sessionId,
+    epoch: 2,
+    seq: 1,
+    type: "nav",
+    action: "home",
+  });
+  assert.equal(t.link.getView().lastNav.outcome, "sent");
+  assert.equal(
+    navBlocked(t.link.getView(), "back"),
+    "Waiting for the phone to answer.",
+  );
+  assert.equal(t.link.navigate("back"), false, "busy");
+  assert.equal(t.link.tap([0.5, 0.5], 2, video), false, "busy");
+  t.phone({ type: "result", epoch: 2, seq: 1, status: "done" });
+  assert.equal(t.link.getView().lastNav.outcome, "done");
+  assert.equal(navSummary(t.link.getView()), "Home accepted by the phone.");
+  assert.equal(navBlocked(t.link.getView(), "back"), undefined);
+});
+
+test("a failed or rejected navigation is reported, never retried", () => {
+  const t = setup();
+  t.on(1);
+  caps(t);
+  t.link.navigate("recents");
+  t.phone({ type: "result", epoch: 1, seq: 1, status: "failed" });
+  assert.equal(t.link.getView().lastNav.outcome, "failed");
+  t.link.navigate("back");
+  t.phone({
+    type: "result",
+    epoch: 1,
+    seq: 2,
+    status: "rejected",
+    reason: "busy",
+  });
+  assert.equal(t.link.getView().lastNav.outcome, "rejected");
+  t.link.navigate("home");
+  t.advance(3600);
+  assert.equal(t.link.getView().lastNav.outcome, "unanswered");
+  assert.equal(t.input.sent.length, 3);
+});
+
+test("navigation stops with pause, revocation, an epoch change or a lost link", () => {
+  const t = setup();
+  t.on(1);
+  caps(t);
+  t.link.setPaused(true);
+  assert.equal(t.link.navigate("back"), false);
+  assert.match(navBlocked(t.link.getView(), "back"), /paused/);
+  t.link.setPaused(false);
+  t.link.navigate("back");
+  // The grant changed before the answer: the old command is abandoned, not resent.
+  t.on(2);
+  assert.equal(t.link.getView().lastNav.outcome, "unanswered");
+  t.off(3);
+  assert.equal(t.link.navigate("back"), false);
+  caps(t, ["back"], 2);
+  t.on(4);
+  assert.deepEqual(
+    t.link.getView().navActions,
+    ["back", "home", "recents"],
+    "older caps ignored",
+  );
+  t.channels["duodesk-control"].onclose();
+  assert.equal(t.link.getView().navActions, undefined);
+  assert.equal(t.link.navigate("back"), false);
+  assert.equal(t.input.sent.length, 1);
+});
+
+test("malformed navigation capabilities change nothing", () => {
+  const t = setup();
+  t.on(1);
+  caps(t, ["back", "power"]);
+  caps(t, ["back", "back"]);
+  t.phone({ type: "nav-caps", epoch: 1, actions: ["back"], extra: 1 });
+  assert.equal(t.link.getView().navActions, undefined);
+  // A current phone that reports nothing available is told apart from an older app.
+  caps(t, []);
+  assert.match(navBlocked(t.link.getView(), "home"), /isn't available/);
+});
+
+test("text needs the phone's caps for the current epoch, and old phones never get text", () => {
+  const t = setup();
+  t.on(1);
+  t.settled();
+  assert.equal(t.link.getView().text, false);
+  assert.equal(t.link.typeText("hi"), undefined, "no caps, no text");
+  t.phone({ type: "caps", epoch: 0, text: true });
+  assert.equal(t.link.getView().text, false, "caps for another epoch");
+  t.phone({ type: "caps", epoch: 1, text: true });
+  assert.equal(t.link.getView().text, true);
+  assert.equal(t.link.typeText("hé 👍"), 1);
+  assert.deepEqual(t.input.sent[0], {
+    v: 1,
+    sessionId,
+    epoch: 1,
+    seq: 1,
+    type: "text",
+    text: "hé 👍",
+  });
+  // A new epoch resets caps until the phone repeats them.
+  t.on(2);
+  t.settled();
+  assert.equal(t.link.getView().text, false);
+  assert.equal(t.link.typeKey("enter"), undefined);
+  t.phone({ type: "caps", epoch: 2, text: false });
+  assert.equal(t.link.getView().text, false);
+});
+
+test("typing results never carry content and match epoch and seq", () => {
+  const t = setup();
+  t.on(1);
+  t.settled();
+  t.phone({ type: "caps", epoch: 1, text: true });
+  const seq = t.link.typeText("secret");
+  assert.equal(t.link.typeKey("backspace"), undefined, "one command in flight");
+  assert.equal(t.link.tap([0.5, 0.5], 1, video), false);
+  t.phone({ type: "result", epoch: 0, seq, status: "done" });
+  assert.equal(t.link.getView().busy, true, "result for another epoch ignored");
+  t.phone({
+    type: "result",
+    epoch: 1,
+    seq,
+    status: "rejected",
+    reason: "nofield",
+  });
+  assert.deepEqual(t.link.getView().typing, { seq, outcome: "nofield" });
+  assert.equal(JSON.stringify(t.link.getView()).includes("secret"), false);
+  const key = t.link.typeKey("delete");
+  assert.deepEqual(t.input.sent.at(-1).key, "delete");
+  t.phone({ type: "result", epoch: 1, seq: key, status: "done" });
+  assert.deepEqual(t.link.getView().typing, { seq: key, outcome: "done" });
+  // Gesture results do not touch typing feedback.
+  assert.equal(t.link.tap([0.5, 0.5], 1, video), true);
+  t.phone({ type: "result", epoch: 1, seq: key + 1, status: "done" });
+  assert.deepEqual(t.link.getView().typing, { seq: key, outcome: "done" });
+});
+
+test("timeouts, revocation and disconnect make text unconfirmed and never retry", () => {
+  const t = setup();
+  t.on(1);
+  t.settled();
+  t.phone({ type: "caps", epoch: 1, text: true });
+  const first = t.link.typeText("a");
+  t.advance(3501);
+  assert.deepEqual(t.link.getView().typing, {
+    seq: first,
+    outcome: "unconfirmed",
+  });
+  assert.equal(t.input.sent.length, 1, "not retried");
+  t.phone({ type: "result", epoch: 1, seq: first, status: "done" });
+  assert.equal(
+    t.link.getView().typing.outcome,
+    "unconfirmed",
+    "late result ignored",
+  );
+
+  const second = t.link.typeText("b");
+  assert.equal(second, first + 1);
+  t.off(2);
+  assert.deepEqual(t.link.getView().typing, {
+    seq: second,
+    outcome: "unconfirmed",
+  });
+  assert.equal(t.link.getView().text, false);
+
+  t.on(3);
+  t.settled();
+  t.phone({ type: "caps", epoch: 3, text: true });
+  const third = t.link.typeKey("enter");
+  t.channels["duodesk-control"].onclose();
+  assert.deepEqual(t.link.getView().typing, {
+    seq: third,
+    outcome: "unconfirmed",
+  });
+  assert.equal(t.link.getView().phase, "waiting");
+});
+
+test("paused control sends no text", () => {
+  const t = setup();
+  t.on(1);
+  t.settled();
+  t.phone({ type: "caps", epoch: 1, text: true });
+  t.link.setPaused(true);
+  assert.equal(t.link.typeText("a"), undefined);
+  assert.equal(t.input.sent.length, 0);
+});
+
+test("typing queue: keeps order, merges text, splits long text whole", () => {
+  const queue = new TypingQueue();
+  assert.equal(queue.pushText("h"), true);
+  queue.pushText("i\r\n");
+  queue.pushKey("backspace");
+  queue.pushText("!");
+  assert.deepEqual(queue.take(), { kind: "text", text: "hi\n" });
+  assert.deepEqual(queue.take(), { kind: "key", key: "backspace" });
+  assert.deepEqual(queue.take(), { kind: "text", text: "!" });
+  assert.equal(queue.take(), undefined);
+
+  assert.equal(queue.pushText("\u001b"), false);
+  assert.equal(queue.pushText("👍".slice(0, 1)), false);
+  assert.equal(queue.pushText("x".repeat(501)), false);
+  assert.equal(queue.size, 0);
+
+  // 499 units then an emoji: the pair is never split across commands.
+  queue.pushText("x".repeat(499));
+  queue.pushText("👍a");
+  assert.equal(queue.take().text, "x".repeat(499));
+  assert.deepEqual(queue.take(), { kind: "text", text: "👍a" });
+  queue.pushText("a");
+  queue.clear();
+  assert.equal(queue.take(), undefined);
+});
+
+test("keyFor: editing keys only, never shortcuts or IME keys", () => {
+  const key = {
+    key: "Enter",
+    ctrlKey: false,
+    altKey: false,
+    metaKey: false,
+    isComposing: false,
+    keyCode: 13,
+  };
+  assert.equal(keyFor(key), "enter");
+  assert.equal(keyFor({ ...key, key: "Backspace" }), "backspace");
+  assert.equal(keyFor({ ...key, key: "Delete" }), "delete");
+  assert.equal(keyFor({ ...key, key: "a" }), undefined);
+  assert.equal(keyFor({ ...key, ctrlKey: true }), undefined);
+  assert.equal(keyFor({ ...key, isComposing: true }), undefined);
+  assert.equal(keyFor({ ...key, keyCode: 229 }), undefined);
 });

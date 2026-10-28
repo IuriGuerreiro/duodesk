@@ -133,7 +133,7 @@ const controlModule = (): TestVideoNative => {
   return mod;
 };
 
-/** Allows the paired PC to tap and swipe for this session only. Rejects with an explanation when it cannot start. */
+/** Allows the paired PC to tap, swipe and navigate for this session only. Rejects with an explanation when it cannot start. */
 export const allowControl = (): Promise<void> =>
   controlModule().allowControl!();
 

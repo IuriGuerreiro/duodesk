@@ -5,6 +5,9 @@ internal data class Geometry(val width: Int, val height: Int, val rotation: Int)
 
 internal enum class GestureOutcome { DONE, CANCELLED }
 
+/** Android system navigation. Mirrors `NavAction` in the shared protocol package. */
+internal enum class NavAction(val wire: String) { BACK("back"), HOME("home"), RECENTS("recents") }
+
 /** Performs one finite single-pointer gesture. Implemented by the accessibility service. */
 internal interface GestureInjector {
   /**
@@ -12,6 +15,55 @@ internal interface GestureInjector {
    * After true, [onDone] runs exactly once, on any thread. [points] holds one point for a tap.
    */
   fun dispatch(points: List<Pair<Int, Int>>, durationMs: Int, onDone: (GestureOutcome) -> Unit): Boolean
+
+  /** The navigation actions Android reports as available now. */
+  fun navActions(): Set<NavAction>
+
+  /** Performs [action] once. True means Android accepted it, not that the expected screen appeared. */
+  fun navigate(action: NavAction): Boolean
+}
+
+internal enum class TypingOutcome { DONE, NO_FIELD }
+
+/** Types into the focused field through the accessibility input method (Android 13+). */
+internal interface TextInjector {
+  /**
+   * Hands [text] to the focused editor. [TypingOutcome.DONE] means Android accepted it for the editor, not that
+   * the field displays it: custom editors may ignore input.
+   */
+  fun commitText(text: String): TypingOutcome
+  fun press(key: ControlWire.Key): TypingOutcome
+}
+
+/** What Enter does in the focused field. Mirrors how keyboards treat the field's declared action. */
+internal sealed class EnterPlan {
+  object NewLine : EnterPlan()
+  data class Action(val id: Int) : EnterPlan()
+  object Key : EnterPlan()
+
+  companion object {
+    // Values from android.text.InputType and android.view.inputmethod.EditorInfo, kept here so the choice is
+    // testable on the JVM.
+    private const val TYPE_MASK_CLASS = 0x0000000f
+    private const val TYPE_CLASS_TEXT = 0x00000001
+    private const val TYPE_TEXT_FLAG_MULTI_LINE = 0x00020000
+    private const val IME_MASK_ACTION = 0x000000ff
+    private const val IME_ACTION_UNSPECIFIED = 0x00000000
+    private const val IME_ACTION_NONE = 0x00000001
+    private const val IME_FLAG_NO_ENTER_ACTION = 0x40000000
+
+    fun of(inputType: Int, imeOptions: Int): EnterPlan {
+      val multiLine = inputType and TYPE_MASK_CLASS == TYPE_CLASS_TEXT && inputType and TYPE_TEXT_FLAG_MULTI_LINE != 0
+      val action = imeOptions and IME_MASK_ACTION
+      return when {
+        // Multi-line editors set this flag: Enter is a new line, not the action.
+        imeOptions and IME_FLAG_NO_ENTER_ACTION != 0 -> if (multiLine) NewLine else Key
+        action != IME_ACTION_NONE && action != IME_ACTION_UNSPECIFIED -> Action(action)
+        multiLine -> NewLine
+        else -> Key
+      }
+    }
+  }
 }
 
 internal enum class OffReason(val wire: String) {
@@ -43,7 +95,9 @@ internal class RemoteControl(
   /** Runs [block] on the thread that owns this object. Used by asynchronous gesture callbacks. */
   private val post: (() -> Unit) -> Unit,
   /** The snapshot changed, so the phone UI should refresh. */
-  private val changed: () -> Unit
+  private val changed: () -> Unit,
+  /** The accessibility input method, or null before Android 13 or while it is unavailable. */
+  private val typist: () -> TextInjector? = { null }
 ) {
   private var allowed = false
   private var offReason = OffReason.NOT_ALLOWED
@@ -81,6 +135,10 @@ internal class RemoteControl(
     if (closed) return
     val snap = current
     send(ControlWire.status(sessionId, snap.epoch, snap.geometry, snap.reason?.wire))
+    val actions = try { injector()?.navActions() } catch (_: RuntimeException) { null } ?: emptySet()
+    send(ControlWire.navCaps(sessionId, snap.epoch, actions))
+    // Separate from status so desktops that predate typing simply drop it.
+    send(ControlWire.caps(sessionId, snap.epoch, snap.on && typist() != null))
   }
 
   /** The phone owner pressed Allow. Returns an explanation if control cannot start. */
@@ -155,11 +213,14 @@ internal class RemoteControl(
     if (geometry == null) return reject(ControlWire.Rejection.OFF)
     if (command.epoch != epoch) return reject(ControlWire.Rejection.STALE)
     if (inFlight) return reject(ControlWire.Rejection.BUSY)
+    if (command is ControlWire.Command.Text || command is ControlWire.Command.Press) return type(command)
     val target = injector() ?: return reject(ControlWire.Rejection.OFF)
 
     val (points, duration) = when (command) {
+      is ControlWire.Command.Nav -> return navigate(target, command)
       is ControlWire.Command.Tap -> Pair(listOf(pixel(command.x, command.y, geometry)), TAP_MS)
       is ControlWire.Command.Swipe -> Pair(command.points.map { pixel(it.first, it.second, geometry) }, command.durationMs)
+      else -> return
     }
     inFlight = true
     val started = try {
@@ -177,6 +238,37 @@ internal class RemoteControl(
       inFlight = false
       send(ControlWire.result(sessionId, command.epoch, command.seq, "failed"))
     }
+  }
+
+  /** Synchronous, so nothing stays in flight. Performed once; a failure is reported, never retried. */
+  private fun navigate(target: GestureInjector, command: ControlWire.Command.Nav) {
+    val accepted = try { target.navigate(command.action) } catch (_: RuntimeException) { false }
+    send(ControlWire.result(sessionId, command.epoch, command.seq, if (accepted) "done" else "failed"))
+  }
+
+  /** Typing finishes before this returns, so it never leaves a command in flight. Content is never logged. */
+  private fun type(command: ControlWire.Command) {
+    val target = typist() ?: run {
+      send(ControlWire.result(sessionId, command.epoch, command.seq, "rejected", ControlWire.Rejection.OFF))
+      return
+    }
+    val outcome = try {
+      when (command) {
+        is ControlWire.Command.Text -> target.commitText(command.text)
+        is ControlWire.Command.Press -> target.press(command.key)
+        else -> return
+      }
+    } catch (_: RuntimeException) {
+      null
+    }
+    send(
+      when (outcome) {
+        TypingOutcome.DONE -> ControlWire.result(sessionId, command.epoch, command.seq, "done")
+        TypingOutcome.NO_FIELD ->
+          ControlWire.result(sessionId, command.epoch, command.seq, "rejected", ControlWire.Rejection.NO_FIELD)
+        null -> ControlWire.result(sessionId, command.epoch, command.seq, "failed")
+      }
+    )
   }
 
   companion object {

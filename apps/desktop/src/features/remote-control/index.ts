@@ -4,3 +4,4 @@ export {
   ControlSurface,
   useControlView,
 } from "./control-surface";
+export { PhoneKeyboard } from "./phone-keyboard";

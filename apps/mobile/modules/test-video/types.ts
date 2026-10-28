@@ -10,7 +10,7 @@ export type AudioState =
   "off" | "starting" | "active" | "denied" | "unsupported" | "failed";
 
 /**
- * Whether a paired PC may tap and swipe on this phone during the current screen-sharing session.
+ * Whether a paired PC may tap, swipe and press Back, Home and Recents on this phone during the current screen-sharing session.
  * "off" with reason "service-disabled" means the Android accessibility service is not turned on.
  */
 export interface ControlStatus {

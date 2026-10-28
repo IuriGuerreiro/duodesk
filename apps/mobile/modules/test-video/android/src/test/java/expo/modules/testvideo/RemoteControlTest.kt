@@ -19,6 +19,32 @@ private class FakeInjector(var accept: Boolean = true) : GestureInjector {
     return true
   }
   fun complete(outcome: GestureOutcome = GestureOutcome.DONE) = finish!!.invoke(outcome)
+
+  var available = NavAction.entries.toSet()
+  var navAccepts = true
+  val navigations = mutableListOf<NavAction>()
+  override fun navActions() = available
+  override fun navigate(action: NavAction): Boolean {
+    navigations.add(action)
+    return navAccepts
+  }
+}
+
+/** Records what would be typed, without an editor. */
+private class FakeTypist(var field: Boolean = true) : TextInjector {
+  val typed = mutableListOf<String>()
+  var explode = false
+  override fun commitText(text: String): TypingOutcome {
+    if (explode) throw IllegalStateException("editor went away")
+    if (!field) return TypingOutcome.NO_FIELD
+    typed.add(text)
+    return TypingOutcome.DONE
+  }
+  override fun press(key: ControlWire.Key): TypingOutcome {
+    if (!field) return TypingOutcome.NO_FIELD
+    typed.add("<${key.wire}>")
+    return TypingOutcome.DONE
+  }
 }
 
 class RemoteControlTest {
@@ -28,6 +54,7 @@ class RemoteControlTest {
 
   private inner class Rig(supported: Boolean = true, service: Boolean = true) {
     var injector: FakeInjector? = if (service) FakeInjector() else null
+    var typist: FakeTypist? = if (service) FakeTypist() else null
     val sent = mutableListOf<JSONObject>()
     var changes = 0
     val control = RemoteControl(
@@ -36,7 +63,16 @@ class RemoteControlTest {
       injector = { injector },
       send = { sent.add(JSONObject(it)); true },
       post = { it() },
-      changed = { changes++ }
+      changed = { changes++ },
+      typist = { typist }
+    )
+    fun lastCaps() = sent.last { it.getString("type") == "caps" }
+    fun text(epoch: Int, seq: Int, value: String = "hi") = control.onCommand(
+      JSONObject().put("v", 1).put("sessionId", session).put("type", "text").put("epoch", epoch).put("seq", seq)
+        .put("text", value).toString()
+    )
+    fun key(epoch: Int, seq: Int, key: String) = control.onCommand(
+      """{"v":1,"sessionId":"$session","type":"key","epoch":$epoch,"seq":$seq,"key":"$key"}"""
     )
 
     fun lastStatus() = sent.last { it.getString("type") == "status" }
@@ -47,6 +83,10 @@ class RemoteControlTest {
     fun swipe(epoch: Int, seq: Int, duration: Int = 300) = control.onCommand(
       """{"v":1,"sessionId":"$session","type":"swipe","epoch":$epoch,"seq":$seq,"durationMs":$duration,"points":[[0.5,0.8],[0.5,0.5],[0.5,0.2]]}"""
     )
+    fun nav(epoch: Int, seq: Int, action: String = "back") = control.onCommand(
+      """{"v":1,"sessionId":"$session","type":"nav","epoch":$epoch,"seq":$seq,"action":"$action"}"""
+    )
+    fun lastNavCaps() = sent.last { it.getString("type") == "nav-caps" }
     fun allowed(): Int {
       control.setGeometry(portrait)
       assertNull(control.allow())
@@ -295,5 +335,138 @@ class RemoteControlTest {
     val statuses = rig.sent.filter { it.getString("type") == "status" }
     assertEquals(epoch, statuses.last().getInt("epoch"))
     assertEquals(statuses[statuses.size - 1].toString(), statuses[statuses.size - 2].toString())
+  }
+
+  @Test
+  fun navigationIsGatedLikeATap() {
+    val rig = Rig()
+    rig.control.setGeometry(portrait)
+    rig.nav(rig.control.snapshot().epoch, 1)
+    assertEquals("off", rig.lastResult().getString("reason"))
+    val epoch = rig.allowed()
+    rig.nav(epoch - 1, 2)
+    assertEquals("stale", rig.lastResult().getString("reason"))
+    rig.nav(epoch, 2)
+    assertEquals("replayed seq", "stale", rig.lastResult().getString("reason"))
+    rig.tap(epoch, 3)
+    rig.nav(epoch, 4)
+    assertEquals("busy", rig.lastResult().getString("reason"))
+    assertTrue(rig.injector!!.navigations.isEmpty())
+    rig.injector!!.complete()
+    rig.nav(epoch, 5, "recents")
+    assertEquals("done", rig.lastResult().getString("status"))
+    assertEquals(listOf(NavAction.RECENTS), rig.injector!!.navigations)
+  }
+
+  @Test
+  fun refusedNavigationIsReportedOnceAndNotRetried() {
+    val rig = Rig()
+    val epoch = rig.allowed()
+    rig.injector!!.navAccepts = false
+    rig.nav(epoch, 1, "home")
+    assertEquals("failed", rig.lastResult().getString("status"))
+    assertEquals(1, rig.injector!!.navigations.size)
+    rig.control.revoke()
+    rig.nav(epoch, 2)
+    assertEquals("off", rig.lastResult().getString("reason"))
+    rig.injector = null
+    rig.control.serviceChanged()
+    assertEquals(1, rig.sent.count { it.optString("status") == "failed" })
+  }
+
+  @Test
+  fun advertisesOnlyWhatTheServiceReports() {
+    val rig = Rig()
+    rig.control.setGeometry(portrait)
+    assertEquals("[\"back\",\"home\",\"recents\"]", rig.lastNavCaps().getJSONArray("actions").toString())
+    rig.injector!!.available = setOf(NavAction.BACK)
+    rig.control.publish()
+    assertEquals("[\"back\"]", rig.lastNavCaps().getJSONArray("actions").toString())
+    rig.injector = null
+    rig.control.serviceChanged()
+    assertEquals(0, rig.lastNavCaps().getJSONArray("actions").length())
+  }
+
+  @Test
+  fun capsFollowEveryStatusAndAdvertiseTextOnlyWhileOnWithATypist() {
+    val rig = Rig()
+    rig.control.setGeometry(portrait)
+    rig.control.publish()
+    assertFalse("off", rig.lastCaps().getBoolean("text"))
+    val epoch = rig.allowed()
+    assertTrue(rig.lastCaps().getBoolean("text"))
+    assertEquals(epoch, rig.lastCaps().getInt("epoch"))
+    // Pre Android 13, or the input method flag not yet granted.
+    rig.typist = null
+    rig.control.publish()
+    assertFalse(rig.lastCaps().getBoolean("text"))
+    rig.typist = FakeTypist()
+    rig.control.revoke()
+    assertFalse(rig.lastCaps().getBoolean("text"))
+    assertEquals(rig.control.snapshot().epoch, rig.lastCaps().getInt("epoch"))
+  }
+
+  @Test
+  fun typesOnlyWhileAllowedForTheCurrentEpoch() {
+    val rig = Rig()
+    rig.control.setGeometry(portrait)
+    rig.text(rig.control.snapshot().epoch, 1)
+    assertEquals("off", rig.lastResult().getString("reason"))
+    val epoch = rig.allowed()
+    rig.text(epoch - 1, 2)
+    assertEquals("stale", rig.lastResult().getString("reason"))
+    rig.text(epoch, 3, "héllo 👍")
+    assertEquals("done", rig.lastResult().getString("status"))
+    rig.text(epoch, 3, "again")
+    assertEquals("stale", rig.lastResult().getString("reason"))
+    rig.key(epoch, 4, "backspace")
+    rig.key(epoch, 5, "enter")
+    assertEquals(listOf("héllo 👍", "<backspace>", "<enter>"), rig.typist!!.typed)
+    rig.control.revoke()
+    rig.text(epoch, 6)
+    assertEquals("rejected", rig.lastResult().getString("status"))
+    assertEquals(3, rig.typist!!.typed.size)
+    // Results never echo the text.
+    assertTrue(rig.sent.none { it.toString().contains("héllo") })
+  }
+
+  @Test
+  fun reportsNoFieldFailureAndBusy() {
+    val rig = Rig()
+    val epoch = rig.allowed()
+    rig.typist!!.field = false
+    rig.text(epoch, 1)
+    assertEquals("nofield", rig.lastResult().getString("reason"))
+    rig.typist!!.field = true
+    rig.typist!!.explode = true
+    rig.text(epoch, 2)
+    assertEquals("failed", rig.lastResult().getString("status"))
+    rig.typist!!.explode = false
+    // A gesture in flight blocks typing: one command at a time.
+    rig.tap(epoch, 3)
+    rig.text(epoch, 4)
+    assertEquals("busy", rig.lastResult().getString("reason"))
+    rig.injector!!.complete()
+    rig.text(epoch, 5)
+    assertEquals("done", rig.lastResult().getString("status"))
+    rig.typist = null
+    rig.key(epoch, 6, "delete")
+    assertEquals("off", rig.lastResult().getString("reason"))
+  }
+
+  @Test
+  fun enterFollowsTheFieldsDeclaredAction() {
+    val text = 0x1
+    val multiLine = text or 0x20000
+    val search = 0x3
+    val noEnterAction = 0x40000000
+    assertEquals(EnterPlan.Action(search), EnterPlan.of(text, search))
+    assertEquals(EnterPlan.NewLine, EnterPlan.of(multiLine, search or noEnterAction))
+    assertEquals(EnterPlan.NewLine, EnterPlan.of(multiLine, 0))
+    assertEquals(EnterPlan.Key, EnterPlan.of(text, 0))
+    assertEquals(EnterPlan.Key, EnterPlan.of(text, 0x1))
+    assertEquals(EnterPlan.Key, EnterPlan.of(text, search or noEnterAction))
+    // Not a text class: the multi-line bit means nothing.
+    assertEquals(EnterPlan.Key, EnterPlan.of(0x2 or 0x20000, 0))
   }
 }
