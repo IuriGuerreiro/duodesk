@@ -79,3 +79,12 @@ export const nearbyStop = async (): Promise<void> => {};
 export const subscribeNearby = (
   _listener: (event: NearbyEvent) => void,
 ): { remove(): void } => ({ remove() {} });
+
+export const supportsRemembered = false;
+export const trustCommand = async (
+  _method: string,
+  _args: Record<string, unknown> = {},
+): Promise<unknown> => unsupported();
+export const subscribeTrust =
+  (_listener: (event: Record<string, unknown>) => void): (() => void) =>
+  () => {};

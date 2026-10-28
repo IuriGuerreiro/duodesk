@@ -1,3 +1,4 @@
+import type { TrustEvent } from "./trust-types";
 import { invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Signal, StreamState } from "@duodesk/protocol";
@@ -8,6 +9,7 @@ export type NetworkAddress = {
   selectable: boolean;
 };
 export type StreamEvent =
+  | ({ kind: "trust" } & TrustEvent)
   | { kind: "pairingstatus"; sessionId: string; status: "used" | "locked" }
   | { kind: "pairing"; sessionId: string; requestId: string; message: string }
   | { kind: "signal"; signal: Signal }
@@ -19,6 +21,16 @@ export type StreamEvent =
       failure?: import("@duodesk/protocol").ConnectionFailure;
     };
 type Command =
+  | "trust_status"
+  | "trust_rename"
+  | "trust_forget"
+  | "trust_endpoint"
+  | "trust_enroll"
+  | "trust_connect"
+  | "trust_respond"
+  | "trust_cancel"
+  | "trust_ready"
+  | "trust_start"
   | "stream_pair_reply"
   | "stream_interfaces"
   | "stream_start"
@@ -40,7 +52,9 @@ export function invoke<T = void>(
 ): Promise<T> {
   return window.duoDesk
     ? window.duoDesk.invoke<T>(command, args)
-    : tauriInvoke<T>(command, args);
+    : command.startsWith("trust_")
+      ? tauriInvoke<T>("trust_command", { method: command, args: args ?? null })
+      : tauriInvoke<T>(command, args);
 }
 export async function subscribe(
   callback: (event: StreamEvent) => void,

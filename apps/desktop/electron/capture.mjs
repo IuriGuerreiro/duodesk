@@ -5,6 +5,7 @@
  */
 const sharing = ({ window, entry, active }, contents, frame, url) =>
   active?.direction === "desktop-to-phone" &&
+  active.captureApproved === true &&
   !!window &&
   contents === window.webContents &&
   contents.getURL() === entry &&
@@ -31,6 +32,7 @@ export function mayCapture(request, { window, entry, active }) {
   const frame = request.frame;
   return (
     active?.direction === "desktop-to-phone" &&
+    active.captureApproved === true &&
     !!frame &&
     frame === window?.webContents.mainFrame &&
     frame.url === entry &&

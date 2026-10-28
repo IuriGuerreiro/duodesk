@@ -70,8 +70,44 @@ pub fn advertise(ip: Ipv4Addr, port: u16, instance: &str) -> Option<Advertisemen
     Some(Advertisement { daemon, fullname })
 }
 
+pub const REMEMBERED_SERVICE_TYPE: &str = "_duodesk-trust._tcp.local.";
+
+/// TXT for the remembered endpoint: no key, fingerprint or stable ID, so adverts cannot track a PC.
+pub fn remembered_records(name: &str) -> Vec<(&'static str, String)> {
+    vec![
+        ("v", "1".into()),
+        ("role", "desktop".into()),
+        ("name", name.into()),
+    ]
+}
+
+/// Advertises the remembered endpoint with a fresh random instance. Phones still check the TLS key.
+pub fn advertise_remembered(ip: Ipv4Addr, port: u16, name: &str) -> Option<Advertisement> {
+    let daemon = ServiceDaemon::new().ok()?;
+    daemon.disable_interface(IfKind::All).ok()?;
+    daemon.enable_interface(IfKind::Addr(ip.into())).ok()?;
+    let instance = crate::random_hex(4);
+    let info = ServiceInfo::new(
+        REMEMBERED_SERVICE_TYPE,
+        &format!("DuoDeskR-{instance}"),
+        &format!("duodesk-r-{instance}.local."),
+        std::net::IpAddr::V4(ip),
+        port,
+        &remembered_records(name)[..],
+    )
+    .ok()?;
+    let fullname = info.get_fullname().to_string();
+    daemon.register(info).ok()?;
+    Some(Advertisement { daemon, fullname })
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn remembered_records_carry_no_identity() {
+        let keys: Vec<_> = remembered_records("Desk").iter().map(|(k, _)| *k).collect();
+        assert_eq!(keys, ["v", "role", "name"]);
+    }
     use super::*;
     #[test]
     fn records_contain_no_secrets() {

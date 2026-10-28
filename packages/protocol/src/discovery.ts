@@ -1,4 +1,5 @@
 import { parseDesktopAddress } from "./pairing.ts";
+import { cleanText as text } from "./text.ts";
 
 /** DNS-SD service type advertised by a desktop while its pairing code is active. */
 export const DISCOVERY_SERVICE_TYPE = "_duodesk._tcp";
@@ -26,26 +27,6 @@ export type DiscoveryEvent =
 
 const MAX_DEVICES = 16;
 const instancePattern = /^DuoDesk-[0-9a-f]{8}$/;
-
-function text(value: unknown, max: number): string | null {
-  if (typeof value !== "string") return null;
-  // Drop control and bidi-override characters so a name cannot spoof layout.
-  const clean = Array.from(value)
-    .filter((c) => {
-      const n = c.codePointAt(0) ?? 0;
-      return !(
-        n < 0x20 ||
-        (n >= 0x7f && n <= 0x9f) ||
-        n === 0x200e ||
-        n === 0x200f ||
-        (n >= 0x202a && n <= 0x202e) ||
-        (n >= 0x2066 && n <= 0x2069)
-      );
-    })
-    .join("")
-    .trim();
-  return clean ? Array.from(clean).slice(0, max).join("") : null;
-}
 
 /** Validates a record; returns null for anything that is not a usable DuoDesk v1 desktop. */
 export function parseDiscoveryRecord(

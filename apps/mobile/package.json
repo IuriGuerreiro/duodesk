@@ -61,7 +61,8 @@
     "lint": "eslint . --max-warnings 0",
     "dev": "expo start --dev-client",
     "build": "expo export --platform all",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "test:ios-trust": "node scripts-test-ios-trust.mjs"
   },
   "private": true
 }

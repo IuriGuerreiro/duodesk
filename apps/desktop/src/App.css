@@ -582,3 +582,58 @@ details summary:hover {
   grid-column: 1 / -1;
   margin: 0;
 }
+
+.remembered-devices {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px 28px 32px;
+  color: var(--foreground, #ddd);
+}
+.remembered-devices summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.remembered-devices p {
+  margin: 12px 0;
+  font-size: 14px;
+}
+.remembered-devices label {
+  display: block;
+  margin: 12px 0;
+}
+.remembered-devices input,
+.remembered-devices select {
+  margin: 0 8px;
+  padding: 8px;
+  background: #18181b;
+  color: #eee;
+  border: 1px solid #444;
+  border-radius: 6px;
+}
+.remembered-devices button {
+  margin: 4px;
+  padding: 7px 10px;
+  border: 1px solid #444;
+  background: #242428;
+  color: #eee;
+  border-radius: 6px;
+}
+.remembered-devices button:disabled {
+  opacity: 0.45;
+}
+.remembered-device {
+  padding: 12px 0;
+  border-top: 1px solid #333;
+}
+
+.remembered-devices dialog {
+  max-width: 440px;
+  padding: 24px;
+  color: #eee;
+  background: #18181b;
+  border: 1px solid #555;
+  border-radius: 12px;
+}
+.remembered-devices dialog::backdrop {
+  background: #0009;
+}

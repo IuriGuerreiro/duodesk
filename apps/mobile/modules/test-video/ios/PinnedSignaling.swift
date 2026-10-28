@@ -113,7 +113,17 @@ final class PinnedSignaling: NSObject, URLSessionDelegate {
       self.queue.async { [weak self] in
         guard let self, self.socket === task else { return }
         switch result {
-        case .success(.string(let text)): self.onMessage(text)
+        case .success(.string(let text)):
+          do {
+            if let v = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any], v["type"] as? String == "paired" {
+              TrustManager.current?.paired(self.invitation) { [weak self] value in
+                guard let self else { return }
+                let message = value.merging(["v": 1, "sessionId": self.invitation.sessionId]) { _, new in new }
+                self.queue.async { [weak self] in self?.send(message) }
+              }
+            }
+            if try TrustManager.current?.receiveEnrollment(self.invitation, text) != true { self.onMessage(text) }
+          } catch { self.onFailure("Remembered-device protocol failed. Pair again."); return }
         case .success: self.onFailure("Unexpected binary signaling message")
         case .failure(let error): self.onFailure("Connection closed: \(error.localizedDescription)"); return
         }
@@ -123,6 +133,7 @@ final class PinnedSignaling: NSObject, URLSessionDelegate {
   }
 
   func close() {
+    TrustManager.current?.detached(invitation.sessionId)
     heartbeat?.cancel(); heartbeat = nil
     heartbeatTimeout?.cancel(); heartbeatTimeout = nil
     socket?.cancel(with: .goingAway, reason: nil); socket = nil

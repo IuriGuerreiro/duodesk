@@ -1,3 +1,4 @@
+import { RememberedProvider } from "@/features/remembered";
 import "@/shared/global.css";
 import { colors } from "@duodesk/design-tokens";
 import { SenderSessionProvider } from "@/features/stream-sender";
@@ -10,12 +11,14 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <StatusBar style="light" />
       <SenderSessionProvider>
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: colors.background },
-          }}
-        />
+        <RememberedProvider>
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: colors.background },
+            }}
+          />
+        </RememberedProvider>
       </SenderSessionProvider>
     </SafeAreaProvider>
   );

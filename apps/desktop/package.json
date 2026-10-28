@@ -24,7 +24,8 @@
     "test:receiver": "node scripts/run-electron.mjs scripts/receiver-smoke.mjs",
     "test:ui": "node scripts/run-electron.mjs scripts/ui-smoke.mjs",
     "test:control-surface": "node scripts/run-electron.mjs scripts/control-surface-smoke.mjs",
-    "test:recovery": "node scripts/run-electron.mjs scripts/recovery-smoke.mjs"
+    "test:recovery": "node scripts/run-electron.mjs scripts/recovery-smoke.mjs",
+    "test:trust": "node scripts/test-trust.mjs"
   },
   "dependencies": {
     "@duodesk/design-tokens": "workspace:*",

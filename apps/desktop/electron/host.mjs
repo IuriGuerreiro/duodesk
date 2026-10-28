@@ -4,11 +4,14 @@ export class Host {
   sequence = 0;
   buffer = "";
   closed = false;
-  constructor(binary, emit, failed) {
+  constructor(binary, emit, failed, dataDir) {
     this.onFailure = failed;
     this.child = spawn(binary, [], {
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
+      env: dataDir
+        ? { ...process.env, DUODESK_DATA_DIR: dataDir }
+        : process.env,
     });
     this.child.stderr.on("data", () => {});
     this.child.stdin.on("error", () => this.close(true));
@@ -87,6 +90,45 @@ export const DESKTOP_SENDS = {
   },
 };
 export function validateCommand(method, args, direction) {
+  if (method.startsWith("trust_")) {
+    const fields = {
+      trust_status: [],
+      trust_rename: ["deviceId", "name"],
+      trust_forget: ["deviceId"],
+      trust_endpoint: ["ip"],
+      trust_enroll: ["action", "name?"],
+      trust_connect: ["deviceId", "direction"],
+      trust_respond: ["requestId", "accept"],
+      trust_cancel: ["requestId"],
+      trust_ready: ["requestId"],
+      trust_start: ["requestId"],
+    }[method];
+    if (!fields) throw new Error("Unknown trust command");
+    const value = args ?? {};
+    if (typeof value !== "object" || Array.isArray(value))
+      throw new Error("Invalid trust arguments");
+    const required = fields.filter((f) => !f.endsWith("?"));
+    if (
+      !required.every((f) => Object.hasOwn(value, f)) ||
+      Object.keys(value).some(
+        (f) => !fields.includes(f) && !fields.includes(`${f}?`),
+      )
+    )
+      throw new Error("Invalid trust fields");
+    for (const [key, v] of Object.entries(value)) {
+      if (key === "accept") {
+        if (typeof v !== "boolean") throw new Error("Invalid acceptance");
+      } else if (key === "ip" && v === null) {
+        /* Explicitly turn off the endpoint. */
+      } else if (typeof v !== "string" || v.length > 256)
+        throw new Error("Invalid trust value");
+    }
+    if (value.direction && !Object.hasOwn(DESKTOP_SENDS, value.direction))
+      throw new Error("Invalid direction");
+    if (value.requestId && !/^[a-f0-9]{32}$/.test(value.requestId))
+      throw new Error("Invalid request");
+    return;
+  }
   if (method === "stream_interfaces" || method === "stream_stop") {
     if (args !== undefined) throw new Error("Unexpected arguments");
   } else if (method === "stream_start") {
