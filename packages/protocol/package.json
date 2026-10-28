@@ -18,6 +18,10 @@
     "./discovery": {
       "types": "./src/discovery.ts",
       "default": "./src/discovery.ts"
+    },
+    "./trust": {
+      "types": "./src/trust.ts",
+      "default": "./src/trust.ts"
     }
   },
   "scripts": {

@@ -11,10 +11,11 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.duodesk.mobile",
       "infoPlist": {
-        "NSLocalNetworkUsageDescription": "DuoDesk connects to your Windows receiver to stream test video on your local network.",
+        "NSLocalNetworkUsageDescription": "DuoDesk discovers remembered PCs and connects securely on your local network. Each new sharing session needs approval.",
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
-        }
+        },
+        "NSBonjourServices": ["_duodesk-trust._tcp"]
       }
     },
     "android": {

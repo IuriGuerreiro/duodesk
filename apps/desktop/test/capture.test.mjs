@@ -15,7 +15,11 @@ const request = {
   audioRequested: false,
   userGesture: true,
 };
-const active = { sessionId: "a".repeat(32), direction: "desktop-to-phone" };
+const active = {
+  sessionId: "a".repeat(32),
+  direction: "desktop-to-phone",
+  captureApproved: true,
+};
 const context = { window, entry, active };
 
 test("capture is allowed only for the app window during a share session", () => {
@@ -147,4 +151,12 @@ test("a paired share session can capture without another desktop click", () => {
     ),
     false,
   );
+});
+
+test("a desktop-to-phone direction without host approval never authorizes capture", () => {
+  const unapproved = {
+    ...context,
+    active: { sessionId: active.sessionId, direction: "desktop-to-phone" },
+  };
+  assert.equal(mayCapture(request, unapproved), false);
 });

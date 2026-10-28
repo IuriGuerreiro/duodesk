@@ -14,10 +14,9 @@ import { ScreenSender, type ScreenStats } from "./screen-sender";
 
 const RETRYABLE = ["NotAllowedError", "NotFoundError", "AbortError"];
 
-export function useScreenShareSession(): Omit<
-  ScreenShareWorkspaceProps,
-  "onReceive"
-> {
+export function useScreenShareSession(
+  rememberedRequestId?: string,
+): Omit<ScreenShareWorkspaceProps, "onReceive"> {
   const [stats, setStats] = useState<ScreenStats>();
   const [sharing, setSharing] = useState(false);
   const peer = useRef<ScreenSender | undefined>(undefined);
@@ -32,6 +31,7 @@ export function useScreenShareSession(): Omit<
   const chosen = useRef<StreamSettings>(DEFAULT_STREAM_SETTINGS);
 
   const session = useStreamSession({
+    rememberedRequestId,
     direction: "desktop-to-phone",
     onReady: () => void share(),
     onSignal: (signal) => peer.current?.receive(signal),

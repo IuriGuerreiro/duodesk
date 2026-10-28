@@ -23,6 +23,7 @@ type Events = {
   onStatus: (status: SenderStatus) => void;
   onViewerStatus: (status: ViewerStatus) => void;
   onNearby: (event: NearbyEvent) => void;
+  onTrust: (event: Record<string, unknown>) => void;
 };
 
 declare class TestVideoNative extends NativeModule<Events> {
@@ -31,6 +32,8 @@ declare class TestVideoNative extends NativeModule<Events> {
   readonly supportsPlaybackAudio?: boolean;
   readonly supportsRemoteControl?: boolean;
   readonly supportsNearby?: boolean;
+  readonly supportsRemembered?: boolean;
+  trustCommand?(method: string, args: string): Promise<string>;
   nearbyStart?(): Promise<void>;
   nearbyStop?(): Promise<void>;
   pairRequest(
@@ -255,3 +258,22 @@ export const subscribeNearby = (
   (supportsNearby && native?.addListener("onNearby", listener)) || {
     remove() {},
   };
+
+export const supportsRemembered = Boolean(native?.supportsRemembered);
+export async function trustCommand(
+  method: string,
+  args: Record<string, unknown> = {},
+): Promise<unknown> {
+  if (!native?.trustCommand)
+    throw new Error("Rebuild DuoDesk to enable remembered devices.");
+  const text = await native.trustCommand(method, JSON.stringify(args));
+  const value: unknown = JSON.parse(text);
+  return value;
+}
+export const subscribeTrust = (
+  listener: (event: Record<string, unknown>) => void,
+): (() => void) => {
+  if (!native) return () => {};
+  const sub = native.addListener("onTrust", listener);
+  return () => sub.remove();
+};

@@ -15,6 +15,7 @@ class TestVideoModule : Module() {
   private val pairingQueue = java.util.concurrent.Executors.newSingleThreadExecutor()
 
   private var nearby: NearbyBrowser? = null
+  private var trust: TrustManager? = null
 
   private fun nearby(): NearbyBrowser = nearby ?: NearbyBrowser(requireNotNull(appContext.reactContext).applicationContext) {
     sendEvent("onNearby", it)
@@ -32,9 +33,11 @@ class TestVideoModule : Module() {
     Constant("supportsRemoteControl") { true }
     Constant("supportsPlaybackAudio") { Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q }
     Constant("supportsNearby") { true }
-    Events("onStatus", "onViewerStatus", "onNearby")
+    Constant("supportsRemembered") { true }
+    Events("onStatus", "onViewerStatus", "onNearby", "onTrust")
 
     OnCreate {
+      trust = TrustManager(requireNotNull(appContext.reactContext).applicationContext, { sendEvent("onTrust", it) }, { VideoSenderManager.stop(); StreamViewerManager.stop() })
       VideoSenderManager.setStatusListener { sendEvent("onStatus", it) }
       StreamViewerManager.setStatusListener { sendEvent("onViewerStatus", it) }
     }
@@ -72,6 +75,10 @@ class TestVideoModule : Module() {
       }
     }
     AsyncFunction("pairClose") { pairing.close() }
+
+    AsyncFunction("trustCommand") { method: String, args: String ->
+      requireNotNull(trust).command(method, org.json.JSONObject(args))
+    }
 
     AsyncFunction("nearbyStart") { nearby().start() }
     AsyncFunction("nearbyStop") { nearby?.stop() }
@@ -176,6 +183,7 @@ class TestVideoModule : Module() {
     }
 
     OnActivityEntersBackground {
+      trust?.command("foreground", org.json.JSONObject().put("active", false))
       nearby?.stop()
       StreamViewerManager.stop()
       // The sender screen handles backgrounding with its system-prompt guard.
@@ -187,6 +195,7 @@ class TestVideoModule : Module() {
     }
 
     OnDestroy {
+      trust?.destroy(); trust = null
       pairing.close()
       nearby?.destroy()
       pairingQueue.shutdownNow()

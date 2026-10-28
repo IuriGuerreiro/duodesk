@@ -276,6 +276,27 @@ export function useSenderSession() {
     });
   }
 
+  async function connectRemembered(invitation: string) {
+    remoteAccess.current?.cancel();
+    closeScanner();
+    return run("connect", async () => {
+      const parsed = parseInvitation(invitation);
+      setReceiver(new URL(parsed.url).hostname);
+      setIntent("connect");
+      if (parsed.direction === "desktop-to-phone") {
+        if (!sender.supportsViewing)
+          throw new Error(
+            "Viewing the desktop is not supported by this phone build.",
+          );
+        holdInvitation(invitation);
+        router.push("/watch");
+      } else {
+        router.dismissTo("/");
+        await sender.connect(invitation);
+      }
+    });
+  }
+
   function connect() {
     if (!canPair || !sender.available || !canSubmit) return;
     pair(address.trim(), code);
@@ -416,6 +437,7 @@ export function useSenderSession() {
   }
 
   return {
+    connectRemembered,
     status,
     operation,
     mode,

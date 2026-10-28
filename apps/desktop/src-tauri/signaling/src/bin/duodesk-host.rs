@@ -1,5 +1,5 @@
 //! Private bounded JSON-lines transport. stdout is protocol only; EOF drops the session.
-use duodesk_signaling::{Direction, Session, Signal};
+use duodesk_signaling::host::Host;
 use serde_json::{Value, json};
 use std::{
     io::{self, BufRead, Write},
@@ -31,7 +31,27 @@ async fn main() {
             }
         }
     });
-    let mut session: Option<Session> = None;
+    let dir = std::env::var_os("DUODESK_DATA_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            let base = std::env::var_os("APPDATA")
+                .or_else(|| std::env::var_os("XDG_DATA_HOME"))
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| {
+                    std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+                        .join(".local/share")
+                });
+            base.join("duodesk")
+        });
+    let emit: duodesk_signaling::trust::Emit = Arc::new(|event| output(json!({"event":event})));
+    #[cfg(feature = "test-storage")]
+    let mut host = if let Some(file) = std::env::var_os("DUODESK_TEST_SECRET_FILE") {
+        Host::open_for_test(dir, file.into(), emit).await
+    } else {
+        Host::open(dir, emit).await
+    };
+    #[cfg(not(feature = "test-storage"))]
+    let mut host = Host::open(dir, emit).await;
     while let Some(bytes) = rx.recv().await {
         let Ok(request) = serde_json::from_slice::<Value>(&bytes) else {
             break;
@@ -39,50 +59,15 @@ async fn main() {
         let Some(id) = request["id"].as_u64() else {
             break;
         };
-        let result: Result<Value, String> = async {
-            match request["method"].as_str() {
-                Some("stream_interfaces") => Ok(json!(duodesk_signaling::network_addresses()?)),
-                Some("stream_stop") => {
-                    session.take();
-                    Ok(Value::Null)
-                }
-                Some("stream_start") => {
-                    session.take();
-                    let ip = request["args"]["ip"].as_str().ok_or("Missing IP")?;
-                    let direction: Direction =
-                        serde_json::from_value(request["args"]["direction"].clone())
-                            .map_err(|_| "Invalid direction")?;
-                    let next = duodesk_signaling::start(
-                        ip.into(),
-                        direction,
-                        Arc::new(|event| output(json!({"event": event}))),
-                    )
-                    .await?;
-                    let invitation =
-                        json!({"invitation": next.invitation, "address": next.pairing_address});
-                    session = Some(next);
-                    Ok(invitation)
-                }
-                Some("stream_pair_reply") => {
-                    let reply = serde_json::from_value(request["args"]["reply"].clone())
-                        .map_err(|_| "Invalid pairing reply")?;
-                    session.as_ref().ok_or("No session")?.pair_reply(reply)?;
-                    Ok(Value::Null)
-                }
-                Some("stream_send") => {
-                    let signal: Signal = serde_json::from_value(request["args"]["signal"].clone())
-                        .map_err(|_| "Invalid signal")?;
-                    session.as_ref().ok_or("No session")?.send(signal)?;
-                    Ok(Value::Null)
-                }
-                _ => Err("Unknown method".into()),
-            }
-        }
-        .await;
+        let result = host
+            .command(
+                request["method"].as_str().unwrap_or(""),
+                request["args"].clone(),
+            )
+            .await;
         match result {
             Ok(value) => output(json!({"id": id, "result": value})),
             Err(error) => output(json!({"id": id, "error": error})),
         }
     }
-    session.take();
 }

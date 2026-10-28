@@ -26,6 +26,7 @@ export interface SessionControl {
 
 export interface StreamSessionOptions {
   direction: Direction;
+  rememberedRequestId?: string;
   /** A signal from the phone for the active session. */
   onSignal: (signal: Signal) => void;
   /** A connection was created. Build the peer for it here. */
@@ -190,26 +191,38 @@ export function useStreamSession(options: StreamSessionOptions) {
     }
   }
 
-  async function start() {
+  async function start(requestId?: string) {
     setBusy(true);
     setError("");
     await stop();
     const epoch = generation.current;
     try {
       const nextCode = verificationCode();
-      const handler = await createPairingServer(nextCode);
+      const trust = requestId
+        ? undefined
+        : await invoke<{ available: boolean }>("trust_status");
+      const handler = requestId
+        ? undefined
+        : await createPairingServer(nextCode, {
+            features: trust?.available ? ["trust-v1"] : [],
+          });
       if (epoch !== generation.current || !mounted.current) return;
       const connection = await invoke<{
         invitation: Invitation;
         address: string;
-      }>("stream_start", { ip, direction: handlers.current.direction });
+      }>(
+        requestId ? "trust_start" : "stream_start",
+        requestId
+          ? { requestId }
+          : { ip, direction: handlers.current.direction },
+      );
       const next = connection.invitation;
       if (!mounted.current || epoch !== generation.current) {
         await invoke("stream_stop");
         return;
       }
       pairing.current = handler;
-      setCode(nextCode);
+      setCode(requestId ? "" : nextCode);
       setPairingStatus("");
       setAddress(connection.address);
       current.current = next;
@@ -234,6 +247,7 @@ export function useStreamSession(options: StreamSessionOptions) {
       setInvitation(next);
       setRemaining(120);
       setState("connecting");
+      if (requestId) await invoke("trust_ready", { requestId });
     } catch (cause) {
       if (!mounted.current || epoch !== generation.current) return;
       await stop();
@@ -243,6 +257,19 @@ export function useStreamSession(options: StreamSessionOptions) {
       setBusy(false);
     }
   }
+
+  const startRemembered = useRef(start);
+  useEffect(() => {
+    startRemembered.current = start;
+  });
+  const lastRememberedRequest = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const id = options.rememberedRequestId;
+    if (id && lastRememberedRequest.current !== id) {
+      lastRememberedRequest.current = id;
+      void Promise.resolve().then(() => startRemembered.current(id));
+    }
+  }, [options.rememberedRequestId]);
 
   return {
     desktopAvailable: isDesktop(),

@@ -1,7 +1,11 @@
 use futures_util::{SinkExt, StreamExt};
 use rand::RngCore;
+#[cfg(all(feature = "test-storage", not(debug_assertions)))]
+compile_error!("Test storage must never be included in release builds");
 pub mod discovery;
+pub mod host;
 mod pairing;
+pub mod trust;
 pub use pairing::{NetworkAddress, PairReply};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -130,6 +134,7 @@ pub enum Event {
     Signal {
         signal: Signal,
     },
+    Trust(trust::TrustEvent),
     State {
         #[serde(rename = "sessionId")]
         session_id: String,
@@ -152,7 +157,7 @@ pub struct Session {
     pub pairing_address: String,
     pairing_replies: mpsc::Sender<PairReply>,
     outgoing: mpsc::Sender<Signal>,
-    cancel: watch::Sender<bool>,
+    cancel: Arc<watch::Sender<bool>>,
     #[cfg(test)]
     certificate: rustls::pki_types::CertificateDer<'static>,
 }
@@ -162,6 +167,10 @@ impl Drop for Session {
     }
 }
 impl Session {
+    /// Lets remembered-device code end this session, for example when its phone is forgotten.
+    pub fn canceller(&self) -> Arc<watch::Sender<bool>> {
+        self.cancel.clone()
+    }
     pub fn pair_reply(&self, reply: PairReply) -> Result<(), String> {
         if reply.message.len() > 8192
             || reply.message.contains('\n')
@@ -289,6 +298,32 @@ pub async fn start(
     direction: Direction,
     emit: Arc<dyn Fn(Event) + Send + Sync>,
 ) -> Result<Session, String> {
+    start_with(
+        ip,
+        direction,
+        emit,
+        StartOptions {
+            bootstrap: true,
+            trust: None,
+        },
+    )
+    .await
+}
+
+pub struct StartOptions {
+    /// Code pairing: SRP bootstrap listener and discovery advert. Remembered sessions skip both;
+    /// their invitation travels over the authenticated remembered link instead.
+    pub bootstrap: bool,
+    /// Enables enrollment messages on this session once the phone announces support.
+    pub trust: Option<Arc<trust::Trust>>,
+}
+
+pub async fn start_with(
+    ip: String,
+    direction: Direction,
+    emit: Arc<dyn Fn(Event) + Send + Sync>,
+    options: StartOptions,
+) -> Result<Session, String> {
     if !interfaces().contains(&ip) || ip.parse::<Ipv4Addr>().is_err() {
         return Err("Select a local IPv4 interface".into());
     }
@@ -318,31 +353,35 @@ pub async fn start(
     };
     let (outgoing, mut outgoing_rx) = mpsc::channel::<Signal>(64);
     let (cancel, mut cancelled) = watch::channel(false);
-    let bootstrap = TcpListener::bind((ip.as_str(), 0))
-        .await
-        .map_err(|e| e.to_string())?;
-    let pairing_address = format!(
-        "{}:{}",
-        ip,
-        bootstrap.local_addr().map_err(|e| e.to_string())?.port()
-    );
+    let cancel = Arc::new(cancel);
     let (pairing_replies, replies) = mpsc::channel(4);
     let (claimed, claim_watch) = watch::channel(false);
-    // Advertise only while the bootstrap listener exists; pairing::spawn drops it on close.
-    let advertisement = discovery::advertise(
-        ip.parse().map_err(|_| "Invalid IP")?,
-        bootstrap.local_addr().map_err(|e| e.to_string())?.port(),
-        &random_hex(4),
-    );
-    pairing::spawn(
-        bootstrap,
-        advertisement,
-        invitation.clone(),
-        emit.clone(),
-        cancelled.clone(),
-        claim_watch,
-        replies,
-    );
+    let pairing_address = if options.bootstrap {
+        let bootstrap = TcpListener::bind((ip.as_str(), 0))
+            .await
+            .map_err(|e| e.to_string())?;
+        let port = bootstrap.local_addr().map_err(|e| e.to_string())?.port();
+        // Advertise only while the bootstrap listener exists; pairing::spawn drops it on close.
+        let advertisement =
+            discovery::advertise(ip.parse().map_err(|_| "Invalid IP")?, port, &random_hex(4));
+        pairing::spawn(
+            bootstrap,
+            advertisement,
+            invitation.clone(),
+            emit.clone(),
+            cancelled.clone(),
+            claim_watch,
+            replies,
+        );
+        format!("{ip}:{port}")
+    } else {
+        drop((claim_watch, replies));
+        String::new()
+    };
+    let trust = options.trust;
+    let can_enroll = options.bootstrap;
+    let (enroll_out, mut enroll_rx) = mpsc::channel::<String>(8);
+    let canceller = cancel.clone();
     let info = invitation.clone();
     tokio::spawn(async move {
         let state = |s: &str| {
@@ -380,6 +419,16 @@ pub async fn start(
             drop(listener);
             let _ = claimed.send(true);
             websocket.send(Message::text(serde_json::to_string(&Signal { v: 1, session_id: info.session_id.clone(), payload: Payload::Paired }).unwrap())).await.map_err(|e| e.to_string())?;
+            if let Some(trust) = &trust && can_enroll {
+                let (trust, link) = (trust.clone(), trust::SessionLink {
+                    session_id: info.session_id.clone(),
+                    certificate_fingerprint: info.fingerprint.clone(),
+                    token: info.token.clone(),
+                    out: enroll_out.clone(),
+                    cancel: canceller.clone(),
+                });
+                tokio::task::spawn_blocking(move || trust.attach_session(link)).await.map_err(|_| "Enrollment task failed")?;
+            }
             state("ready");
             let mut heartbeat = interval_at(Instant::now() + Duration::from_secs(5), Duration::from_secs(5));
             let mut heard = Instant::now();
@@ -398,6 +447,9 @@ pub async fn start(
                         timeout(Duration::from_secs(1), websocket.send(Message::Ping(Vec::new().into())))
                             .await.map_err(|_| "Heartbeat send timeout")?.map_err(|e| e.to_string())?;
                     },
+                    Some(message) = enroll_rx.recv() => {
+                        timeout(Duration::from_secs(5), websocket.send(Message::text(message))).await.map_err(|_| "Send timeout")?.map_err(|e| e.to_string())?;
+                    },
                     message = outgoing_rx.recv() => {
                         let Some(message) = message else { break };
                         let stop = matches!(message.payload, Payload::Stop);
@@ -409,6 +461,16 @@ pub async fn start(
                         heard = Instant::now();
                         match incoming.map_err(|e| e.to_string())? {
                             Message::Text(text) => {
+                                if can_enroll && text.len() <= trust::link::MAX_BYTES
+                                    && let Some(trust) = &trust
+                                    && let Ok(value) = serde_json::from_str::<serde_json::Value>(&text)
+                                    && trust::enroll::is_enroll(&value)
+                                {
+                                    // Enrollment is handled natively and never reaches the renderer.
+                                    let (trust, id) = (trust.clone(), info.session_id.clone());
+                                    tokio::task::spawn_blocking(move || trust.on_enroll(&id, &value)).await.map_err(|e| e.to_string())?;
+                                    continue;
+                                }
                                 let signal = parse(&text, &info.session_id)?;
                                 if !can_send(info.direction, Role::Phone, &signal.payload) { return Err("Unexpected phone message".into()); }
                                 let stop = matches!(signal.payload, Payload::Stop);
@@ -425,6 +487,10 @@ pub async fn start(
             }
             Ok(())
         }.await;
+        if let Some(trust) = &trust {
+            let (trust, id) = (trust.clone(), info.session_id.clone());
+            let _ = tokio::task::spawn_blocking(move || trust.detach_session(&id)).await;
+        }
         match result {
             Ok(()) => state("stopped"),
             Err(error) => {

@@ -9,10 +9,9 @@ import type { Invitation } from "@duodesk/protocol";
 import type { ReceiverWorkspaceProps } from "./receiver-workspace";
 import { VideoReceiver, type VideoStats } from "./video-receiver";
 
-export function useReceiverSession(): Omit<
-  ReceiverWorkspaceProps,
-  "onShareScreen"
-> {
+export function useReceiverSession(
+  rememberedRequestId?: string,
+): Omit<ReceiverWorkspaceProps, "onShareScreen"> {
   const [stats, setStats] = useState<VideoStats>();
   const [remoteControl, setControl] = useState<ControlLink>();
   const [hasAudio, setHasAudio] = useState(false);
@@ -63,6 +62,7 @@ export function useReceiverSession(): Omit<
   }
 
   const session = useStreamSession({
+    rememberedRequestId,
     direction: "phone-to-desktop",
     onStarted: (invitation, next) => {
       control.current = next;

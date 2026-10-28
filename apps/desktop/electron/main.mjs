@@ -25,6 +25,7 @@ protocol.registerSchemesAsPrivileged([
 let window;
 let host;
 let active;
+const approvedTrustStarts = new Set();
 let diagnosticPath;
 function diagnostic(event, data = {}) {
   const line = JSON.stringify({
@@ -45,14 +46,12 @@ function diagnostic(event, data = {}) {
 // Gather every interface, not just the default route, so VPN overlays such as Tailscale can connect.
 app.commandLine.appendSwitch("force-webrtc-ip-handling-policy", "default");
 // Send real LAN addresses instead of .local names, which Android senders behind NAT (emulators) cannot resolve.
-app.commandLine.appendSwitch(
-  "disable-features",
-  "WebRtcHideLocalIpsWithMdns",
-);
+app.commandLine.appendSwitch("disable-features", "WebRtcHideLocalIpsWithMdns");
 function closeHost() {
   host?.close();
   host = undefined;
   active = undefined;
+  approvedTrustStarts.clear();
 }
 async function open() {
   window = new BrowserWindow({
@@ -213,6 +212,11 @@ app
       )
         throw new Error("Untrusted sender");
       validateCommand(method, args, active?.direction);
+      if (
+        method === "trust_start" &&
+        !approvedTrustStarts.delete(args.requestId)
+      )
+        throw new Error("This session has not been approved locally.");
       if (!host) {
         const binary = path.join(
           app.isPackaged ? process.resourcesPath : root,
@@ -222,6 +226,17 @@ app
         host = new Host(
           binary,
           (payload) => {
+            if (
+              payload.kind === "state" &&
+              active?.sessionId === payload.sessionId &&
+              ["stopped", "failed", "disconnected"].includes(payload.state)
+            )
+              active = undefined;
+            if (
+              payload.kind === "trust" &&
+              ["cancelled", "rejected"].includes(payload.type)
+            )
+              approvedTrustStarts.delete(payload.requestId);
             if (window && !window.isDestroyed())
               window.webContents.send("duodesk:event", payload);
           },
@@ -235,16 +250,23 @@ app
               });
             active = undefined;
           },
+          app.getPath("userData"),
         );
       }
       const owner = host;
       const result = await owner.request(method, args);
       if (owner !== host || owner.closed)
         throw new Error("Desktop host stopped");
-      if (method === "stream_start")
+      if (method === "trust_connect") approvedTrustStarts.add(result);
+      if (method === "trust_respond" && args.accept)
+        approvedTrustStarts.add(args.requestId);
+      if (method === "trust_cancel") approvedTrustStarts.delete(args.requestId);
+      if (method === "trust_forget") approvedTrustStarts.clear();
+      if (method === "stream_start" || method === "trust_start")
         active = {
           sessionId: result.invitation.sessionId,
-          direction: args.direction,
+          direction: result.invitation.direction,
+          captureApproved: true,
         };
       if (method === "stream_stop") active = undefined;
       return result;

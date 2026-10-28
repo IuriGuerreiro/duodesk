@@ -11,7 +11,7 @@ import java.util.concurrent.Executors
  * Browses `_duodesk._tcp` with the platform DNS-SD stack (no subnet scanning).
  * Records are untrusted; JS validates them and pairing still needs the desktop code.
  */
-internal class NearbyBrowser(context: Context, private val emit: (Map<String, Any?>) -> Unit) {
+internal class NearbyBrowser(context: Context, private val serviceType: String = SERVICE_TYPE, private val emit: (Map<String, Any?>) -> Unit) {
   private val nsd = context.getSystemService(Context.NSD_SERVICE) as? NsdManager
   private val executor = Executors.newSingleThreadExecutor()
   private val lock = Any()
@@ -45,7 +45,7 @@ internal class NearbyBrowser(context: Context, private val emit: (Map<String, An
     }
     synchronized(lock) { discovery = listener }
     try {
-      manager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, listener)
+      manager.discoverServices(serviceType, NsdManager.PROTOCOL_DNS_SD, listener)
     } catch (error: Exception) {
       synchronized(lock) { discovery = null }
       emit(mapOf("type" to "state", "state" to "error", "message" to error.message))
@@ -83,6 +83,7 @@ internal class NearbyBrowser(context: Context, private val emit: (Map<String, An
   private fun resolve(info: NsdServiceInfo) {
     val manager = nsd ?: return
     if (Build.VERSION.SDK_INT >= 34) {
+      if (synchronized(lock) { infoCallbacks.size >= 16 && !infoCallbacks.containsKey(info.serviceName) }) return
       // Keeps receiving address/port/TXT updates (for example after a network change) until lost.
       val callback = object : NsdManager.ServiceInfoCallback {
         override fun onServiceInfoCallbackRegistrationFailed(errorCode: Int) {}
@@ -101,7 +102,7 @@ internal class NearbyBrowser(context: Context, private val emit: (Map<String, An
       runCatching { manager.registerServiceInfoCallback(info, executor, callback) }
     } else {
       // Older NsdManager allows one resolve at a time; queue them.
-      synchronized(lock) { pending.addLast(info) }
+      synchronized(lock) { if (pending.size >= 16 || pending.any { it.serviceName == info.serviceName }) return; pending.addLast(info) }
       next()
     }
   }
