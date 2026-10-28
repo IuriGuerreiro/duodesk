@@ -259,7 +259,10 @@
           "channels open",
         );
         // The phone repeats its status, as the real sender does, so a late desktop channel still learns it.
-        const beat = setInterval(() => status(epoch % 2 ? "on" : "off"), 200);
+        const beat = setInterval(() => {
+          status(epoch % 2 ? "on" : "off");
+          say({ type: "caps", epoch, text: epoch % 2 === 1 });
+        }, 200);
         await until(() => link.getView().phase !== "waiting", "status heard");
         const size = () => ({
           width: video.videoWidth,
@@ -293,17 +296,37 @@
           () => commands.length === 3 && !link.getView().busy,
           "swipe result",
         );
+        // Typing: caps arrive on the control channel, text and keys on the input channel.
+        await until(() => link.getView().text, "text caps");
+        const typed = "héllo 👍\nمرحبا";
+        const textSeq = link.typeText(typed);
+        await until(
+          () => link.getView().typing?.seq === textSeq,
+          "text result",
+        );
+        const keySeq = link.typeKey("enter");
+        await until(() => link.getView().typing?.seq === keySeq, "key result");
+        const typingDone =
+          link.getView().typing.outcome === "done" &&
+          commands[3].type === "text" &&
+          commands[3].text === typed &&
+          commands[4].type === "key" &&
+          commands[4].key === "enter";
         // Phone revokes: input stops before the next command can be sent.
         epoch = 2;
         status("off");
         await until(() => link.getView().phase === "off", "revoked");
         const afterRevoke = link.tap([0.5, 0.5], link.currentEpoch(), size());
+        const textAfterRevoke = link.typeText("late");
         clearInterval(beat);
         result = {
           passed:
             swiped === true &&
             afterRevoke === false &&
-            commands.length === 3 &&
+            textAfterRevoke === undefined &&
+            typingDone &&
+            link.getView().text === false &&
+            commands.length === 5 &&
             commands[0].type === "tap" &&
             commands[0].x === 0.25 &&
             commands[2].type === "swipe" &&

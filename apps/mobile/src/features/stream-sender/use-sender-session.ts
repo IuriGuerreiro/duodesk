@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Keyboard, PermissionsAndroid, Platform } from "react-native";
 import { useRouter } from "expo-router";
-import { parseInvitation } from "@duodesk/protocol";
+import {
+  DEFAULT_STREAM_SETTINGS,
+  parseInvitation,
+  parseStreamSettings,
+} from "@duodesk/protocol";
 import { parsePairingQrPayload } from "@duodesk/protocol/pairing";
 import {
   holdInvitation,
@@ -70,6 +74,12 @@ export function useSenderSession() {
   const [receiver, setReceiver] = useState<string | null>(null);
   const [bitrate, setBitrate] = useState("12");
   const [shareAudio, setShareAudio] = useState(true);
+  const [streamSettings, setStreamSettingsValue] = useState({
+    maxLongSide: String(DEFAULT_STREAM_SETTINGS.maxLongSide),
+    maxShortSide: String(DEFAULT_STREAM_SETTINGS.maxShortSide),
+    frameRate: String(DEFAULT_STREAM_SETTINGS.frameRate),
+  });
+  const parsedSettings = parseStreamSettings(streamSettings);
   const [audioNotice, setAudioNotice] = useState("");
   const [error, setError] = useState("");
   const [controlBusy, setControlBusy] = useState(false);
@@ -323,6 +333,7 @@ export function useSenderSession() {
     return run("screen", () =>
       guardPrompt(async () => {
         const value = parseBitrate(bitrate);
+        if (!parsedSettings.ok) throw new Error(parsedSettings.error);
         if (Platform.OS === "android" && Number(Platform.Version) >= 33) {
           await PermissionsAndroid.request(
             PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
@@ -337,7 +348,7 @@ export function useSenderSession() {
           );
         }
         setIntent("screen");
-        await sender.startScreen(value, audio);
+        await sender.startScreen(value, audio, parsedSettings.settings);
       }),
     );
   }
@@ -420,6 +431,10 @@ export function useSenderSession() {
     setBitrate,
     shareAudio,
     setShareAudio,
+    streamSettings,
+    settingsError: parsedSettings.ok ? "" : parsedSettings.error,
+    setStreamSettings: (next: Partial<typeof streamSettings>) =>
+      setStreamSettingsValue((current) => ({ ...current, ...next })),
     audioNotice,
     supportsPlaybackAudio: sender.supportsPlaybackAudio,
     error,

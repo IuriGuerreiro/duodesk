@@ -1,4 +1,8 @@
-import type { StreamState, ConnectionFailure } from "@duodesk/protocol";
+import type {
+  StreamSettings,
+  StreamState,
+  ConnectionFailure,
+} from "@duodesk/protocol";
 
 export type StreamMode = "screen" | "clip";
 
@@ -10,7 +14,7 @@ export type AudioState =
   "off" | "starting" | "active" | "denied" | "unsupported" | "failed";
 
 /**
- * Whether a paired PC may tap and swipe on this phone during the current screen-sharing session.
+ * Whether a paired PC may tap, swipe and press Back, Home and Recents on this phone during the current screen-sharing session.
  * "off" with reason "service-disabled" means the Android accessibility service is not turned on.
  */
 export interface ControlStatus {
@@ -34,6 +38,8 @@ export interface SenderStats {
   qualityLimit: string;
   /** Opus audio bitrate in kbit/s, present once audio is flowing. */
   audioKbps?: number;
+  /** Screen sharing only: frames where the screen actually changed. `fps` also counts idle refresh frames. */
+  screenFps?: number;
 }
 
 export interface SenderStatus {
@@ -49,6 +55,10 @@ export interface SenderStatus {
   audioMessage?: string;
   /** Present during a screen-sharing session. */
   control?: ControlStatus;
+  /** Screen sharing only: the user's chosen limits, as the phone accepted them. */
+  requested?: StreamSettings;
+  /** Screen sharing only: the capture size applied to this display. `stats` holds what is really sent. */
+  capture?: { width: number; height: number };
 }
 
 export interface ViewerStats {

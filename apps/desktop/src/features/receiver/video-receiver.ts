@@ -24,6 +24,10 @@ export interface VideoStats {
   packetsLost: number;
   framesDropped: number;
   decodeMs: number;
+  /** Average wait in the playback buffer for frames shown this interval. High values mean playback adds delay. */
+  bufferMs: number;
+  /** Freezes the browser detected since the call started. A jump right after an idle screen points at the sender. */
+  freezes: number;
   /** Present once the phone is sending an audio track. */
   audio?: AudioStats;
 }
@@ -77,6 +81,8 @@ export class VideoReceiver {
     timestamp: number;
     decodeTime: number;
     framesDecoded: number;
+    bufferDelay: number;
+    bufferEmitted: number;
   };
   private previousAudio?: { bytes: number; timestamp: number };
   /** One stream for every incoming track, so the player keeps audio and video together. */
@@ -300,12 +306,22 @@ export class VideoReceiver {
                 1000) /
               ((entry.framesDecoded ?? 0) - (previous?.framesDecoded ?? 0))
             : 0,
+        bufferMs:
+          (entry.jitterBufferEmittedCount ?? 0) > (previous?.bufferEmitted ?? 0)
+            ? (((entry.jitterBufferDelay ?? 0) - (previous?.bufferDelay ?? 0)) *
+                1000) /
+              ((entry.jitterBufferEmittedCount ?? 0) -
+                (previous?.bufferEmitted ?? 0))
+            : 0,
+        freezes: entry.freezeCount ?? 0,
       };
       this.previous = {
         bytes: entry.bytesReceived,
         timestamp: entry.timestamp,
         decodeTime: entry.totalDecodeTime ?? 0,
         framesDecoded: entry.framesDecoded ?? 0,
+        bufferDelay: entry.jitterBufferDelay ?? 0,
+        bufferEmitted: entry.jitterBufferEmittedCount ?? 0,
       };
     });
     if (stats && audio) stats.audio = audio;

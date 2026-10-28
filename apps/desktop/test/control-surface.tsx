@@ -122,6 +122,31 @@ Object.assign(window, {
           throw new Error("Control layer covers letterbox margins");
       };
       check();
+      // The layer takes the wheel so the desktop page does not scroll; margins and Ctrl+wheel do not.
+      const layer = document
+        .querySelector(".control-surface")!
+        .getBoundingClientRect();
+      const box = video.getBoundingClientRect();
+      const spin = (x: number, y: number, ctrlKey = false) => {
+        const event = new WheelEvent("wheel", {
+          deltaY: 100,
+          clientX: x,
+          clientY: y,
+          ctrlKey,
+          bubbles: true,
+          cancelable: true,
+        });
+        document.elementFromPoint(x, y)!.dispatchEvent(event);
+        return event.defaultPrevented;
+      };
+      const centreX = layer.left + layer.width / 2;
+      const centreY = layer.top + layer.height / 2;
+      if (!spin(centreX, centreY))
+        throw new Error("Wheel over the picture scrolled the desktop");
+      if (spin(centreX, centreY, true))
+        throw new Error("Ctrl+wheel was taken from the desktop");
+      if (spin(box.left + 5, box.top + 5))
+        throw new Error("Wheel over the letterbox was taken");
       const toolbar = document
         .querySelector(".live-bar")!
         .getBoundingClientRect();
@@ -130,7 +155,9 @@ Object.assign(window, {
         toolbar.top + toolbar.height / 2,
       );
       if (!target?.closest(".live-bar"))
-        throw new Error("Control layer blocks the floating toolbar");
+        throw new Error(
+          `Control layer blocks the floating toolbar: ${target?.outerHTML.slice(0, 120)} ${JSON.stringify(toolbar.toJSON())}`,
+        );
       if (
         getComputedStyle(document.querySelector(".control-surface")!)
           .outlineStyle !== "none"
@@ -151,12 +178,62 @@ Object.assign(window, {
         "Control layer did not follow resize",
       );
       check();
+      // Phone keyboard: shown only after the phone advertises text for this epoch, then on by default.
+      if (document.querySelector(".phone-keyboard"))
+        throw new Error("Keyboard shown without text caps");
+      channels[0].dispatchEvent(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            v: 1,
+            sessionId,
+            type: "caps",
+            epoch: 1,
+            text: true,
+          }),
+        }),
+      );
+      await until(
+        () => document.activeElement?.className === "phone-keyboard-field",
+        "Keyboard did not take focus after caps",
+      );
+      const keyboard = document
+        .querySelector(".phone-keyboard")!
+        .getBoundingClientRect();
+      const bar = document.querySelector(".live-bar")!.getBoundingClientRect();
+      if (keyboard.bottom > bar.top)
+        throw new Error(
+          `Keyboard overlaps the toolbar: ${JSON.stringify({ keyboard: keyboard.toJSON(), bar: bar.toJSON() })}`,
+        );
+      // Clicking the phone picture keeps keys going to the phone.
+      const surface = document.querySelector(".control-surface")!;
+      const rect = surface.getBoundingClientRect();
+      (document.activeElement as HTMLElement).blur();
+      surface.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+          clientX: rect.left + 10,
+          clientY: rect.top + 10,
+        }),
+      );
+      surface.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          cancelable: true,
+          clientX: rect.left + 10,
+          clientY: rect.top + 10,
+        }),
+      );
+      if (document.activeElement?.className !== "phone-keyboard-field")
+        throw new Error("Tapping the picture did not focus the keyboard");
       return {
         passed: true,
+        keyboard: true,
         offsetStage: true,
         letterboxing: true,
         resize: true,
         playbackContinues: true,
+        wheelPrevented: true,
       };
     } finally {
       clearInterval(drawing);

@@ -3,9 +3,13 @@ import assert from "node:assert/strict";
 import {
   containedContent,
   encodeInputCommand,
+  normalizeTypedText,
+  parseControlCaps,
+  validTypedText,
   parseCommandResult,
   parseControlStatus,
   parseInputCommand,
+  parseNavCapabilities,
   toNormalized,
   toPixel,
   videoMatchesDisplay,
@@ -228,4 +232,157 @@ test("video must have the shape of the reported display", () => {
     false,
   );
   assert.equal(videoMatchesDisplay(geometry, 0, 0), false);
+});
+
+test("navigation commands carry exactly one known action", () => {
+  const nav = {
+    v: 1,
+    sessionId,
+    type: "nav",
+    epoch: 2,
+    seq: 3,
+    action: "back",
+  };
+  for (const action of ["back", "home", "recents"])
+    assert.deepEqual(
+      parseInputCommand(encodeInputCommand({ ...nav, action }), sessionId),
+      { ...nav, action },
+    );
+  for (const bad of [
+    { ...nav, action: "power" },
+    { ...nav, action: "BACK" },
+    { ...nav, action: 1 },
+    { ...nav, action: undefined },
+    { ...nav, x: 0.5 },
+    { ...nav, seq: 0 },
+    { ...nav, v: 2 },
+  ])
+    assert.throws(() => parseInputCommand(JSON.stringify(bad), sessionId));
+});
+
+test("navigation capabilities list each known action at most once", () => {
+  const caps = {
+    v: 1,
+    sessionId,
+    type: "nav-caps",
+    epoch: 1,
+    actions: ["back", "recents"],
+  };
+  assert.deepEqual(parseNavCapabilities(JSON.stringify(caps), sessionId), caps);
+  assert.deepEqual(
+    parseNavCapabilities(JSON.stringify({ ...caps, actions: [] }), sessionId)
+      .actions,
+    [],
+  );
+  for (const bad of [
+    { ...caps, actions: ["back", "back"] },
+    { ...caps, actions: ["power"] },
+    { ...caps, actions: "back" },
+    { ...caps, extra: true },
+    { ...caps, type: "status" },
+    { ...caps, sessionId: "b".repeat(32) },
+  ])
+    assert.throws(() => parseNavCapabilities(JSON.stringify(bad), sessionId));
+  // A desktop that predates capabilities reads them as a status, and refuses them.
+  assert.throws(() => parseControlStatus(JSON.stringify(caps), sessionId));
+});
+
+test("caps are a separate message and accept only a boolean text flag", () => {
+  const caps = { ...base, type: "caps", epoch: 3, text: true };
+  assert.deepEqual(parseControlCaps(json(caps), sessionId), caps);
+  for (const message of [
+    { ...caps, text: "yes" },
+    { ...caps, extra: 1 },
+    { ...caps, epoch: -1 },
+    { ...caps, type: "status" },
+  ])
+    assert.throws(() => parseControlCaps(json(message), sessionId));
+  // An older desktop reads anything that is not a result as a status, and drops caps.
+  assert.throws(() => parseControlStatus(json(caps), sessionId));
+});
+
+test("text and key commands are validated strictly", () => {
+  const command = { ...base, epoch: 1, seq: 2 };
+  for (const text of [
+    "a",
+    "héllo\tworld\nline",
+    "👍🏽 family 👨‍👩‍👧",
+    "مرحبا",
+    "x".repeat(500),
+  ])
+    assert.equal(
+      parseInputCommand(json({ ...command, type: "text", text }), sessionId)
+        .text,
+      text,
+    );
+  for (const text of [
+    "",
+    "x".repeat(501),
+    "a\rb",
+    "\u0000",
+    "\u001b[A",
+    "\u007f",
+    "\u0085",
+    "\ud83d",
+    "a\ude00b",
+    5,
+  ])
+    assert.throws(
+      () =>
+        parseInputCommand(json({ ...command, type: "text", text }), sessionId),
+      JSON.stringify(text),
+    );
+  assert.throws(() =>
+    parseInputCommand(
+      json({ ...command, type: "text", text: "a", extra: 1 }),
+      sessionId,
+    ),
+  );
+  for (const key of ["backspace", "delete", "enter"])
+    assert.equal(
+      parseInputCommand(json({ ...command, type: "key", key }), sessionId).key,
+      key,
+    );
+  for (const key of ["escape", "Enter", 13])
+    assert.throws(() =>
+      parseInputCommand(json({ ...command, type: "key", key }), sessionId),
+    );
+});
+
+test("text helpers normalize line endings and keep commands under the size limit", () => {
+  assert.equal(normalizeTypedText("a\r\nb\rc\n"), "a\nb\nc\n");
+  assert.equal(validTypedText("👍"), true);
+  assert.equal(validTypedText("👍".slice(0, 1)), false);
+  // The worst case for 500 units: every character needs three UTF-8 bytes.
+  const wide = encodeInputCommand({
+    ...base,
+    epoch: 2_147_483_647,
+    seq: 2_147_483_647,
+    type: "text",
+    text: "€".repeat(500),
+  });
+  assert.ok(new TextEncoder().encode(wide).length <= 2048);
+  assert.throws(() =>
+    encodeInputCommand({
+      ...base,
+      epoch: 1,
+      seq: 1,
+      type: "text",
+      text: "€".repeat(700),
+    }),
+  );
+  assert.equal(
+    parseCommandResult(
+      json({
+        ...base,
+        type: "result",
+        epoch: 1,
+        seq: 1,
+        status: "rejected",
+        reason: "nofield",
+      }),
+      sessionId,
+    ).reason,
+    "nofield",
+  );
 });

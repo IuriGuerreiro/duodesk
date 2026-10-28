@@ -25,6 +25,7 @@ import type { NetworkAddress } from "@/shared/host";
 import {
   ControlSurface,
   ControlStatus,
+  PhoneKeyboard,
   type ControlLink,
 } from "@/features/remote-control";
 import type { VideoStats } from "./video-receiver";
@@ -401,66 +402,69 @@ export function ReceiverWorkspace({
         )}
 
         {live && (
-          <div className="live-bar">
-            <ControlStatus link={control} videoRef={videoRef} />
-            <span className="live-stats">
-              {stats
-                ? `${stats.width} × ${stats.height} · ${stats.fps.toFixed(0)} fps`
-                : "Receiving video"}
-            </span>
-            <div
-              className="audio-controls"
-              role="group"
-              aria-label="Phone audio"
-            >
-              {audio.present ? (
-                <>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => audio.onMutedChange(!audio.muted)}
-                    aria-label={
-                      audio.muted ? "Unmute phone audio" : "Mute phone audio"
-                    }
-                    aria-pressed={audio.muted}
-                  >
-                    {audio.muted || audio.volume === 0 ? (
-                      <VolumeX />
-                    ) : (
-                      <Volume2 />
+          <div className="live-dock">
+            <PhoneKeyboard link={control} />
+            <div className="live-bar">
+              <ControlStatus link={control} videoRef={videoRef} />
+              <span className="live-stats">
+                {stats
+                  ? `${stats.width} × ${stats.height} · ${stats.fps.toFixed(0)} fps · buffer ${stats.bufferMs.toFixed(0)} ms`
+                  : "Receiving video"}
+              </span>
+              <div
+                className="audio-controls"
+                role="group"
+                aria-label="Phone audio"
+              >
+                {audio.present ? (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => audio.onMutedChange(!audio.muted)}
+                      aria-label={
+                        audio.muted ? "Unmute phone audio" : "Mute phone audio"
+                      }
+                      aria-pressed={audio.muted}
+                    >
+                      {audio.muted || audio.volume === 0 ? (
+                        <VolumeX />
+                      ) : (
+                        <Volume2 />
+                      )}
+                    </Button>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={1}
+                      value={Math.round(audio.volume * 100)}
+                      onChange={(event) =>
+                        audio.onVolumeChange(Number(event.target.value) / 100)
+                      }
+                      aria-label="Phone audio volume"
+                    />
+                    {audio.blocked && (
+                      <span className="audio-note" role="status">
+                        Muted until you press unmute.
+                      </span>
                     )}
-                  </Button>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={Math.round(audio.volume * 100)}
-                    onChange={(event) =>
-                      audio.onVolumeChange(Number(event.target.value) / 100)
-                    }
-                    aria-label="Phone audio volume"
-                  />
-                  {audio.blocked && (
-                    <span className="audio-note" role="status">
-                      Muted until you press unmute.
-                    </span>
-                  )}
-                </>
-              ) : (
-                <span className="audio-note" role="status">
-                  No sound from the phone
-                </span>
-              )}
+                  </>
+                ) : (
+                  <span className="audio-note" role="status">
+                    No sound from the phone
+                  </span>
+                )}
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="stop-live"
+                onClick={onStop}
+              >
+                <Square /> Stop session
+              </Button>
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="stop-live"
-              onClick={onStop}
-            >
-              <Square /> Stop session
-            </Button>
           </div>
         )}
       </div>

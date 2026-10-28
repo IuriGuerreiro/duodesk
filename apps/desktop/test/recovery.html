@@ -33,6 +33,7 @@
       },
       (error) => errors.push(error),
       (state) => states.push(state),
+      undefined,
       (state) => states.push(state.state),
     );
     const receiver = new VideoReceiver(

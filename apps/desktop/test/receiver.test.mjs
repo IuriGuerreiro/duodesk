@@ -191,3 +191,29 @@ test("answers an ICE restart on the existing peer and ignores old trickle candid
   assert.deepEqual(peer.candidates, []);
   assert.deepEqual(errors, []);
 });
+
+test("reports playback buffer delay per interval and freeze count", async () => {
+  const { receiver, peer } = setup();
+  const entry = (time, delay, emitted, freezes) =>
+    new Map([
+      [
+        "v",
+        {
+          type: "inbound-rtp",
+          kind: "video",
+          timestamp: time,
+          bytesReceived: 0,
+          jitterBufferDelay: delay,
+          jitterBufferEmittedCount: emitted,
+          freezeCount: freezes,
+        },
+      ],
+    ]);
+  peer.getStats = async () => entry(1000, 2, 100, 0);
+  assert.equal((await receiver.stats()).bufferMs, 20);
+  // 30 more frames waited 1.5 s in total: 50 ms each, not the session average.
+  peer.getStats = async () => entry(2000, 3.5, 130, 1);
+  const stats = await receiver.stats();
+  assert.equal(stats.bufferMs, 50);
+  assert.equal(stats.freezes, 1);
+});

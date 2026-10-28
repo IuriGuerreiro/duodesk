@@ -85,12 +85,18 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
 
   private var previousBytes = 0.0
   private var previousTime = 0.0
+  private var previousChanged = 0L
   private var previousAudioBytes = 0.0
   private var previousAudioTime = 0.0
 
   fun isReady(): Boolean = (state == "ready")
   fun currentGeneration(): Long = generation
   fun getMode(): String? = mode
+
+  /** The user's request and the capture size actually applied; the measured stream is in `stats`. */
+  private var requested: StreamSettings? = null
+  @Volatile
+  private var captureSize: Map<String, Any>? = null
 
   fun getStatus(): Map<String, Any> {
     val map = mutableMapOf<String, Any>("state" to state)
@@ -106,6 +112,8 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
   /** Adds what the phone UI needs about the screen session: audio, and the remote control grant. */
   private fun addSession(map: MutableMap<String, Any>) {
     if (mode != "screen") return
+    requested?.let { map["requested"] = it.toMap() }
+    captureSize?.let { map["capture"] = it }
     map["audio"] = audioState
     audioMessage?.let { map["audioMessage"] = it }
     control?.snapshot()?.let { snap ->
@@ -271,7 +279,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     check(transceiver.sender.setParameters(parameters)) { "Could not configure audio bitrate" }
   }
 
-  private fun initPeerConnection(bitrateMbps: Int, withAudio: Boolean = false): Pair<PeerConnection, Long> {
+  private fun initPeerConnection(bitrateMbps: Int, withAudio: Boolean = false, frameRate: Int = 60): Pair<PeerConnection, Long> {
     check(state == "ready") { "Connect to the desktop before starting" }
     require(bitrateMbps in 2..30) { "Choose a bitrate between 2 and 30 Mbps" }
     val factory = nativeFactory()
@@ -295,7 +303,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     check(video.isNotEmpty()) { "This Android device has no supported H.264 encoder" }
     transceiver.setCodecPreferences(video + codecs.filter { it.name.equals("rtx", true) }).throwError()
     val parameters = transceiver.sender.parameters
-    parameters.encodings.forEach { it.maxBitrateBps = bitrateMbps * 1_000_000; it.maxFramerate = 60 }
+    parameters.encodings.forEach { it.maxBitrateBps = bitrateMbps * 1_000_000; it.maxFramerate = frameRate }
     parameters.degradationPreference = RtpParameters.DegradationPreference.BALANCED
     check(transceiver.sender.setParameters(parameters)) { "Could not configure video bitrate" }
     if (withAudio) addAudioTrack(factory, pc)
@@ -312,6 +320,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       sessionId = sessionId,
       supported = supported,
       injector = { ControlAccessibilityService.injector() },
+      typist = { ControlAccessibilityService.typist() },
       send = { text -> sendControl(text) },
       post = { block -> dispatch { if (generation == epoch) block() } },
       changed = {
@@ -346,7 +355,9 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       override fun onMessage(buffer: DataChannel.Buffer) {
         if (buffer.binary || buffer.data.remaining() > ControlWire.MAX_BYTES) return
         val bytes = ByteArray(buffer.data.remaining()).also { buffer.data.get(it) }
-        dispatch { if (generation == epoch) control?.onCommand(String(bytes, Charsets.UTF_8)) }
+        // Malformed UTF-8 is dropped, never repaired into different text.
+        val text = ControlWire.decodeUtf8(bytes) ?: return
+        dispatch { if (generation == epoch) control?.onCommand(text) }
       }
       override fun onStateChange() = dispatch {
         if (generation != epoch) return@dispatch
@@ -440,6 +451,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
   fun submitScreen(
     bitrateMbps: Int,
     shareAudio: Boolean,
+    settings: StreamSettings,
     resultData: Intent,
     serviceSession: Long,
     onStarted: () -> Unit,
@@ -453,7 +465,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
           onError(IllegalStateException("Session changed before screen capture started"))
           return@dispatch
         }
-        startScreen(bitrateMbps, shareAudio, resultData, serviceSession)
+        startScreen(bitrateMbps, shareAudio, settings, resultData, serviceSession)
         onStarted()
       } catch (error: Exception) {
         fail(error.message ?: "Streaming failed")
@@ -462,8 +474,11 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     }
   }
 
-  fun startScreen(bitrateMbps: Int, shareAudio: Boolean, resultData: Intent, serviceSession: Long = 0L) {
+  fun startScreen(bitrateMbps: Int, shareAudio: Boolean, settings: StreamSettings, resultData: Intent, serviceSession: Long = 0L) {
+    settings.problem()?.let { throw IllegalArgumentException(it) }
     mode = "screen"
+    requested = settings
+    captureSize = null
     this.serviceSessionId = serviceSession
     val permitted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
     val blocked = audioBlockedStatus(shareAudio, Build.VERSION.SDK_INT, permitted)
@@ -473,7 +488,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       else -> null
     }
     audioState = blocked ?: AudioStatus.STARTING
-    val (pc, epoch) = initPeerConnection(bitrateMbps, withAudio = blocked == null)
+    val (pc, epoch) = initPeerConnection(bitrateMbps, withAudio = blocked == null, frameRate = settings.frameRate)
     val src = checkNotNull(source)
     screen = ScreenSource(
       context = context,
@@ -481,10 +496,12 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       observer = src.capturerObserver,
       resultData = resultData,
       queue = queue,
+      settings = settings,
       onResize = { w, h ->
         dispatch {
           if (epoch == generation) {
-            src.adaptOutputFormat(w, h, 60)
+            captureSize = mapOf("width" to w, "height" to h)
+            src.adaptOutputFormat(w, h, settings.frameRate)
           }
         }
       },
@@ -603,6 +620,11 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
             "qualityLimit" to (values["qualityLimitationReason"] ?: "unknown")
           )
           audioKbps?.let { currentStats["audioKbps"] = it }
+          // WebRTC's fps includes idle repeats; this counts only frames where the screen really changed.
+          screen?.changedFrames?.let { changed ->
+            currentStats["screenFps"] = maxOf(0L, changed - previousChanged)
+            previousChanged = changed
+          }
           lastStats = currentStats
           val map = mutableMapOf<String, Any>(
             "state" to state,
@@ -670,6 +692,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     playbackAudio?.stop(); playbackAudio = null
     val wasScreen = (mode == "screen" || screen != null)
     screen?.stop(); screen = null
+    captureSize = null; requested = null
     if (wasScreen) {
       ScreenCaptureService.stop(context, serviceSessionId)
     }
@@ -678,7 +701,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     audioTrack?.dispose(); audioTrack = null; audioSource?.dispose(); audioSource = null
     audioState = AudioStatus.OFF; audioMessage = null; silence.reset()
     previousAudioBytes = 0.0; previousAudioTime = 0.0
-    candidates.clear(); acceptingAnswer = false; previousBytes = 0.0; previousTime = 0.0
+    candidates.clear(); acceptingAnswer = false; previousBytes = 0.0; previousTime = 0.0; previousChanged = 0L
     mode = null
   }
 

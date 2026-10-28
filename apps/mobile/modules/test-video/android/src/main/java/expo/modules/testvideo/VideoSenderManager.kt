@@ -12,7 +12,8 @@ internal class ConsentRequest(
   val senderGeneration: Long,
   val bitrateMbps: Int,
   val shareAudio: Boolean,
-  private val promise: Promise
+  private val promise: Promise,
+  val settings: StreamSettings = StreamSettings.DEFAULT
 ) {
   private val settled = AtomicBoolean(false)
 
@@ -90,7 +91,7 @@ internal object VideoSenderManager {
   fun isConsentRequestCode(code: Int): Boolean = code in BASE_REQUEST_CODE until (BASE_REQUEST_CODE + REQUEST_CODE_RANGE)
 
   @Synchronized
-  fun prepareScreenConsent(bitrateMbps: Int, shareAudio: Boolean, promise: Promise): ConsentRequest? {
+  fun prepareScreenConsent(bitrateMbps: Int, shareAudio: Boolean, settings: StreamSettings, promise: Promise): ConsentRequest? {
     val sender = activeSender ?: run {
       promise.reject("ERR_STREAM", "Connect to the desktop before starting", null)
       return null
@@ -101,6 +102,10 @@ internal object VideoSenderManager {
     }
     if (bitrateMbps !in 2..30) {
       promise.reject("ERR_STREAM", "Choose a bitrate between 2 and 30 Mbps", null)
+      return null
+    }
+    settings.problem()?.let {
+      promise.reject("ERR_SETTINGS", it, null)
       return null
     }
     val currentGen = sender.currentGeneration()
@@ -116,7 +121,7 @@ internal object VideoSenderManager {
 
     val id = ++nextConsentId
     val requestCode = BASE_REQUEST_CODE + ((id % REQUEST_CODE_RANGE).toInt())
-    val request = ConsentRequest(id, requestCode, sender.currentGeneration(), bitrateMbps, shareAudio, promise)
+    val request = ConsentRequest(id, requestCode, sender.currentGeneration(), bitrateMbps, shareAudio, promise, settings)
     pendingConsentRequest = request
     isConsentOutstanding = true
     return request
@@ -166,6 +171,7 @@ internal object VideoSenderManager {
       sender.submitScreen(
         bitrateMbps = request.bitrateMbps,
         shareAudio = request.shareAudio,
+        settings = request.settings,
         resultData = data,
         serviceSession = serviceSession,
         onStarted = { request.resolve() },

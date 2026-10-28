@@ -103,6 +103,9 @@ This guide provides procedures to verify Android live screen sharing against a l
 6. Rotate the device back to portrait orientation.
 7. Confirm that the video aspect ratio returns to portrait.
 
+Also repeat this step at a custom size and frame rate. See
+[stream-resolution-and-frame-rate.md](stream-resolution-and-frame-rate.md#manual-device-checklist).
+
 ## Step 7: Verify stop and teardown scenarios
 
 Test each stop scenario independently with a fresh desktop invitation.
@@ -169,13 +172,28 @@ Design and safety rules: [android-remote-control.md](android-remote-control.md).
 
 1. **Service off.** Start Share screen. The phone offers "Remote access", and the desktop toolbar shows "View only". Clicking the video does nothing. Tap Remote access and confirm that Accessibility settings open.
 2. **Service on, not allowed.** Turn on DuoDesk in Settings → Accessibility (on Android 13+ allow restricted settings first). The phone offers "Remote access". The desktop stays in view-only mode.
-3. **Remote access.** Tap "Remote access". With accessibility off, enable DuoDesk in the opened settings and return. Sharing and control start automatically. With accessibility already enabled, control starts without a second Allow action. The desktop floating toolbar shows "Remote access" and the video has no decorative control outline. The notification reads "Your PC can tap and swipe on this phone" with a "Stop control" action.
+3. **Remote access.** Tap "Remote access". With accessibility off, enable DuoDesk in the opened settings and return. Sharing and control start automatically. With accessibility already enabled, control starts without a second Allow action. The desktop floating toolbar shows "Remote access" and the video has no decorative control outline. The notification reads "Your PC can tap, swipe, type and press Back, Home, Recents" with a "Stop control" action.
 4. **Tap and swipe.** Click an app icon on the desktop: it opens. Click-drag up or down on a list: it scrolls. A drag that leaves the picture still ends at its edge. Right-click and a long press without moving do nothing.
-5. **Letterbox.** Resize the window so black bars show. Clicks on the bars do nothing; clicks at the picture's corners hit the phone's corners. Repeat in fullscreen.
-6. **Rotation.** Rotate the phone with an auto-rotating app open. The desktop briefly says "syncing", then clicks land correctly in the new orientation.
-7. **Stop paths.** Each must stop input at once, and the desktop must say control is off: "Stop remote access" in the app; "Stop control" in the notification; turn the accessibility service off; stop sharing; disconnect from the desktop. After each, a new session starts with control **off**.
-8. **Pause.** "Pause" on the desktop stops sending; the phone stays allowed.
-9. **Protected screens.** Open the lock screen or a payment screen. Gestures may be ignored; the desktop must not report success when Android cancelled them.
-10. **Media.** Throughout, video keeps flowing, and with audio on, sound continues.
+5. **Back, Home, Recents (Samsung first).** Open Settings, go two screens deep, press desktop Back twice: each returns one level and the toolbar says "Back accepted by the phone". Press Home: the launcher appears. Press Recents: the overview opens; press again or Back to leave it. Repeat Back and Recents after rotating to landscape. Try with gesture navigation and with the three-button bar. Pause on the desktop, Stop control on the phone, and Share screen (view only): the buttons are disabled or hidden and nothing happens. On the lock screen, Home and Recents must not unlock or reveal anything; whatever Android does, the desktop must not claim more than "accepted".
+6. **Letterbox.** Resize the window so black bars show. Clicks on the bars do nothing; clicks at the picture's corners hit the phone's corners. Repeat in fullscreen.
+7. **Rotation.** Rotate the phone with an auto-rotating app open. The desktop briefly says "syncing", then clicks land correctly in the new orientation.
+8. **Stop paths.** Each must stop input at once, and the desktop must say control is off: "Stop remote access" in the app; "Stop control" in the notification; turn the accessibility service off; stop sharing; disconnect from the desktop. After each, a new session starts with control **off**.
+9. **Pause.** "Pause" on the desktop stops sending; the phone stays allowed.
+10. **Protected screens.** Open the lock screen or a payment screen. Gestures may be ignored; the desktop must not report success when Android cancelled them.
+11. **Media.** Throughout, video keeps flowing, and with audio on, sound continues.
+
+### Typing (Android 13+, not yet run on a device)
+
+Use the Samsung phone. None of these checks has been run yet; record results here.
+
+1. **Flag update.** Install the build over one whose service was already on. If "Keyboard on" never appears on the desktop, turn the DuoDesk accessibility service off and on again, then confirm it appears. The Accessibility description mentions typing.
+2. **Fields.** Tap a text field on the phone through the desktop, type on the desktop keyboard: each key appears as it is typed. Type fast and confirm nothing is lost or reordered. Try a search box, a chat box, a URL bar, and a multi-line note. Text inserts at the cursor and replaces a selection.
+3. **Unicode.** Emoji with skin tones and family sequences, accented letters, Arabic or Hebrew (right-to-left), Japanese from a desktop IME. Enter while composing in the desktop IME must not reach the phone; only the finished characters do. Backspace removes a whole emoji.
+4. **Keys.** Backspace, Delete, Enter and Tab. Ctrl+C and other shortcuts must not reach the phone; Esc turns the keyboard off. Enter runs the field's action in search and chat fields (search, send, next) and adds a line in multi-line notes.
+5. **No field.** With no field focused, typing says "Tap a text field on the phone first" and nothing waits to be sent.
+6. **Password and lock screen.** A password field and the lock screen PIN. Android may refuse; the desktop must not claim success when nothing was handed to an editor. Some custom editors (games, terminals, web canvases) may ignore input even when the desktop says "Sent".
+7. **Long paste.** Paste more than 500 characters: the desktop says it is too long and nothing is sent. Paste text with Windows line endings: lines arrive as single new lines.
+8. **Revocation and disconnect.** Stop control or disconnect while a send is in flight: the desktop says a key was not confirmed, drops waiting keys, and never resends.
+9. **Older Android.** On Android 12 or older, the phone keyboard never appears and taps and swipes still work.
 
 Also verify that Remote access from the connected, non-streaming state survives the Accessibility settings round trip without re-pairing. Return without enabling the service and confirm that no share or control starts. Stop streaming, start Share screen, and confirm control stays off.

@@ -3,29 +3,29 @@ import { useRouter } from "expo-router";
 import { takeInvitation } from "@/features/pairing";
 import * as viewer from "../../../modules/test-video";
 import type { ViewerStatus } from "../../../modules/test-video";
+import { startViewerSession } from "./viewer-lifecycle";
 
 export function useViewerSession() {
   const router = useRouter();
   const [status, setStatus] = useState<ViewerStatus>({ state: "idle" });
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    const subscription = viewer.subscribeViewer(setStatus);
-    const invitation = takeInvitation();
-    if (invitation) {
-      viewer.watch(invitation).catch((cause) => {
-        setError(
-          cause instanceof Error
-            ? cause.message
-            : "Could not start watching. Try again.",
-        );
-      });
-    }
-    return () => {
-      subscription.remove();
-      void viewer.stopWatching();
-    };
-  }, []);
+  useEffect(
+    () =>
+      startViewerSession(
+        {
+          supported: viewer.supportsViewing,
+          enterViewerMode: viewer.enterViewerMode,
+          exitViewerMode: viewer.exitViewerMode,
+          subscribeViewer: viewer.subscribeViewer,
+          watch: viewer.watch,
+          stopWatching: viewer.stopWatching,
+        },
+        takeInvitation(),
+        { onStatus: setStatus, onError: setError },
+      ),
+    [],
+  );
 
   return {
     status,
@@ -36,7 +36,8 @@ export function useViewerSession() {
         : ""),
     stop: () => {
       void viewer.stopWatching();
-      router.back();
+      if (router.canGoBack()) router.back();
+      else router.replace("/");
     },
   };
 }

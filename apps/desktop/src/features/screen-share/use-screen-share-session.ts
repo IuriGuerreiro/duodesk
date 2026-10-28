@@ -1,4 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import {
+  DEFAULT_STREAM_SETTINGS,
+  parseStreamSettings,
+  type StreamSettings,
+} from "@duodesk/protocol";
 import { invoke } from "@/shared/host";
 import {
   useStreamSession,
@@ -17,6 +22,14 @@ export function useScreenShareSession(): Omit<
   const [sharing, setSharing] = useState(false);
   const peer = useRef<ScreenSender | undefined>(undefined);
   const control = useRef<SessionControl | undefined>(undefined);
+  const [settingsText, setSettingsText] = useState({
+    maxLongSide: String(DEFAULT_STREAM_SETTINGS.maxLongSide),
+    maxShortSide: String(DEFAULT_STREAM_SETTINGS.maxShortSide),
+    frameRate: String(DEFAULT_STREAM_SETTINGS.frameRate),
+  });
+  const parsed = parseStreamSettings(settingsText);
+  /** Settings are fixed when the connection is created, so a session never changes them underneath the phone. */
+  const chosen = useRef<StreamSettings>(DEFAULT_STREAM_SETTINGS);
 
   const session = useStreamSession({
     direction: "desktop-to-phone",
@@ -33,6 +46,7 @@ export function useScreenShareSession(): Omit<
         (connection) => {
           if (connection === "connected") next.setState("streaming");
         },
+        chosen.current,
         next.recover,
       );
     },
@@ -98,7 +112,15 @@ export function useScreenShareSession(): Omit<
     sharing,
     busy: session.busy,
     remaining: session.remaining,
-    onStart: session.onStart,
+    settings: settingsText,
+    settingsError: parsed.ok ? "" : parsed.error,
+    onSettingsChange: (next) =>
+      setSettingsText((current) => ({ ...current, ...next })),
+    onStart: () => {
+      if (!parsed.ok) return;
+      chosen.current = parsed.settings;
+      session.onStart();
+    },
     onStop: session.onStop,
     onShare: () => void share(),
   };
