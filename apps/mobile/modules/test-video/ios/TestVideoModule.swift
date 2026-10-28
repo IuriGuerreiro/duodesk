@@ -32,6 +32,7 @@ public final class TestVideoModule: Module {
       do { try self.sender.start(bitrateMbps: bitrateMbps) }
       catch { self.sender.stop(); throw error }
     }.runOnQueue(queue)
+    AsyncFunction("reconnect") { self.sender.reconnect() }.runOnQueue(queue)
     AsyncFunction("stop") { self.sender.stop() }.runOnQueue(queue)
     OnDestroy {
       self.pairing.close()

@@ -9,6 +9,7 @@ export * from "./control/index.ts";
 export * from "./stream/invitation.ts";
 export * from "./stream/signal.ts";
 export * from "./stream/state.ts";
+export * from "./stream/recovery.ts";
 export * from "./stream/settings.ts";
 
 export interface ProtocolHandshake {

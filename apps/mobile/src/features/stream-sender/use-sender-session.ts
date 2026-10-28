@@ -143,7 +143,10 @@ export function useSenderSession() {
     closeScanner();
     void sender.pairClose();
     const current = statusRef.current;
-    if (current.mode !== "screen" || current.state !== "streaming") {
+    if (
+      current.mode !== "screen" ||
+      !["streaming", "interrupted", "reconnecting"].includes(current.state)
+    ) {
       void sender.background();
     }
   }, [closeScanner]);
@@ -157,7 +160,11 @@ export function useSenderSession() {
       statusRef.current = next;
       setStatus(next);
       remoteAccess.current?.statusChanged(next);
-      if (next.state === "failed" || next.state === "stopped") {
+      if (
+        next.state === "failed" ||
+        next.state === "stopped" ||
+        next.state === "disconnected"
+      ) {
         setReceiver(null);
         closeScanner();
       }
@@ -188,6 +195,7 @@ export function useSenderSession() {
   const canPair =
     status.state === "idle" ||
     status.state === "failed" ||
+    status.state === "disconnected" ||
     status.state === "stopped";
   const busy = operation !== null || status.state === "connecting";
   const canSubmit = address.trim().length > 0 && /^[0-9]{6}$/.test(code);
@@ -444,6 +452,10 @@ export function useSenderSession() {
       void startScreen();
     },
     pause,
+    reconnect: () =>
+      void sender
+        .reconnect()
+        .catch((cause: unknown) => setError(String(cause))),
     stop,
     controlBusy,
     supportsRemoteControl: sender.supportsRemoteControl,

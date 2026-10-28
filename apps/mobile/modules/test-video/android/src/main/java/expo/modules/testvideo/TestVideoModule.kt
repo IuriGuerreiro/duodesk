@@ -80,6 +80,10 @@ class TestVideoModule : Module() {
       sender().submit(promise) { connect(invitation) }
     }
 
+    AsyncFunction("reconnect") { promise: Promise ->
+      sender().submit(promise) { reconnect() }
+    }
+
     AsyncFunction("start") { bitrateMbps: Int, promise: Promise ->
       sender().submit(promise) { start(bitrateMbps) }
     }

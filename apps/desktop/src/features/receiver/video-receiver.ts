@@ -1,4 +1,10 @@
-import { parseSignal, type Signal } from "@duodesk/protocol";
+import { gatherIce } from "../../shared/session/ice-gathering.ts";
+import {
+  ConnectionRecovery,
+  parseSignal,
+  type RecoveryStatus,
+  type Signal,
+} from "@duodesk/protocol";
 
 export interface AudioStats {
   codec: string;
@@ -65,6 +71,11 @@ export class VideoReceiver {
   private queue = Promise.resolve();
   private closed = false;
   private offered = false;
+  private restarting = false;
+  private negotiation = new AbortController();
+  private initialTimeout?: ReturnType<typeof setTimeout>;
+  private recovery: ConnectionRecovery;
+  private connectionChanged: () => void;
   private previous?: {
     bytes: number;
     timestamp: number;
@@ -76,7 +87,7 @@ export class VideoReceiver {
   private previousAudio?: { bytes: number; timestamp: number };
   /** One stream for every incoming track, so the player keeps audio and video together. */
   private media?: MediaStream;
-  private attached?: { close(): void };
+  private attached?: { close(): void; interrupt?(): void; resume?(): void };
   private sessionId: string;
   private send: (signal: Signal) => Promise<void>;
   private onError: (message: string) => void;
@@ -91,7 +102,12 @@ export class VideoReceiver {
      * Lets another feature (remote control) add its data channels before negotiation starts. What it
      * returns is closed when the peer stops.
      */
-    attach?: (peer: RTCPeerConnection) => { close(): void },
+    attach?: (peer: RTCPeerConnection) => {
+      close(): void;
+      interrupt?(): void;
+      resume?(): void;
+    },
+    onRecovery: (status: RecoveryStatus) => void = () => {},
   ) {
     this.sessionId = sessionId;
     this.send = send;
@@ -104,6 +120,14 @@ export class VideoReceiver {
     // Audio is optional: a phone that cannot or may not share sound answers video-only.
     this.peer.addTransceiver("audio", { direction: "recvonly" });
     this.attached = attach?.(this.peer);
+    this.recovery = new ConnectionRecovery({
+      changed: (status) => {
+        this.attached?.interrupt?.();
+        onRecovery(status);
+      },
+      exhausted: () =>
+        this.fail(new Error("Connection could not be recovered. Pair again.")),
+    });
     this.peer.ontrack = (event) => {
       if (this.closed) return;
       const media = (this.media ??= new MediaStream());
@@ -111,7 +135,7 @@ export class VideoReceiver {
       onStream(media);
     };
     this.peer.onicecandidate = (event) => {
-      if (!event.candidate || this.closed) return;
+      if (!event.candidate || this.closed || this.restarting) return;
       const candidate = event.candidate;
       void this.send({
         v: 1,
@@ -122,20 +146,26 @@ export class VideoReceiver {
         sdpMLineIndex: candidate.sdpMLineIndex ?? 0,
       }).catch((error) => this.fail(error));
     };
-    this.peer.onconnectionstatechange = () => {
+    this.connectionChanged = () => {
       if (this.closed) return;
-      onConnection(this.peer.connectionState);
-      if (
-        this.peer.connectionState === "failed" ||
-        this.peer.connectionState === "disconnected"
-      ) {
-        this.fail(
-          new Error(
-            "Video connection lost. Create a new connection to reconnect.",
-          ),
-        );
+      const ice = this.peer.iceConnectionState;
+      const state =
+        ice === "disconnected" || ice === "failed"
+          ? ice
+          : this.restarting && ice !== "connected" && ice !== "completed"
+            ? "connecting"
+            : this.peer.connectionState;
+      onConnection(state);
+      if (state === "connected") {
+        clearTimeout(this.initialTimeout);
+        this.recovery.connected();
+        this.attached?.resume?.();
+      } else if (state === "failed" || state === "disconnected") {
+        this.recovery.interrupt();
       }
     };
+    this.peer.onconnectionstatechange = this.connectionChanged;
+    this.peer.oniceconnectionstatechange = this.connectionChanged;
   }
 
   receive(signal: Signal) {
@@ -148,7 +178,34 @@ export class VideoReceiver {
           from: "phone",
         });
         if (message.type === "offer") {
-          if (this.offered) throw new Error("Unexpected second video offer.");
+          if (this.offered) {
+            const previous = /(?:^|\n)a=ice-ufrag:([^\r\n]+)/.exec(
+              this.peer.remoteDescription?.sdp ?? "",
+            )?.[1];
+            const next = /(?:^|\n)a=ice-ufrag:([^\r\n]+)/.exec(
+              message.sdp,
+            )?.[1];
+            if (
+              !previous ||
+              !next ||
+              previous === next ||
+              this.peer.signalingState !== "stable"
+            )
+              throw new Error("Unexpected second video offer. Pair again.");
+            this.restarting = true;
+            this.pending = [];
+            this.recovery.interrupt();
+          }
+          if (!this.offered)
+            this.initialTimeout = setTimeout(
+              () =>
+                this.fail(
+                  new Error(
+                    "Phone unreachable. Check Wi-Fi and firewall, then pair again.",
+                  ),
+                ),
+              20_000,
+            );
           this.offered = true;
           await this.peer.setRemoteDescription({
             type: "offer",
@@ -164,14 +221,20 @@ export class VideoReceiver {
             sdp: preferStereoOpus(created.sdp ?? ""),
           };
           await this.peer.setLocalDescription(answer);
+          if (this.restarting)
+            await gatherIce(this.peer, this.negotiation.signal);
           if (!this.closed)
             await this.send({
               v: 1,
               sessionId: this.sessionId,
               type: "answer",
-              sdp: answer.sdp,
+              sdp: this.restarting
+                ? (this.peer.localDescription?.sdp ?? "")
+                : answer.sdp,
             });
+          if (!this.closed) this.connectionChanged();
         } else if (message.type === "candidate") {
+          if (this.restarting) return;
           if (this.pending.length >= 128)
             throw new Error("Too many pending candidates.");
           const candidate = {
@@ -268,10 +331,14 @@ export class VideoReceiver {
   stop() {
     if (this.closed) return;
     this.closed = true;
+    clearTimeout(this.initialTimeout);
+    this.recovery.close();
+    this.negotiation.abort();
     this.pending = [];
     this.peer.ontrack = null;
     this.peer.onicecandidate = null;
     this.peer.onconnectionstatechange = null;
+    this.peer.oniceconnectionstatechange = null;
     // Attached features end first, so nothing can be sent while the connection winds down.
     this.attached?.close();
     this.peer.getReceivers().forEach((receiver) => receiver.track?.stop());

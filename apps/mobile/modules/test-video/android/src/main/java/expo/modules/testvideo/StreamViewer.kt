@@ -27,6 +27,13 @@ internal class StreamViewer(private val context: Context, private val emit: (Map
   private var timeout: ScheduledFuture<*>? = null
   private var stats: ScheduledFuture<*>? = null
   private val candidates = mutableListOf<IceCandidate>()
+  private var restarting = false
+  private var answering = false
+  private var pendingDescription = false
+  private val recovery = ConnectionRecovery(
+    schedule = recoveryScheduler(queue), changed = { status(it) },
+    exhausted = { fail("Connection could not be recovered. Pair again.") }
+  )
   private var previousBytes = 0.0
   private var previousTime = 0.0
 
@@ -41,6 +48,7 @@ internal class StreamViewer(private val context: Context, private val emit: (Map
     val map = mutableMapOf<String, Any>("state" to state)
     lastStats?.let { map["stats"] = it }
     lastError?.let { map["message"] = it }
+    map.putAll(recovery.fields())
     return map
   }
 
@@ -69,14 +77,14 @@ internal class StreamViewer(private val context: Context, private val emit: (Map
 
   private fun status(next: String) {
     state = next
-    emit(mapOf("state" to next))
+    emit(getStatus())
   }
 
   private fun fail(message: String) {
     lastError = message
     close()
-    state = "failed"
-    emit(mapOf("state" to "failed", "message" to message))
+    state = "disconnected"
+    emit(mapOf("state" to "disconnected", "message" to message, "failure" to "connection-lost"))
   }
 
   private fun armTimeout(message: String) {
@@ -102,7 +110,7 @@ internal class StreamViewer(private val context: Context, private val emit: (Map
         if (generation == epoch) fail(message)
       }
       override fun onClosed() = dispatch {
-        if (generation == epoch) stop()
+        if (generation == epoch) fail("Desktop connection closed. Pair again.")
       }
     }).also { it.open() }
   }
@@ -120,12 +128,22 @@ internal class StreamViewer(private val context: Context, private val emit: (Map
         timeout?.cancel(false); status("ready")
       }
       "offer" -> {
-        check(state == "ready" && peer == null) { "Unexpected second offer" }
+        check(!answering) { "Another offer is still being answered" }
+        if (peer != null) {
+          val old = Regex("(?m)^a=ice-ufrag:([^\r\n]+)").find(peer?.remoteDescription?.description ?: "")?.groupValues?.get(1)
+          val next = Regex("(?m)^a=ice-ufrag:([^\r\n]+)").find(message.getString("sdp"))?.groupValues?.get(1)
+          check(old != null && next != null && old != next && peer?.signalingState() == PeerConnection.SignalingState.STABLE) { "Unexpected second offer. Pair again." }
+          restarting = true
+          candidates.clear()
+          recovery.interrupt()
+          status("reconnecting")
+        } else check(state == "ready") { "Unexpected offer" }
         val sdp = message.getString("sdp")
         require(sdp.isNotEmpty() && sdp.toByteArray().size <= 60_000) { "Invalid SDP" }
         answer(sdp)
       }
       "candidate" -> {
+        if (restarting) return
         val candidate = message.getString("candidate")
         val mid = if (message.isNull("sdpMid")) null else message.getString("sdpMid")
         val index = message.getInt("sdpMLineIndex")
@@ -145,10 +163,10 @@ internal class StreamViewer(private val context: Context, private val emit: (Map
       sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
       bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
     }
-    val pc = checkNotNull(WebRtcFactory.get(context).factory.createPeerConnection(config, observer(epoch))) { "Could not create WebRTC viewer" }
+    val pc = peer ?: checkNotNull(WebRtcFactory.get(context).factory.createPeerConnection(config, observer(epoch))) { "Could not create WebRTC viewer" }
     peer = pc
-    status("connecting")
-    armTimeout("Video negotiation timed out. Ask the desktop to start sharing again.")
+    answering = true
+    if (!restarting) { status("connecting"); armTimeout("Video negotiation timed out. Pair again.") }
     val failure = { message: String -> dispatch { if (generation == epoch) fail(message) } }
     pc.setRemoteDescription(object : SdpCallbacks(failure) {
       override fun onSetSuccess() = dispatch {
@@ -159,13 +177,29 @@ internal class StreamViewer(private val context: Context, private val emit: (Map
             if (peer !== pc) return@dispatch
             pc.setLocalDescription(object : SdpCallbacks(failure) {
               override fun onSetSuccess() = dispatch {
-                if (peer === pc) signaling?.let { check(it.send(JSONObject().put("type", "answer").put("sdp", description.description))) { "Signaling socket is closed or busy" } }
+                if (peer === pc) {
+                  if (restarting) { pendingDescription = true; flushDescription() }
+                  else { sendAnswer(description.description); answering = false; connectionReady() }
+                }
               }
             }, description)
           }
         }, MediaConstraints())
       }
     }, SessionDescription(SessionDescription.Type.OFFER, offer))
+  }
+
+  private fun sendAnswer(sdp: String) {
+    check(signaling?.send(JSONObject().put("type", "answer").put("sdp", sdp)) == true) { "Signaling socket is closed or busy" }
+  }
+
+  private fun flushDescription() {
+    val pc = peer ?: return
+    if (!pendingDescription || pc.iceGatheringState() != PeerConnection.IceGatheringState.COMPLETE) return
+    pendingDescription = false
+    sendAnswer(pc.localDescription.description)
+    answering = false
+    connectionReady()
   }
 
   private fun addCandidate(pc: PeerConnection, candidate: IceCandidate, epoch: Long) {
@@ -199,15 +233,23 @@ internal class StreamViewer(private val context: Context, private val emit: (Map
             "height" to (values["frameHeight"] ?: 0),
           )
           lastStats = currentStats
-          emit(mapOf("state" to state, "stats" to currentStats))
+          emit(getStatus())
         }
       } }
     }, 1, 1, TimeUnit.SECONDS)
   }
 
+  private fun connectionReady() {
+    val pc = peer ?: return
+    if (answering || pendingDescription || pc.signalingState() != PeerConnection.SignalingState.STABLE) return
+    if (pc.iceConnectionState() == PeerConnection.IceConnectionState.CONNECTED || pc.iceConnectionState() == PeerConnection.IceConnectionState.COMPLETED) {
+      timeout?.cancel(false); recovery.connected(); status("streaming"); startStats(pc)
+    }
+  }
+
   private fun observer(epoch: Long) = object : PeerConnection.Observer {
     override fun onIceCandidate(candidate: IceCandidate) = dispatch {
-      if (generation == epoch) runCatching {
+      if (generation == epoch && !restarting) runCatching {
         check(signaling?.send(JSONObject().put("type", "candidate").put("candidate", candidate.sdp)
           .put("sdpMid", candidate.sdpMid ?: JSONObject.NULL).put("sdpMLineIndex", candidate.sdpMLineIndex)) == true) { "Signaling socket is closed or busy" }
       }.onFailure { fail("Could not send ICE candidate") }
@@ -218,16 +260,14 @@ internal class StreamViewer(private val context: Context, private val emit: (Map
     override fun onIceConnectionChange(next: PeerConnection.IceConnectionState) = dispatch {
       if (generation != epoch) return@dispatch
       when (next) {
-        PeerConnection.IceConnectionState.CONNECTED, PeerConnection.IceConnectionState.COMPLETED -> {
-          timeout?.cancel(false); status("streaming"); peer?.let { startStats(it) }
-        }
-        PeerConnection.IceConnectionState.FAILED, PeerConnection.IceConnectionState.DISCONNECTED -> fail("Video connection lost. Ask the desktop to start sharing again.")
+        PeerConnection.IceConnectionState.CONNECTED, PeerConnection.IceConnectionState.COMPLETED -> connectionReady()
+        PeerConnection.IceConnectionState.FAILED, PeerConnection.IceConnectionState.DISCONNECTED -> recovery.interrupt()
         else -> Unit
       }
     }
     override fun onSignalingChange(state: PeerConnection.SignalingState) {}
     override fun onIceConnectionReceivingChange(receiving: Boolean) {}
-    override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {}
+    override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) = dispatch { if (generation == epoch) flushDescription() }
     override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>) {}
     override fun onAddStream(stream: MediaStream) {}
     override fun onRemoveStream(stream: MediaStream) {}
@@ -237,6 +277,8 @@ internal class StreamViewer(private val context: Context, private val emit: (Map
 
   private fun close() {
     generation++
+    recovery.connected()
+    restarting = false; answering = false; pendingDescription = false
     timeout?.cancel(false); timeout = null; stats?.cancel(false); stats = null
     renderer?.let { track?.removeSink(it) }; track = null
     peer?.close(); peer?.dispose(); peer = null

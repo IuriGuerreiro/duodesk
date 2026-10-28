@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { ScreenSender } from "../src/features/screen-share/screen-sender.ts";
 
@@ -20,7 +20,14 @@ class FakeTrack {
     this.stopped = true;
   }
 }
+const peers = [];
+afterEach(() => {
+  for (const peer of peers.splice(0)) peer.stop();
+});
 class FakePeer {
+  signalingState = "stable";
+  iceGatheringState = "complete";
+  localDescription = null;
   static latest;
   remoteDescription = null;
   calls = [];
@@ -42,15 +49,24 @@ class FakePeer {
       },
     };
   }
-  async createOffer() {
+  async createOffer(options) {
+    this.offerOptions = options;
     this.calls.push("offer");
-    return { type: "offer", sdp: "test-offer" };
+    return {
+      type: "offer",
+      sdp: options?.iceRestart
+        ? "v=0\r\na=ice-ufrag:restart\r\na=candidate:new"
+        : "test-offer",
+    };
   }
-  async setLocalDescription() {
+  async setLocalDescription(description) {
+    this.localDescription = description;
+    this.signalingState = "have-local-offer";
     this.calls.push("local");
   }
   async setRemoteDescription(description) {
     this.remoteDescription = description;
+    this.signalingState = "stable";
     this.calls.push("remote");
   }
   async addIceCandidate(candidate) {
@@ -84,6 +100,7 @@ function setup() {
   });
   const sent = [],
     errors = [];
+  const recovery = [];
   const sender = new ScreenSender(
     sessionId,
     async (signal) => {
@@ -91,8 +108,19 @@ function setup() {
     },
     (error) => errors.push(error),
     () => {},
+    undefined,
+    (status) => recovery.push(status),
   );
-  return { sender, peer: FakePeer.latest, track, requests, sent, errors };
+  peers.push(sender);
+  return {
+    sender,
+    peer: FakePeer.latest,
+    track,
+    requests,
+    sent,
+    errors,
+    recovery,
+  };
 }
 test("captures video only, prefers H.264 then VP8, and sends one offer", async () => {
   const { sender, peer, track, requests, sent } = setup();
@@ -178,7 +206,84 @@ test("a denied capture leaves the session ready to try again", async () => {
   await sender.start();
   assert.equal(requests.length, 1);
 });
-test("fits the capture into the chosen box at the display's shape and caps the encoder rate", async () => {
+
+const flush = () => new Promise(setImmediate);
+async function established() {
+  const s = setup();
+  await s.sender.start();
+  await s.sender.receive(message({ type: "answer", sdp: "initial-answer" }));
+  s.peer.iceConnectionState = "connected";
+  s.peer.connectionState = "connected";
+  s.peer.onconnectionstatechange();
+  s.peer.connectionState = "disconnected";
+  s.peer.onconnectionstatechange();
+  return s;
+}
+
+test("a brief media loss preserves capture and needs no new offer", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const s = await established();
+  assert.equal(s.recovery.at(-1).state, "interrupted");
+  t.mock.timers.tick(2_000);
+  s.peer.iceConnectionState = "connected";
+  s.peer.connectionState = "connected";
+  s.peer.onconnectionstatechange();
+  t.mock.timers.tick(30_000);
+  assert.equal(s.requests.length, 1);
+  assert.equal(s.track.stopped, false);
+  assert.equal(s.sent.filter((s) => s.type === "offer").length, 1);
+  assert.deepEqual(s.errors, []);
+});
+
+test("restart sends gathered SDP on the same capture and accepts its answer", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const s = await established();
+  s.sender.reconnect();
+  await flush();
+  assert.equal(s.peer.offerOptions.iceRestart, true);
+  assert.equal(s.sent.at(-1).type, "offer");
+  assert.match(s.sent.at(-1).sdp, /candidate:new/);
+  await s.sender.receive(message({ type: "answer", sdp: "new-answer" }));
+  s.peer.iceConnectionState = "connected";
+  s.peer.connectionState = "connected";
+  s.peer.onconnectionstatechange();
+  t.mock.timers.tick(30_000);
+  assert.equal(s.requests.length, 1);
+  assert.equal(s.track.stopped, false);
+  assert.deepEqual(s.errors, []);
+});
+
+test("Stop while gathering a restart releases capture and emits nothing late", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const s = await established();
+  s.peer.iceGatheringState = "gathering";
+  s.sender.reconnect();
+  await flush();
+  const count = s.sent.length;
+  s.sender.stop();
+  s.peer.iceGatheringState = "complete";
+  t.mock.timers.tick(60_000);
+  await flush();
+  assert.equal(s.track.stopped, true);
+  assert.equal(s.sent.length, count);
+  assert.deepEqual(s.errors, []);
+});
+
+test("system capture revocation during recovery cancels all retries", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const s = await established();
+  s.track.onended();
+  const count = s.sent.length;
+  t.mock.timers.tick(60_000);
+  await flush();
+  assert.equal(s.track.stopped, true);
+  assert.equal(s.peer.closed, true);
+  assert.equal(s.sent.length, count);
+  assert.equal(s.errors.length, 1);
+  assert.match(s.errors[0], /stopped/);
+});
+
+test("fits the capture into the chosen box at the display's shape and caps the encoder rate", async (t) => {
   const { peer, track, requests } = setup();
   const constraints = [];
   let size = { width: 1440, height: 2560, frameRate: 60 };
@@ -187,11 +292,18 @@ test("fits the capture into the chosen box at the display's shape and caps the e
     constraints.push(value);
     size = { width: value.width.max, height: value.height.max, frameRate: 30 };
   };
-  const sender = new ScreenSender(sessionId, async () => {}, () => {}, () => {}, {
-    maxLongSide: 1280,
-    maxShortSide: 720,
-    frameRate: 30,
-  });
+  const sender = new ScreenSender(
+    sessionId,
+    async () => {},
+    () => {},
+    () => {},
+    {
+      maxLongSide: 1280,
+      maxShortSide: 720,
+      frameRate: 30,
+    },
+  );
+  t.after(() => sender.stop());
   await sender.start();
   assert.deepEqual(requests.at(-1).video, { frameRate: { max: 30 } });
   // A portrait monitor gets a portrait box.
@@ -200,11 +312,28 @@ test("fits the capture into the chosen box at the display's shape and caps the e
   ]);
   assert.equal(FakePeer.latest.parameters.encodings[0].maxFramerate, 30);
   assert.notEqual(FakePeer.latest, peer);
-  FakePeer.latest.getStats = async () => new Map([
-    ["v", { type: "outbound-rtp", kind: "video", timestamp: 1, bytesSent: 0, frameWidth: 720, frameHeight: 1280, framesPerSecond: 24, qualityLimitationReason: "bandwidth" }],
-  ]);
+  FakePeer.latest.getStats = async () =>
+    new Map([
+      [
+        "v",
+        {
+          type: "outbound-rtp",
+          kind: "video",
+          timestamp: 1,
+          bytesSent: 0,
+          frameWidth: 720,
+          frameHeight: 1280,
+          framesPerSecond: 24,
+          qualityLimitationReason: "bandwidth",
+        },
+      ],
+    ]);
   const stats = await sender.stats();
-  assert.deepEqual(stats.requested, { maxLongSide: 1280, maxShortSide: 720, frameRate: 30 });
+  assert.deepEqual(stats.requested, {
+    maxLongSide: 1280,
+    maxShortSide: 720,
+    frameRate: 30,
+  });
   assert.deepEqual(stats.capture, { width: 720, height: 1280, frameRate: 30 });
   assert.equal(stats.fps, 24);
   assert.equal(stats.qualityLimit, "bandwidth");
@@ -214,11 +343,17 @@ test("a capture that rejects the chosen size fails clearly and releases the scre
   track.applyConstraints = async () => {
     throw new Error("Overconstrained");
   };
-  const sender = new ScreenSender(sessionId, async () => {}, () => {}, () => {}, {
-    maxLongSide: 1280,
-    maxShortSide: 720,
-    frameRate: 30,
-  });
+  const sender = new ScreenSender(
+    sessionId,
+    async () => {},
+    () => {},
+    () => {},
+    {
+      maxLongSide: 1280,
+      maxShortSide: 720,
+      frameRate: 30,
+    },
+  );
   await assert.rejects(sender.start(), /1280 × 720 and 30 fps.*smaller/);
   assert.equal(track.stopped, true);
 });

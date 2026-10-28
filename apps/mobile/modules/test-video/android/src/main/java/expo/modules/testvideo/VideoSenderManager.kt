@@ -72,7 +72,7 @@ internal object VideoSenderManager {
   private fun updateStatus(status: Map<String, Any>) {
     lastStatus = status
     val state = status["state"] as? String
-    if (state == "stopped" || state == "failed") {
+    if (state == "stopped" || state == "failed" || state == "disconnected") {
       pendingConsentRequest?.reject("ERR_STREAM", "Session $state while awaiting screen consent", null)
       isConsentOutstanding = false
     }

@@ -351,6 +351,44 @@ test("simplify keeps both ends and the order", () => {
   assert.deepEqual(simplify([1, 2, 3], 5), [1, 2, 3]);
 });
 
+test("interruption drops pending input and requires a newer phone grant", () => {
+  const t = setup();
+  t.on(3);
+  t.settled();
+  t.link.tap([0.5, 0.5], 3, video);
+  t.link.interrupt();
+  assert.equal(t.link.getView().busy, false);
+  assert.equal(t.link.tap([0.5, 0.5], 3, video), false);
+  t.on(3);
+  t.link.resume();
+  t.on(3);
+  t.settled();
+  assert.equal(t.link.getView().phase, "waiting");
+  t.off(4);
+  assert.equal(t.link.getView().phase, "off");
+  t.on(5);
+  t.settled();
+  assert.equal(t.link.tap([0.5, 0.5], 3, video), false);
+  assert.equal(t.link.tap([0.5, 0.5], 5, video), true);
+  assert.equal(t.input.sent.length, 2);
+});
+
+test("a second interruption cannot lower the required control epoch", () => {
+  const t = setup();
+  t.on(8);
+  t.settled();
+  t.link.interrupt();
+  t.link.resume();
+  t.link.interrupt();
+  t.link.resume();
+  t.on(8);
+  t.settled();
+  assert.equal(t.link.getView().phase, "waiting");
+  assert.equal(t.link.tap([0.5, 0.5], 8, video), false);
+  t.off(9);
+  assert.equal(t.link.getView().phase, "off");
+});
+
 const caps = (t, actions = ["back", "home", "recents"], epoch = 1) =>
   t.phone({ type: "nav-caps", epoch, actions });
 
@@ -603,4 +641,34 @@ test("keyFor: editing keys only, never shortcuts or IME keys", () => {
   assert.equal(keyFor({ ...key, ctrlKey: true }), undefined);
   assert.equal(keyFor({ ...key, isComposing: true }), undefined);
   assert.equal(keyFor({ ...key, keyCode: 229 }), undefined);
+});
+
+test("recovery drops keyboard and navigation commands until a fresh grant arrives", () => {
+  const t = setup();
+  t.on(5);
+  caps(t, undefined, 5);
+  t.phone({ type: "caps", epoch: 5, text: true });
+  t.settled();
+  const seq = t.link.typeText("before interruption");
+  t.link.interrupt();
+  assert.equal(t.link.getView().typing.outcome, "unconfirmed");
+  assert.equal(t.link.typeKey("enter"), undefined);
+  assert.equal(t.link.navigate("home"), false);
+  t.link.resume();
+  t.on(5);
+  t.phone({ type: "caps", epoch: 5, text: true });
+  caps(t, undefined, 5);
+  t.phone({ type: "result", epoch: 5, seq, status: "done" });
+  t.settled();
+  assert.equal(t.link.getView().phase, "waiting");
+  assert.equal(t.link.typeText("stale"), undefined);
+  assert.equal(t.link.navigate("back"), false);
+  assert.equal(t.input.sent.length, 1);
+  t.off(6);
+  t.on(7);
+  t.phone({ type: "caps", epoch: 7, text: true });
+  caps(t, undefined, 7);
+  t.settled();
+  assert.equal(t.link.typeKey("enter"), seq + 1);
+  assert.equal(t.input.sent.length, 2);
 });

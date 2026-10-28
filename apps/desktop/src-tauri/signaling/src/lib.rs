@@ -13,7 +13,7 @@ use std::{
 use tokio::{
     net::TcpListener,
     sync::{mpsc, watch},
-    time::{sleep, timeout},
+    time::{Instant, interval_at, sleep, timeout},
 };
 use tokio_rustls::TlsAcceptor;
 use tokio_tungstenite::{
@@ -134,7 +134,18 @@ pub enum Event {
         #[serde(rename = "sessionId")]
         session_id: String,
         state: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        failure: Option<ConnectionFailure>,
     },
+}
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConnectionFailure {
+    InvitationExpired,
+    Unreachable,
+    ConnectionLost,
 }
 pub struct Session {
     pub invitation: Invitation,
@@ -338,6 +349,8 @@ pub async fn start(
             emit(Event::State {
                 session_id: info.session_id.clone(),
                 state: s.into(),
+                message: None,
+                failure: None,
             })
         };
         let result: Result<(), String> = async {
@@ -368,6 +381,8 @@ pub async fn start(
             let _ = claimed.send(true);
             websocket.send(Message::text(serde_json::to_string(&Signal { v: 1, session_id: info.session_id.clone(), payload: Payload::Paired }).unwrap())).await.map_err(|e| e.to_string())?;
             state("ready");
+            let mut heartbeat = interval_at(Instant::now() + Duration::from_secs(5), Duration::from_secs(5));
+            let mut heard = Instant::now();
             loop {
                 tokio::select! {
                     biased;
@@ -376,6 +391,13 @@ pub async fn start(
                         let _ = timeout(Duration::from_secs(1), websocket.send(Message::text(serde_json::to_string(&stop).unwrap()))).await;
                         break;
                     },
+                    _ = heartbeat.tick() => {
+                        if heard.elapsed() >= Duration::from_secs(25) {
+                            return Err("Peer unreachable: signaling heartbeat timed out".into());
+                        }
+                        timeout(Duration::from_secs(1), websocket.send(Message::Ping(Vec::new().into())))
+                            .await.map_err(|_| "Heartbeat send timeout")?.map_err(|e| e.to_string())?;
+                    },
                     message = outgoing_rx.recv() => {
                         let Some(message) = message else { break };
                         let stop = matches!(message.payload, Payload::Stop);
@@ -383,7 +405,8 @@ pub async fn start(
                         if stop { break; }
                     },
                     incoming = websocket.next() => {
-                        let Some(incoming) = incoming else { break };
+                        let Some(incoming) = incoming else { return Err("Signaling connection closed".into()) };
+                        heard = Instant::now();
                         match incoming.map_err(|e| e.to_string())? {
                             Message::Text(text) => {
                                 let signal = parse(&text, &info.session_id)?;
@@ -392,7 +415,8 @@ pub async fn start(
                                 emit(Event::Signal { signal });
                                 if stop { break; }
                             },
-                            Message::Close(_) => break,
+                            Message::Close(_) => return Err("Signaling connection closed".into()),
+                            Message::Pong(_) => {},
                             Message::Ping(data) => { timeout(Duration::from_secs(5), websocket.send(Message::Pong(data))).await.map_err(|_| "Pong timeout")?.map_err(|e| e.to_string())?; },
                             _ => return Err("Expected text message".into()),
                         }
@@ -401,7 +425,33 @@ pub async fn start(
             }
             Ok(())
         }.await;
-        state(if result.is_ok() { "stopped" } else { "failed" });
+        match result {
+            Ok(()) => state("stopped"),
+            Err(error) => {
+                let (failure, message) = if error.contains("Invitation expired") {
+                    (
+                        ConnectionFailure::InvitationExpired,
+                        "Invitation expired or locked. Create a new connection and pair again.",
+                    )
+                } else if error.contains("unreachable") || error.contains("timeout") {
+                    (
+                        ConnectionFailure::Unreachable,
+                        "Peer unreachable. Check Wi-Fi and firewall, then pair again.",
+                    )
+                } else {
+                    (
+                        ConnectionFailure::ConnectionLost,
+                        "Connection closed. Pair again; the invitation has already been consumed.",
+                    )
+                };
+                emit(Event::State {
+                    session_id: info.session_id.clone(),
+                    state: "disconnected".into(),
+                    message: Some(message.into()),
+                    failure: Some(failure),
+                });
+            }
+        }
     });
     Ok(Session {
         invitation,
@@ -635,10 +685,9 @@ mod tests {
                 .await
                 .unwrap()
                 .unwrap()
+                && state == "disconnected"
             {
-                if state == "failed" {
-                    break;
-                }
+                break;
             }
         }
     }
@@ -761,6 +810,131 @@ mod tests {
             .unwrap();
         assert!(matches!(
             parse(&stop, &info.session_id).unwrap().payload,
+            Payload::Stop
+        ));
+    }
+    async fn authenticated_session() -> Option<(
+        Session,
+        tokio_tungstenite::WebSocketStream<tokio_rustls::client::TlsStream<tokio::net::TcpStream>>,
+        mpsc::UnboundedReceiver<Event>,
+    )> {
+        let ip = interfaces().first()?.clone();
+        let (events, received) = mpsc::unbounded_channel();
+        let session = start(
+            ip,
+            Direction::PhoneToDesktop,
+            Arc::new(move |event| {
+                let _ = events.send(event);
+            }),
+        )
+        .await
+        .unwrap();
+        let mut ws = connect(&session).await;
+        ws.send(Message::text(
+            serde_json::to_string(&Signal {
+                v: 1,
+                session_id: session.invitation.session_id.clone(),
+                payload: Payload::Pair {
+                    token: session.invitation.token.clone(),
+                },
+            })
+            .unwrap(),
+        ))
+        .await
+        .unwrap();
+        let paired = ws.next().await.unwrap().unwrap().into_text().unwrap();
+        assert!(matches!(
+            parse(&paired, &session.invitation.session_id)
+                .unwrap()
+                .payload,
+            Payload::Paired
+        ));
+        Some((session, ws, received))
+    }
+
+    #[tokio::test]
+    async fn unexpected_socket_close_is_actionable_and_never_reopens_invitation() {
+        let Some((session, mut ws, mut received)) = authenticated_session().await else {
+            return;
+        };
+        ws.close(None).await.unwrap();
+        loop {
+            if let Event::State {
+                state,
+                message,
+                failure,
+                ..
+            } = timeout(Duration::from_secs(2), received.recv())
+                .await
+                .unwrap()
+                .unwrap()
+                && state == "disconnected"
+            {
+                assert!(message.unwrap().contains("Pair again"));
+                assert!(matches!(failure, Some(ConnectionFailure::ConnectionLost)));
+                break;
+            }
+        }
+        let address = session
+            .invitation
+            .url
+            .trim_start_matches("wss://")
+            .trim_end_matches('/');
+        assert!(tokio::net::TcpStream::connect(address).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn silent_authenticated_peer_times_out() {
+        let Some((_session, _ws, mut received)) = authenticated_session().await else {
+            return;
+        };
+        tokio::time::pause();
+        tokio::time::advance(Duration::from_secs(26)).await;
+        loop {
+            if let Event::State { state, failure, .. } = received.recv().await.unwrap()
+                && state == "disconnected"
+            {
+                assert!(matches!(failure, Some(ConnectionFailure::Unreachable)));
+                break;
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn admission_deadline_does_not_close_authenticated_socket() {
+        let Some((session, mut ws, mut received)) = authenticated_session().await else {
+            return;
+        };
+        // Exercise the full admission timer window without waiting two wall-clock minutes.
+        for _ in 0..25 {
+            tokio::time::pause();
+            tokio::time::advance(Duration::from_secs(5)).await;
+            tokio::time::resume();
+            let ping = ws.next().await.unwrap().unwrap();
+            assert!(matches!(ping, Message::Ping(_)));
+            ws.flush().await.unwrap();
+            let offer = Signal {
+                v: 1,
+                session_id: session.invitation.session_id.clone(),
+                payload: Payload::Offer { sdp: "v=0".into() },
+            };
+            ws.send(Message::text(serde_json::to_string(&offer).unwrap()))
+                .await
+                .unwrap();
+            loop {
+                match received.recv().await.unwrap() {
+                    Event::Signal { .. } => break,
+                    Event::State { state, .. } => assert_ne!(state, "disconnected"),
+                    _ => {}
+                }
+            }
+        }
+        let id = session.invitation.session_id.clone();
+        drop(session);
+        assert!(matches!(
+            parse(&ws.next().await.unwrap().unwrap().into_text().unwrap(), &id)
+                .unwrap()
+                .payload,
             Payload::Stop
         ));
     }

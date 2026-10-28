@@ -9,7 +9,10 @@ import type { Invitation } from "@duodesk/protocol";
 import type { ReceiverWorkspaceProps } from "./receiver-workspace";
 import { VideoReceiver, type VideoStats } from "./video-receiver";
 
-export function useReceiverSession(): Omit<ReceiverWorkspaceProps, "onShareScreen"> {
+export function useReceiverSession(): Omit<
+  ReceiverWorkspaceProps,
+  "onShareScreen"
+> {
   const [stats, setStats] = useState<VideoStats>();
   const [remoteControl, setControl] = useState<ControlLink>();
   const [hasAudio, setHasAudio] = useState(false);
@@ -55,6 +58,7 @@ export function useReceiverSession(): Omit<ReceiverWorkspaceProps, "onShareScree
         setControl(link);
         return link;
       },
+      (status) => control.current?.recover(status),
     );
   }
 
@@ -163,6 +167,7 @@ export function useReceiverSession(): Omit<ReceiverWorkspaceProps, "onShareScree
     state: session.state,
     error: session.error,
     stats,
+    recovery: session.recovery,
     busy: session.busy,
     remaining: session.remaining,
     videoRef: video,

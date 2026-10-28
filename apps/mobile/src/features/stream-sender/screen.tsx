@@ -49,7 +49,12 @@ export default function SenderScreen() {
     connection.operation === "start" ||
     connection.negotiatingVideo;
   const message =
-    connection.error || (status.state === "failed" ? status.message : "");
+    connection.error ||
+    (status.state === "failed" || status.state === "disconnected"
+      ? status.message
+      : "");
+  const recovering =
+    status.state === "interrupted" || status.state === "reconnecting";
   const screen = status.mode === "screen";
   const controlling = status.control?.state === "on";
 
@@ -84,7 +89,7 @@ export default function SenderScreen() {
           <>
             <View style={styles.hero}>
               <Text style={styles.display}>
-                {status.state === "failed"
+                {status.state === "failed" || status.state === "disconnected"
                   ? "Let's reconnect"
                   : "Your phone, on your big screen."}
               </Text>
@@ -106,7 +111,9 @@ export default function SenderScreen() {
               onSelect={() => router.push("/paste")}
             />
             <Action
-              label="Scan code"
+              label={
+                status.state === "disconnected" ? "Pair again" : "Scan code"
+              }
               disabled={!connection.available}
               onPress={openScanner}
             />
@@ -257,6 +264,30 @@ export default function SenderScreen() {
           </>
         )}
 
+        {recovering && (
+          <View style={styles.hero} accessibilityLiveRegion="polite">
+            <Text style={styles.title}>
+              {status.state === "reconnecting"
+                ? "Reconnecting"
+                : "Connection interrupted"}
+            </Text>
+            <Text style={styles.lead}>
+              Keep both devices on the same Wi-Fi. Recovery attempt{" "}
+              {status.attempt ?? 0} of 2. Remote control stays off until you
+              allow it again.
+            </Text>
+            <Action
+              label="Reconnect"
+              disabled={!status.canReconnect}
+              onPress={connection.reconnect}
+            />
+            <Action
+              variant="ghost"
+              label="Stop session"
+              onPress={connection.stop}
+            />
+          </View>
+        )}
         {status.state === "streaming" && (
           <>
             <View style={[styles.hero, styles.center]}>
@@ -384,13 +415,17 @@ function StatusPill({ state, busy }: { state: string; busy: boolean }) {
   const live = state === "streaming";
   const label = live
     ? "Live"
-    : busy || state === "connecting"
-      ? "Connecting"
-      : state === "ready"
-        ? "Connected"
-        : state === "failed"
-          ? "Failed"
-          : "Not connected";
+    : state === "interrupted"
+      ? "Interrupted"
+      : state === "reconnecting"
+        ? "Reconnecting"
+        : busy || state === "connecting"
+          ? "Connecting"
+          : state === "ready"
+            ? "Connected"
+            : state === "failed"
+              ? "Failed"
+              : "Not connected";
   const dot = live
     ? colors.blue
     : state === "failed"

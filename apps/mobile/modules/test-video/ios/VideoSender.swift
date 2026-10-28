@@ -20,6 +20,14 @@ final class VideoSender: NSObject, RTCPeerConnectionDelegate {
   private var previousTimestamp: Double = 0
   private var generation = UUID()
   private var acceptingAnswer = false
+  private var mediaStarted = false
+  private var restarting = false
+  private var pendingDescription = false
+  private var negotiation = 0
+  private lazy var recovery = ConnectionRecovery(queue: queue,
+    changed: { [weak self] in self?.status($0) },
+    exhausted: { [weak self] in self?.fail("Connection could not be recovered. Pair again.") },
+    restart: { [weak self] in self?.restart() })
 
   init(queue: DispatchQueue, emit: @escaping ([String: Any]) -> Void) { self.queue = queue; self.emit = emit }
 
@@ -40,7 +48,7 @@ final class VideoSender: NSObject, RTCPeerConnectionDelegate {
   }
 
   func start(bitrateMbps: Int) throws {
-    guard state == "ready", let invitation else { throw SenderError.notReady }
+    guard state == "ready", invitation != nil else { throw SenderError.notReady }
     var started = false
     defer { if !started { close() } }
     let host = Bundle(for: ClipCapturer.self)
@@ -79,22 +87,48 @@ final class VideoSender: NSObject, RTCPeerConnectionDelegate {
     }
     status("connecting")
     armTimeout("Video negotiation timed out. Create a new desktop pairing code and reconnect.")
+    sendOffer(peer, constraints: constraints)
+
+    started = true
+  }
+
+  func reconnect() { recovery.reconnect() }
+
+  private func restart() {
+    guard let peer else { return }
+    guard peer.signalingState == .stable else {
+      fail("The desktop did not answer recovery. Pair again and update both apps if needed."); return
+    }
+    restarting = true; acceptingAnswer = false; candidates.removeAll()
+    sendOffer(peer, constraints: RTCMediaConstraints(mandatoryConstraints: ["IceRestart": "true"], optionalConstraints: nil))
+  }
+
+  private func flushDescription() {
+    guard pendingDescription, let peer, peer.iceGatheringState == .complete,
+          let description = peer.localDescription, let invitation else { return }
+    pendingDescription = false
+    send(["type": "offer", "sdp": description.sdp], sessionId: invitation.sessionId)
+  }
+
+  private func sendOffer(_ peer: RTCPeerConnection, constraints: RTCMediaConstraints) {
+    negotiation += 1
+    let round = negotiation
     peer.offer(for: constraints) { [weak self, weak peer] description, error in
       guard let self, let peer else { return }
       self.queue.async {
-        guard self.peer === peer else { return }
+        guard self.peer === peer, self.negotiation == round else { return }
         guard let description, error == nil else { self.fail("Could not create video offer"); return }
         peer.setLocalDescription(description) { [weak self, weak peer] error in
           guard let self, let peer else { return }
           self.queue.async {
-            guard self.peer === peer else { return }
+            guard self.peer === peer, self.negotiation == round else { return }
             guard error == nil else { self.fail("Could not set local video description"); return }
-            self.send(["type": "offer", "sdp": description.sdp], sessionId: invitation.sessionId)
+            if self.restarting { self.pendingDescription = true; self.flushDescription() }
+            else if let invitation = self.invitation { self.send(["type": "offer", "sdp": description.sdp], sessionId: invitation.sessionId) }
           }
         }
       }
     }
-    started = true
   }
 
   private func receive(_ text: String) {
@@ -107,7 +141,7 @@ final class VideoSender: NSObject, RTCPeerConnectionDelegate {
       guard state == "connecting", peer == nil else { fail("Unexpected pairing response"); return }
       timeout?.cancel(); timeout = nil; status("ready")
     case "answer":
-      guard let peer, !acceptingAnswer, peer.remoteDescription == nil,
+      guard let peer, !acceptingAnswer, (peer.remoteDescription == nil || restarting), peer.signalingState == .haveLocalOffer,
             let sdp = message["sdp"] as? String, !sdp.isEmpty, sdp.utf8.count <= 60_000 else { fail("Invalid video answer"); return }
       acceptingAnswer = true
       peer.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp)) { [weak self, weak peer] error in
@@ -117,11 +151,13 @@ final class VideoSender: NSObject, RTCPeerConnectionDelegate {
           guard error == nil else { self.fail("Could not accept video answer"); return }
           for candidate in self.candidates { self.add(candidate, to: peer) }
           self.candidates.removeAll()
-          self.clip?.start()
+          if !self.mediaStarted { self.mediaStarted = true; self.clip?.start() }
           self.startStats(peer)
+          self.connectionReady()
         }
       }
     case "candidate":
+      if restarting { return }
       guard let peer, let sdp = message["candidate"] as? String, !sdp.isEmpty, sdp.utf8.count <= 8192,
             let index = message["sdpMLineIndex"] as? Int32, (0...32).contains(index),
             message["sdpMid"] is NSNull || message["sdpMid"] is String,
@@ -153,11 +189,18 @@ final class VideoSender: NSObject, RTCPeerConnectionDelegate {
     }
     timeout = item; queue.asyncAfter(deadline: .now() + 20, execute: item)
   }
-  private func status(_ value: String) { state = value; emit(["state": value]) }
-  private func fail(_ message: String) { close(); state = "failed"; emit(["state": "failed", "message": message]) }
+  private func status(_ value: String) {
+    state = value
+    var event: [String: Any] = ["state": value]
+    event.merge(recovery.fields) { _, new in new }
+    emit(event)
+  }
+  private func fail(_ message: String) { close(); state = "disconnected"; emit(["state": "disconnected", "message": message + " Pair again.", "failure": "connection-lost"]) }
 
   func close() {
     generation = UUID()
+    negotiation += 1
+    recovery.connected(); restarting = false; pendingDescription = false; mediaStarted = false
     timeout?.cancel(); timeout = nil
     statsTimer?.cancel(); statsTimer = nil
     clip?.stop(); clip = nil
@@ -166,7 +209,7 @@ final class VideoSender: NSObject, RTCPeerConnectionDelegate {
     invitation = nil; candidates.removeAll(); acceptingAnswer = false
     previousBytes = 0; previousTimestamp = 0; state = "stopped"
   }
-  func stop() { close(); status("stopped") }
+  func stop() { if let invitation { send(["type": "stop"], sessionId: invitation.sessionId) }; close(); status("stopped") }
 
   private func startStats(_ peer: RTCPeerConnection) {
     statsTimer?.cancel()
@@ -185,10 +228,11 @@ final class VideoSender: NSObject, RTCPeerConnectionDelegate {
             self.previousBytes = bytes; self.previousTimestamp = report.timestamp_us
             let codecId = entry.values["codecId"] as? String ?? ""
             let codec = report.statistics[codecId]?.values["mimeType"] as? String ?? "H264"
-            self.emit(["state": self.state, "stats": ["codec": codec, "mbps": mbps,
+            var event: [String: Any] = ["state": self.state, "stats": ["codec": codec, "mbps": mbps,
               "fps": entry.values["framesPerSecond"] ?? 0, "width": entry.values["frameWidth"] ?? 0,
               "height": entry.values["frameHeight"] ?? 0,
-              "qualityLimit": entry.values["qualityLimitationReason"] ?? "unknown"]])
+              "qualityLimit": entry.values["qualityLimitationReason"] ?? "unknown"]]
+            event.merge(self.recovery.fields) { _, new in new }; self.emit(event)
           }
         }
       }
@@ -196,9 +240,15 @@ final class VideoSender: NSObject, RTCPeerConnectionDelegate {
     statsTimer = timer; timer.resume()
   }
 
+  private func connectionReady() {
+    guard let peer, acceptingAnswer, !pendingDescription, peer.signalingState == .stable,
+          peer.iceConnectionState == .connected || peer.iceConnectionState == .completed else { return }
+    timeout?.cancel(); timeout = nil; recovery.connected(); status("streaming")
+  }
+
   func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
     queue.async { [weak self] in
-      guard let self, self.peer === peerConnection, let invitation = self.invitation else { return }
+      guard let self, self.peer === peerConnection, !self.restarting, let invitation = self.invitation else { return }
       self.send(["type": "candidate", "candidate": candidate.sdp, "sdpMid": candidate.sdpMid as Any? ?? NSNull(),
                  "sdpMLineIndex": candidate.sdpMLineIndex], sessionId: invitation.sessionId)
     }
@@ -206,12 +256,16 @@ final class VideoSender: NSObject, RTCPeerConnectionDelegate {
   func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
     queue.async { [weak self] in
       guard let self, self.peer === peerConnection else { return }
-      if newState == .connected || newState == .completed { self.timeout?.cancel(); self.timeout = nil; self.status("streaming") }
-      else if newState == .failed || newState == .disconnected { self.fail("Video connection lost. Create a new desktop pairing code.") }
+      if newState == .connected || newState == .completed { self.connectionReady() }
+      else if newState == .failed || newState == .disconnected { self.recovery.interrupt() }
     }
   }
   func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState) {}
-  func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}
+  func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {
+    queue.async { [weak self] in
+      guard let self, self.peer === peerConnection else { return }; self.flushDescription()
+    }
+  }
   func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {}
   func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {}
   func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {}

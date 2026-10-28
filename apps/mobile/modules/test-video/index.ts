@@ -38,6 +38,7 @@ export const allowControl = (): Promise<void> => unsupported();
 export const revokeControl = async (): Promise<void> => {};
 export const openAccessibilitySettings = (): Promise<void> => unsupported();
 export const pause = async (): Promise<void> => {};
+export const reconnect = (): Promise<void> => unsupported();
 export const stop = async (): Promise<void> => {};
 export const background = async (): Promise<void> => {};
 export const getStatus = async (): Promise<SenderStatus> => ({

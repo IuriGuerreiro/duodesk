@@ -15,7 +15,11 @@ import {
   VolumeX,
   Wifi,
 } from "lucide-react";
-import type { Invitation, StreamState } from "@duodesk/protocol";
+import type {
+  Invitation,
+  StreamState,
+  RecoveryStatus,
+} from "@duodesk/protocol";
 import { createPairingQrPayload } from "@duodesk/protocol/pairing";
 import type { NetworkAddress } from "@/shared/host";
 import {
@@ -48,6 +52,7 @@ export interface ReceiverWorkspaceProps {
   onRefresh: () => void;
   invitation?: Invitation;
   state: StreamState;
+  recovery?: RecoveryStatus;
   error: string;
   stats?: VideoStats;
   busy: boolean;
@@ -88,6 +93,7 @@ export function ReceiverWorkspace({
   pairing,
   playbackFailed,
   remaining,
+  recovery,
   state,
   stats,
   videoRef,
@@ -96,15 +102,16 @@ export function ReceiverWorkspace({
   const [chromeHidden, setChromeHidden] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
+  const recovering = state === "interrupted" || state === "reconnecting";
   const phase: Phase =
-    state === "streaming"
+    state === "streaming" || recovering
       ? "live"
       : invitation && state === "ready"
         ? "connecting"
         : invitation
           ? "pair"
           : "setup";
-  const live = phase === "live";
+  const live = state === "streaming";
 
   useEffect(() => {
     const update = () =>
@@ -131,22 +138,24 @@ export function ReceiverWorkspace({
   }, [live]);
   const hidden = live && chromeHidden && !playbackFailed;
 
-  const label = busy
-    ? "Preparing receiver"
-    : live
-      ? "Live"
-      : phase === "connecting"
-        ? "Device connected"
-        : phase === "pair"
-          ? "Waiting for phone"
-          : state === "failed"
-            ? "Connection failed"
-            : state === "stopped"
-              ? "Session ended"
-              : "Ready to connect";
+  const label = recovering
+    ? "Connection interrupted"
+    : busy
+      ? "Preparing receiver"
+      : live
+        ? "Live"
+        : phase === "connecting"
+          ? "Device connected"
+          : phase === "pair"
+            ? "Waiting for phone"
+            : state === "failed" || state === "disconnected"
+              ? "Connection failed"
+              : state === "stopped"
+                ? "Session ended"
+                : "Ready to connect";
   const tone = live
     ? "live"
-    : state === "failed"
+    : state === "failed" || state === "disconnected"
       ? "danger"
       : phase === "setup"
         ? "idle"
@@ -237,7 +246,9 @@ export function ReceiverWorkspace({
           <section className="stage-card" aria-labelledby="setup-title">
             <p className="eyebrow">Step 1 of 2</p>
             <h1 id="setup-title">
-              {state === "failed" ? "Let's reconnect" : "Pair your phone"}
+              {state === "failed" || state === "disconnected"
+                ? "Let's reconnect"
+                : "Pair your phone"}
             </h1>
             <p className="lead">
               Create a connection, then scan the code with DuoDesk on your
@@ -257,7 +268,11 @@ export function ReceiverWorkspace({
               disabled={!desktopAvailable || !ip || busy}
             >
               {busy ? <LoaderCircle className="spin" /> : <Wifi />}
-              {busy ? "Creating connection…" : "Create connection"}
+              {busy
+                ? "Creating connection…"
+                : state === "disconnected"
+                  ? "Pair again"
+                  : "Create connection"}
             </Button>
             <Button
               variant="ghost"
@@ -347,6 +362,19 @@ export function ReceiverWorkspace({
           </section>
         )}
 
+        {recovering && (
+          <section className="stage-card" aria-live="polite">
+            <h1>Connection interrupted</h1>
+            <p className="lead">
+              Keep both devices on the same Wi-Fi. Your phone will retry
+              automatically. You can also tap Reconnect on your phone.
+            </p>
+            {recovery && <p>Recovery is limited to 25 seconds.</p>}
+            <Button variant="destructive" onClick={onStop}>
+              Stop session
+            </Button>
+          </section>
+        )}
         {phase === "connecting" && !playbackFailed && (
           <section className="stage-card" aria-labelledby="connecting-title">
             <h1 id="connecting-title">Connecting</h1>

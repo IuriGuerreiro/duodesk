@@ -14,7 +14,10 @@ import { ScreenSender, type ScreenStats } from "./screen-sender";
 
 const RETRYABLE = ["NotAllowedError", "NotFoundError", "AbortError"];
 
-export function useScreenShareSession(): Omit<ScreenShareWorkspaceProps, "onReceive"> {
+export function useScreenShareSession(): Omit<
+  ScreenShareWorkspaceProps,
+  "onReceive"
+> {
   const [stats, setStats] = useState<ScreenStats>();
   const [sharing, setSharing] = useState(false);
   const peer = useRef<ScreenSender | undefined>(undefined);
@@ -44,6 +47,7 @@ export function useScreenShareSession(): Omit<ScreenShareWorkspaceProps, "onRece
           if (connection === "connected") next.setState("streaming");
         },
         chosen.current,
+        next.recover,
       );
     },
     onEnded: () => {
@@ -103,12 +107,15 @@ export function useScreenShareSession(): Omit<ScreenShareWorkspaceProps, "onRece
     state: session.state,
     error: session.error,
     stats,
+    recovery: session.recovery,
+    onReconnect: () => peer.current?.reconnect(),
     sharing,
     busy: session.busy,
     remaining: session.remaining,
     settings: settingsText,
     settingsError: parsed.ok ? "" : parsed.error,
-    onSettingsChange: (next) => setSettingsText((current) => ({ ...current, ...next })),
+    onSettingsChange: (next) =>
+      setSettingsText((current) => ({ ...current, ...next })),
     onStart: () => {
       if (!parsed.ok) return;
       chosen.current = parsed.settings;

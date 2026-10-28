@@ -110,6 +110,8 @@ export class ControlLink {
   private lastNav?: { action: NavAction; outcome: NavOutcome };
   private paused = false;
   private closed = false;
+  private suspended = false;
+  private minimumEpoch = 0;
   private listeners = new Set<() => void>();
   private snapshot: ControlView;
   private timer: ReturnType<typeof setInterval>;
@@ -156,6 +158,17 @@ export class ControlLink {
     this.update();
   }
 
+  interrupt() {
+    if (this.suspended) return;
+    this.suspended = true;
+    this.minimumEpoch = Math.max(this.minimumEpoch, this.epoch + 1);
+    this.reset();
+  }
+
+  resume() {
+    this.suspended = false;
+  }
+
   /** Watches for a silent phone and an unanswered command. Runs on a timer; tests call it directly. */
   check() {
     if (this.closed) return;
@@ -172,7 +185,7 @@ export class ControlLink {
   }
 
   private receive(data: unknown) {
-    if (this.closed || typeof data !== "string") return;
+    if (this.closed || this.suspended || typeof data !== "string") return;
     let message;
     try {
       const parsed: unknown = JSON.parse(data);
@@ -222,7 +235,8 @@ export class ControlLink {
     } else {
       this.heardAt = at;
       // Epochs only grow within a session. An older status is a late arrival.
-      if (message.epoch < this.epoch) return;
+      if (message.epoch < this.epoch || message.epoch < this.minimumEpoch)
+        return;
       if (message.epoch !== this.epoch) {
         this.epoch = message.epoch;
         this.settleUntil = at + SETTLE_MS;
@@ -263,6 +277,7 @@ export class ControlLink {
   blocker(video: VideoSize, at = this.now()): ControlPhase | undefined {
     if (
       this.closed ||
+      this.suspended ||
       this.phone.state !== "on" ||
       this.input.readyState !== "open"
     ) {
@@ -281,6 +296,7 @@ export class ControlLink {
   typeBlocker(): ControlPhase | undefined {
     if (
       this.closed ||
+      this.suspended ||
       this.phone.state !== "on" ||
       this.input.readyState !== "open"
     )
@@ -331,6 +347,7 @@ export class ControlLink {
   canNavigate(action: NavAction): boolean {
     return (
       !this.closed &&
+      !this.suspended &&
       this.phone.state === "on" &&
       this.input.readyState === "open" &&
       !this.paused &&

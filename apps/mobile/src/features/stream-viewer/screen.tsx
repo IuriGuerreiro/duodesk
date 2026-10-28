@@ -33,6 +33,21 @@ const copy = {
     detail: "Waiting for your PC to start sharing…",
   },
   streaming: { title: "Your PC screen", detail: "" },
+  interrupted: {
+    title: "Connection interrupted.",
+    detail:
+      "Keep both devices connected. Your PC will retry. You can also click Reconnect on your PC.",
+  },
+  reconnecting: {
+    title: "Reconnecting to your PC.",
+    detail:
+      "Recovery is limited to 25 seconds. You can stop watching at any time.",
+  },
+  disconnected: {
+    title: "Pair again.",
+    detail:
+      "Create a new connection on your PC, then return to scan its new code.",
+  },
   stopped: {
     title: "Session ended.",
     detail: "Create a new connection on your PC to watch again.",
@@ -89,7 +104,11 @@ export default function StreamViewerScreen() {
 
   const live = status.state === "streaming";
   const watching =
-    status.state === "connecting" || status.state === "ready" || live;
+    status.state === "connecting" ||
+    status.state === "ready" ||
+    status.state === "interrupted" ||
+    status.state === "reconnecting" ||
+    live;
   const stats = status.stats;
   const video: Size = {
     width: stats?.width ?? 0,
@@ -187,7 +206,9 @@ export default function StreamViewerScreen() {
                 className="mt-3 min-w-40"
                 onPress={session.stop}
               >
-                <Text>Back</Text>
+                <Text>
+                  {status.state === "disconnected" ? "Pair again" : "Back"}
+                </Text>
               </Button>
             )}
           </View>

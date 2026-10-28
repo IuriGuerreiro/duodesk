@@ -1,4 +1,8 @@
-import type { StreamSettings, StreamState } from "@duodesk/protocol";
+import type {
+  StreamSettings,
+  StreamState,
+  ConnectionFailure,
+} from "@duodesk/protocol";
 
 export type StreamMode = "screen" | "clip";
 
@@ -41,6 +45,9 @@ export interface SenderStats {
 export interface SenderStatus {
   state: StreamState;
   message?: string;
+  failure?: ConnectionFailure;
+  attempt?: number;
+  canReconnect?: boolean;
   stats?: SenderStats;
   mode?: StreamMode;
   audio?: AudioState;
@@ -65,5 +72,8 @@ export interface ViewerStats {
 export interface ViewerStatus {
   state: StreamState;
   message?: string;
+  failure?: ConnectionFailure;
+  attempt?: number;
+  canReconnect?: boolean;
   stats?: ViewerStats;
 }

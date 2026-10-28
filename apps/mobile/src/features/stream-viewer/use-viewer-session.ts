@@ -29,7 +29,11 @@ export function useViewerSession() {
 
   return {
     status,
-    error: error || (status.state === "failed" ? (status.message ?? "") : ""),
+    error:
+      error ||
+      (status.state === "failed" || status.state === "disconnected"
+        ? (status.message ?? "")
+        : ""),
     stop: () => {
       void viewer.stopWatching();
       if (router.canGoBack()) router.back();

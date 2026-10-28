@@ -11,7 +11,13 @@ export type StreamEvent =
   | { kind: "pairingstatus"; sessionId: string; status: "used" | "locked" }
   | { kind: "pairing"; sessionId: string; requestId: string; message: string }
   | { kind: "signal"; signal: Signal }
-  | { kind: "state"; sessionId: string; state: StreamState };
+  | {
+      kind: "state";
+      sessionId: string;
+      state: StreamState;
+      message?: string;
+      failure?: import("@duodesk/protocol").ConnectionFailure;
+    };
 type Command =
   | "stream_pair_reply"
   | "stream_interfaces"

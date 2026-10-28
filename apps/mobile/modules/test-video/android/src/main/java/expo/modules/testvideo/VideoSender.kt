@@ -46,6 +46,16 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
   private var stats: ScheduledFuture<*>? = null
   private val candidates = mutableListOf<IceCandidate>()
   private var acceptingAnswer = false
+  private var mediaStarted = false
+  private var restarting = false
+  private var negotiation = 0L
+  private var pendingDescription = false
+  private val recovery = ConnectionRecovery(
+    schedule = recoveryScheduler(queue),
+    changed = { next -> state = next; control?.revoke(); status(next) },
+    exhausted = { fail("Connection could not be recovered. Pair again.", "unrecoverable") },
+    restart = { restart() }
+  )
 
   @Volatile
   private var state = "idle"
@@ -55,6 +65,8 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
   private var lastStats: Map<String, Any>? = null
   @Volatile
   private var lastError: String? = null
+  @Volatile
+  private var lastFailure: String? = null
   @Volatile
   private var serviceSessionId: Long = 0L
   @Volatile
@@ -91,7 +103,9 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     mode?.let { map["mode"] = it }
     lastStats?.let { map["stats"] = it }
     lastError?.let { map["message"] = it }
+    lastFailure?.let { map["failure"] = it }
     addSession(map)
+    map.putAll(recovery.fields())
     return map
   }
 
@@ -146,15 +160,17 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     val map = mutableMapOf<String, Any>("state" to next)
     mode?.let { map["mode"] = it }
     addSession(map)
+    map.putAll(recovery.fields())
     emit(map)
   }
 
-  private fun fail(message: String) {
+  private fun fail(message: String, reason: String = "unrecoverable") {
     Log.w("DuoDesk", "Sender failed: $message, state=$state, mode=$mode, generation=$generation")
     lastError = message
+    lastFailure = reason
     close()
-    state = "failed"
-    val map = mutableMapOf<String, Any>("state" to "failed", "message" to message)
+    state = "disconnected"
+    val map = mutableMapOf<String, Any>("state" to "disconnected", "message" to message, "failure" to reason)
     mode?.let { map["mode"] = it }
     emit(map)
   }
@@ -165,6 +181,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     val map = mutableMapOf<String, Any>("state" to state)
     mode?.let { map["mode"] = it }
     addSession(map)
+    map.putAll(recovery.fields())
     emit(map)
   }
 
@@ -192,6 +209,8 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
 
   fun connect(text: String) {
     close()
+    lastError = null
+    lastFailure = null
     val info = Invitation.parse(text)
     require(info.direction == Direction.PhoneToDesktop) { "This invitation is for viewing the desktop screen. Use the viewer instead." }
     invitation = info
@@ -203,10 +222,10 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
         if (link == linkEpoch) runCatching { receive(text) }.onFailure { fail(it.message ?: "Invalid signaling message") }
       }
       override fun onFailure(message: String) = dispatch {
-        if (link == linkEpoch) fail(message)
+        if (link == linkEpoch) fail("$message. Pair again; consumed invitations cannot reconnect.", "connection-lost")
       }
       override fun onClosed() = dispatch {
-        if (link == linkEpoch) stop()
+        if (link == linkEpoch) fail("Desktop connection closed. Pair again.", "connection-lost")
       }
     }).also { it.open() }
   }
@@ -374,19 +393,48 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
     (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 &&
       (Build.HARDWARE in setOf("ranchu", "goldfish") || Build.FINGERPRINT.startsWith("generic"))
 
+  fun reconnect() = recovery.reconnect()
+
+  private fun restart() {
+    val pc = peer ?: return
+    if (pc.signalingState() != PeerConnection.SignalingState.STABLE) {
+      fail("The desktop did not answer recovery. Pair again and update both apps if needed.")
+      return
+    }
+    restarting = true
+    acceptingAnswer = false
+    candidates.clear()
+    sendOffer(pc, generation)
+  }
+
+  private fun flushDescription() {
+    val pc = peer ?: return
+    if (!pendingDescription || pc.iceGatheringState() != PeerConnection.IceGatheringState.COMPLETE) return
+    pendingDescription = false
+    send(JSONObject().put("type", "offer").put("sdp", pc.localDescription.description))
+  }
+
   private fun sendOffer(pc: PeerConnection, epoch: Long) {
-    status("connecting")
-    armTimeout("Video negotiation timed out. Create a new desktop pairing code.")
-    pc.createOffer(object : SdpCallbacks({ message -> dispatch { if (epoch == generation) fail(message) } }) {
+    val round = ++negotiation
+    if (!restarting) {
+      status("connecting")
+      armTimeout("Video negotiation timed out. Check Wi-Fi and firewall, then pair again.")
+    }
+    pc.createOffer(object : SdpCallbacks({ message -> dispatch { if (epoch == generation && round == negotiation) fail(message) } }) {
       override fun onCreateSuccess(description: SessionDescription) = dispatch {
-        if (peer !== pc) return@dispatch
-        pc.setLocalDescription(object : SdpCallbacks({ message -> dispatch { if (epoch == generation) fail(message) } }) {
+        if (peer !== pc || round != negotiation) return@dispatch
+        pc.setLocalDescription(object : SdpCallbacks({ message -> dispatch { if (epoch == generation && round == negotiation) fail(message) } }) {
           override fun onSetSuccess() = dispatch {
-            if (peer === pc) send(JSONObject().put("type", "offer").put("sdp", description.description))
+            if (peer === pc && round == negotiation) {
+              if (restarting) { pendingDescription = true; flushDescription() }
+              else send(JSONObject().put("type", "offer").put("sdp", description.description))
+            }
           }
         }, description)
       }
-    }, MediaConstraints())
+    }, MediaConstraints().apply {
+      if (restarting) mandatory.add(MediaConstraints.KeyValuePair("IceRestart", "true"))
+    })
   }
 
   fun start(bitrateMbps: Int) {
@@ -461,7 +509,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       onFailure = { message ->
         dispatch {
           if (epoch == generation) {
-            fail(message)
+            fail(message, "permission-revoked")
           }
         }
       }
@@ -497,7 +545,7 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
       }
       "answer" -> {
         val pc = checkNotNull(peer)
-        check(!acceptingAnswer && pc.remoteDescription == null) { "Unexpected second answer" }
+        check(!acceptingAnswer && (pc.remoteDescription == null || restarting) && pc.signalingState() == PeerConnection.SignalingState.HAVE_LOCAL_OFFER) { "Unexpected second answer" }
         val sdp = message.getString("sdp")
         require(sdp.isNotEmpty() && sdp.toByteArray().size <= 60_000) { "Invalid SDP" }
         acceptingAnswer = true
@@ -506,17 +554,18 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
           override fun onSetSuccess() = dispatch {
             if (peer !== pc) return@dispatch
             candidates.forEach { addCandidate(pc, it, epoch) }; candidates.clear()
-            if (mode == "screen") {
-              screen?.start()
-              startPlaybackAudio()
-            } else {
-              clip?.start()
+            if (!mediaStarted) {
+              mediaStarted = true
+              if (mode == "screen") { screen?.start(); startPlaybackAudio() }
+              else clip?.start()
             }
             startStats(pc)
+            connectionReady()
           }
         }, SessionDescription(SessionDescription.Type.ANSWER, sdp))
       }
       "candidate" -> {
+        if (restarting) return
         val pc = checkNotNull(peer)
         val candidate = message.getString("candidate")
         val mid = if (message.isNull("sdpMid")) null else message.getString("sdpMid")
@@ -583,28 +632,37 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
           )
           mode?.let { map["mode"] = it }
           addSession(map)
+          map.putAll(recovery.fields())
           emit(map)
         }
       } }
     }, 1, 1, TimeUnit.SECONDS)
   }
 
+  private fun connectionReady() {
+    val pc = peer ?: return
+    if (pc.signalingState() != PeerConnection.SignalingState.STABLE || !acceptingAnswer || pendingDescription) return
+    if (pc.iceConnectionState() == PeerConnection.IceConnectionState.CONNECTED || pc.iceConnectionState() == PeerConnection.IceConnectionState.COMPLETED) {
+      timeout?.cancel(false); recovery.connected(); status("streaming")
+    }
+  }
+
   private fun observer(epoch: Long) = object : PeerConnection.Observer {
     override fun onIceCandidate(candidate: IceCandidate) = dispatch {
-      if (generation == epoch) runCatching { send(JSONObject().put("type", "candidate").put("candidate", candidate.sdp)
+      if (generation == epoch && !restarting) runCatching { send(JSONObject().put("type", "candidate").put("candidate", candidate.sdp)
         .put("sdpMid", candidate.sdpMid ?: JSONObject.NULL).put("sdpMLineIndex", candidate.sdpMLineIndex)) }.onFailure { fail("Could not send ICE candidate") }
     }
     override fun onIceConnectionChange(next: PeerConnection.IceConnectionState) = dispatch {
       if (generation != epoch) return@dispatch
       when (next) {
-        PeerConnection.IceConnectionState.CONNECTED, PeerConnection.IceConnectionState.COMPLETED -> { timeout?.cancel(false); status("streaming") }
-        PeerConnection.IceConnectionState.FAILED, PeerConnection.IceConnectionState.DISCONNECTED -> fail("Video connection lost. Create a new desktop pairing code.")
+        PeerConnection.IceConnectionState.CONNECTED, PeerConnection.IceConnectionState.COMPLETED -> connectionReady()
+        PeerConnection.IceConnectionState.FAILED, PeerConnection.IceConnectionState.DISCONNECTED -> recovery.interrupt()
         else -> Unit
       }
     }
     override fun onSignalingChange(state: PeerConnection.SignalingState) {}
     override fun onIceConnectionReceivingChange(receiving: Boolean) {}
-    override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {}
+    override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) = dispatch { if (generation == epoch) flushDescription() }
     override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>) {}
     override fun onAddStream(stream: MediaStream) {}
     override fun onRemoveStream(stream: MediaStream) {}
@@ -615,6 +673,11 @@ internal class VideoSender(private val context: Context, private val emit: (Map<
   /** Tears down capture and the peer but keeps the desktop link open. */
   private fun closeVideo() {
     generation++
+    negotiation++
+    recovery.connected()
+    pendingDescription = false
+    restarting = false
+    mediaStarted = false
     timeout?.cancel(false); timeout = null; stats?.cancel(false); stats = null
     // Remote control ends first, before capture or the connection go away.
     heartbeat?.cancel(false); heartbeat = null

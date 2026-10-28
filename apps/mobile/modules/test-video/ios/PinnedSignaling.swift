@@ -54,6 +54,7 @@ final class PinnedSignaling: NSObject, URLSessionDelegate {
   private var session: URLSession?
   private var socket: URLSessionWebSocketTask?
   private var heartbeat: DispatchSourceTimer?
+  private var heartbeatTimeout: DispatchWorkItem?
 
   init(invitation: StreamInvitation, queue: DispatchQueue, onMessage: @escaping (String) -> Void, onFailure: @escaping (String) -> Void) {
     self.invitation = invitation; self.queue = queue; self.onMessage = onMessage; self.onFailure = onFailure
@@ -73,11 +74,19 @@ final class PinnedSignaling: NSObject, URLSessionDelegate {
     timer.schedule(deadline: .now() + 10, repeating: 10)
     timer.setEventHandler { [weak self, weak task] in
       guard let self, let task, self.socket === task else { return }
+      guard self.heartbeatTimeout == nil else { return }
+      let expiry = DispatchWorkItem { [weak self, weak task] in
+        guard let self, let task, self.socket === task else { return }
+        self.onFailure("Receiver unreachable. Check Wi-Fi, then pair again.")
+      }
+      self.heartbeatTimeout = expiry
+      self.queue.asyncAfter(deadline: .now() + 15, execute: expiry)
       task.sendPing { [weak self, weak task] error in
-        guard let self, let task, error != nil else { return }
+        guard let self, let task else { return }
         self.queue.async { [weak self] in
           guard let self, self.socket === task else { return }
-          self.onFailure("Lost the receiver connection. Create a new desktop pairing code.")
+          self.heartbeatTimeout?.cancel(); self.heartbeatTimeout = nil
+          if error != nil { self.onFailure("Lost the receiver connection. Pair again.") }
         }
       }
     }
@@ -115,6 +124,7 @@ final class PinnedSignaling: NSObject, URLSessionDelegate {
 
   func close() {
     heartbeat?.cancel(); heartbeat = nil
+    heartbeatTimeout?.cancel(); heartbeatTimeout = nil
     socket?.cancel(with: .goingAway, reason: nil); socket = nil
     session?.invalidateAndCancel(); session = nil
   }
